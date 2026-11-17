@@ -3,3 +3,8 @@ dist
 .DS_Store
 *.log
 public/__nav.json
+plugins/mobile/android/build/
+plugins/mobile/android/.tauri/
+plugins/mobile/ios/.tauri/
+plugins/mobile/ios/.build/
+plugins/mobile/target/

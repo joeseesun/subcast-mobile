@@ -1,2 +1,0 @@
-ai.qiaomu.subcast.mobileplugin
-xml subcast_file_paths
