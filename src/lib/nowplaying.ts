@@ -45,7 +45,8 @@ export function startNowPlaying() {
     const p = s.player;
     if (!p) return;
     if (action === "play") p.play();
-    else if (action === "pause") { if (s.playing) p.toggle(); }
+    else if (action === "pause") { if (p.pause) p.pause(); else if (s.playing) p.toggle(); }
+    else if (action === "interruption") p.pause?.();
     else if (action === "toggle") p.toggle();
     else if (action === "forward") p.seek(s.time + (s.settings.skipForward ?? 30));
     else if (action === "back") p.seek(Math.max(0, s.time - (s.settings.skipBack ?? 15)));

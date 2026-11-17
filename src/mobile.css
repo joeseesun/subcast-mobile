@@ -217,7 +217,6 @@ button { touch-action: manipulation; }
 
 .m-ep-top .controls > .seek { background-image: linear-gradient(to right, var(--accent) var(--fill), var(--muted) var(--fill), var(--muted) max(var(--fill), var(--buffer)), var(--soft) max(var(--fill), var(--buffer))); }
 
-.video-preroll { position: absolute; inset: 0; margin: auto; width: 56px; height: 56px; display: grid; place-items: center; z-index: 2; border: 0; border-radius: 50%; background: #0009; color: white; }
 
 /* The transport, library and collection lists each have a single primary action. */
 .m-ep-top .controls { grid-template-columns: minmax(66px, auto) 1fr 50px 1fr minmax(58px,auto); grid-template-areas: "elapsed seek seek seek duration" "mode back play forward rate"; }
@@ -415,3 +414,22 @@ button { touch-action: manipulation; }
 }
 .settings-modal .ios-setting-row select { color: var(--muted); }
 .settings-modal label.ios-setting-field > span { font-size: 14px; color: var(--text-2); }
+
+.inline-video-toggle, .inline-fullscreen {
+  position: absolute;
+  border: 0;
+  padding: 0;
+  color: #fff9ee;
+  background: transparent;
+  display: grid;
+  place-items: center;
+}
+.inline-video-toggle { inset: 0; z-index: 1; }
+.inline-video-toggle > span { display: grid; place-items: center; width: 55px; height: 55px; border-radius: 50%; background: #181311ba; }
+.inline-fullscreen { z-index: 3; min-width: 44px; min-height: 44px; top: 5px; right: 5px; }
+.inline-fullscreen svg { box-sizing: content-box; padding: 6px; background: #181311ba; border-radius: 10px; }
+.video:has(.inline-video-toggle) > .subtitle-overlay { z-index: 2; pointer-events: none; }
+.video-dock.floating .inline-fullscreen, .video-dock .video.theater .inline-fullscreen { display: none; }
+.video-dock[data-compact] .inline-fullscreen { display: none; }
+.video-dock[data-compact] .inline-video-toggle > span { width: 34px; height: 34px; }
+.video-dock[data-compact] .inline-video-toggle svg { width: 20px; height: 20px; }

@@ -1,3 +1,4 @@
+import { BrandGlyph } from "./BrandGlyph";
 import { MobileSheet } from "./MobileSheet";
 import { selectionFeedback } from "../lib/feedback";
 import { ask } from "../lib/confirm";
@@ -15,7 +16,7 @@ class PanelBoundary extends Component<{ children: ReactNode }, { error: string |
     ) : this.props.children;
   }
 }
-import { ArrowDownToLine, ChevronLeft, ChevronDown, Play, Trash2, Headphones, Film, MoreHorizontal, Check, Bookmark } from "lucide-react";
+import { ChevronLeft, ChevronDown, Trash2, Check } from "lucide-react";
 import { BookArt, EmptyState } from "./Illustrations";
 import { DeepRead } from "./DeepRead";
 import { SkeletonEpisode } from "./Skeleton";
@@ -236,13 +237,18 @@ function EpisodeActions({ ep, close }: { ep: Episode; close: () => void }) {
   const fav = useLibrary((s) => s.favorites.some((f) => f.id === ep.id));
   const saved = useOffline((s) => s.saved[ep.id]);
   const progress = useOffline((s) => s.active[ep.id]);
+  const [bookmarkMotion, setBookmarkMotion] = useState(0);
   return <MobileSheet title={t("本集操作")} onClose={close}>
-    <button onClick={() => { toggleFavorite(ep, false); selectionFeedback(); }}><Bookmark fill={fav ? "currentColor" : "none"} />{fav ? t("取消收藏") : t("收藏这一集")}{fav && <Check className="row-check" />}</button>
+    <button className="favorite-row" aria-pressed={fav} onClick={() => {
+      toggleFavorite(ep, false);
+      setBookmarkMotion((n) => n + 1);
+      selectionFeedback();
+    }}><span key={bookmarkMotion} className={bookmarkMotion && fav ? "bookmark-placed" : undefined}><BrandGlyph name="saved" /></span>{fav ? t("取消收藏") : t("收藏这一集")}{fav && <Check className="row-check" />}</button>
     {saved ? <>
-      <button onClick={() => { close(); useStore.getState().go({ kind: "downloads" }); }}><ArrowDownToLine />{t("管理离线音频")}<small>{bytes(saved.bytes)}</small></button>
+      <button onClick={() => { close(); useStore.getState().go({ kind: "downloads" }); }}><BrandGlyph name="cache" />{t("管理离线音频")}<small>{bytes(saved.bytes)}</small></button>
       <button className="destructive" onClick={async () => { close(); if (await ask({ title: t("清理这一集的离线音频？"), ok: t("清理"), danger: true })) void removeDownload(ep.id); }}><Trash2 />{saved.cached ? t("清理缓存") : t("删除下载")}</button>
     </> : (ep.audioUrl || ep.videoId) && <button onClick={() => { if (progress !== undefined) cancelDownload(ep.id); else void downloadEpisode(ep); close(); }}>
-      <ArrowDownToLine />{progress !== undefined ? t("取消缓存") : t("缓存音频")}{typeof progress === "number" && <small>{Math.round(progress * 100)}%</small>}
+      <BrandGlyph name="cache" />{progress !== undefined ? t("取消缓存") : t("缓存音频")}{typeof progress === "number" && <small>{Math.round(progress * 100)}%</small>}
     </button>}
   </MobileSheet>;
 }
@@ -307,7 +313,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   tabs.push(["summary", t("导读")], ["chat", t("问答")]);
   if (notes) tabs.push(["notes", t("简介")]);
   const modeButton = both && <button className="media-mode" aria-label={t("切换播放方式")} aria-haspopup="dialog" onClick={() => setSheet("media")}>
-    {audioMode ? <Headphones size={18} /> : <Film size={18} />}<span>{audioMode ? t("音频") : t("视频")}</span><ChevronDown size={12} />
+    {audioMode ? <BrandGlyph name="sound" size={21} /> : <BrandGlyph name="film" size={21} />}<span>{audioMode ? t("音频") : t("视频")}</span><ChevronDown size={12} />
   </button>;
   // Phone layout: the player stays on top (title, picture or cover, controls); the tabs fill the rest.
   return (
@@ -315,13 +321,13 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
       <header className="m-episode-nav">
         <button className="m-back" onClick={() => useStore.getState().back()} aria-label={t("返回")}><ChevronLeft size={24} /></button>
         <span className="clamp1">{ep.showTitle && ep.showId !== "single" ? showName(ep.showTitle) : "SubCast"}</span>
-        <button className="m-back" aria-label={t("本集操作")} aria-haspopup="dialog" onClick={() => setSheet("actions")}><MoreHorizontal size={24} /></button>
+        <button className="m-back" aria-label={t("本集操作")} aria-haspopup="dialog" onClick={() => setSheet("actions")}><BrandGlyph name="more" /></button>
       </header>
       {sheet === "actions" && <EpisodeActions ep={ep} close={() => setSheet(null)} />}
       {sheet === "media" && <MobileSheet title={t("播放方式")} onClose={() => setSheet(null)}>
         {[false, true].map((audio) => <button key={String(audio)} aria-pressed={audio === audioMode} onClick={() => {
           setSheet(null); if (audio !== audioMode) { selectionFeedback(); switchTo(audio); }
-        }}>{audio ? <Headphones /> : <Film />}{audio ? t("仅音频") : t("视频")}{audio === audioMode && <Check className="row-check" />}</button>)}
+        }}>{audio ? <BrandGlyph name="sound" /> : <BrandGlyph name="film" />}{audio ? t("仅音频") : t("视频")}{audio === audioMode && <Check className="row-check" />}</button>)}
       </MobileSheet>}
       <section className={`m-ep-top ${compact ? "reader-player" : ""} ${showVideo ? "with-video" : ""}`}>
         <div className={`ep-title-block ${showVideo ? "" : "audio-heading"}`}>
@@ -335,13 +341,13 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
         {showVideo ? (
           isCurrent ? <VideoSlot ep={ep} overlay={videoOverlay} onUnplayable={both ? onUnplayable : undefined} /> :
           <button className="video-slot video-preview" onClick={startPlayback} aria-label={t("播放这一集")}>
-            <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" /><Play fill="currentColor" />
+            <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" /><BrandGlyph name="play" size={28} />
           </button>
         ) : (
           <div className="audio-sub mobile-caption"><AudioSubtitles ep={ep} /></div>
         )}
         {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton} /></div> : (
-          <div className="m-start-row">{modeButton}<button className="btn primary m-play" onClick={startPlayback}><Play size={18} /> {t("播放这一集")}</button></div>
+          <div className="m-start-row">{modeButton}<button className="btn primary m-play" onClick={startPlayback}><BrandGlyph name="play" size={22} /> {t("播放这一集")}</button></div>
         )}
         {reading && isCurrent && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
       </section>

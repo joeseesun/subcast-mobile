@@ -28,6 +28,7 @@ class MobilePlugin: Plugin {
   private var artworkURL: String?
   private var artwork: MPMediaItemArtwork?
   private var commandsReady = false
+  private var interruptions: [NSObjectProtocol] = []
 
   override func load(webview: WKWebView) {
     // .playback keeps the web view's <audio> going with the screen locked or the app in the background
@@ -36,6 +37,23 @@ class MobilePlugin: Plugin {
     try? session.setCategory(.playback, mode: .spokenAudio, options: [])
     try? session.setActive(true)
     webview.configuration.allowsInlineMediaPlayback = true
+    if interruptions.isEmpty {
+      let center = NotificationCenter.default
+      interruptions.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+        if (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue {
+          self?.trigger("remote", data: ["action": "interruption"])
+        }
+      })
+      interruptions.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+        if (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
+          self?.trigger("remote", data: ["action": "interruption"])
+        }
+      })
+    }
+  }
+
+  deinit {
+    interruptions.forEach { NotificationCenter.default.removeObserver($0) }
   }
 
   private let podcast = PodcastAudio()

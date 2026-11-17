@@ -1,6 +1,6 @@
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Link2, Loader2, Pause, Play, Plus, Search, X, Import } from "lucide-react";
+import { ChevronLeft, ChevronRight, Link2, Loader2, Plus, Search, X, Import } from "lucide-react";
 import { api, errorText, type SearchResult } from "../lib/api";
 import { ImportPanel } from "./ImportPanel";
 import { useStore } from "../store";
@@ -10,7 +10,10 @@ import { useShowName } from "../lib/zh";
 import { useJobs } from "../lib/jobs";
 import { BiTitle, ZhText } from "./Bi";
 import { showIcon } from "./Lists";
-import { SearchArt } from "./Illustrations";
+import { EmptyState, SearchArt } from "./Illustrations";
+import { BrandGlyph } from "./BrandGlyph";
+import { PageHeading } from "./PageHeading";
+import listeningShell from "../assets/editorial/listening-shell.webp";
 
 export function LibraryShows() {
   const { shows, go } = useStore(useShallow((s) => ({ shows: s.shows, go: s.go })));
@@ -26,8 +29,11 @@ export function LibraryShows() {
             <ChevronRight size={18} aria-hidden />
           </button>
         ))}
-        {!shows.length && <p className="muted side-empty">{t("还没有订阅")}</p>}
+
       </div>
+      {!shows.length && <EmptyState art={<img className="listening-shell" src={listeningShell} alt="" />} title={t("还没有订阅")}>
+        <button className="btn primary" onClick={() => go({ kind: "discover" })}>{t("去发现节目")}</button>
+      </EmptyState>}
       {curated.length > 0 && <>
         <h2 className="module-title">{t("乔木精读")}</h2>
         <div className="library-group">{curated.map((p) => (
@@ -74,11 +80,13 @@ export function TopBar() {
   };
   const submit = () => { if (link) void subscribe(q.trim()); else setOpen(true); };
   return (
-    <div className="topbar" data-tauri-drag-region>
-      <button className="round-btn" onClick={back} disabled={!history.length} aria-label={t("返回")}><ChevronLeft size={18} /></button>
+    <div className="discover-top">
+      <PageHeading title={t("发现")} />
+      <div className="topbar">
+      {history.length > 0 && <button className="heading-tool" onClick={back} aria-label={t("返回")}><ChevronLeft size={22} /></button>}
       <div className="search-wrap">
         <div className={`top-search ${open ? "focus" : ""}`}>
-          {link ? <Link2 size={16} /> : <Search size={16} />}
+          {link ? <Link2 size={20} /> : <BrandGlyph name="search" size={21} />}
           <input value={q} type="search" enterKeyHint={link ? "go" : "search"} placeholder={t("搜节目或粘贴链接")} spellCheck={false} autoCapitalize="off" autoCorrect="off"
             onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)}
             onChange={(e) => setQ(e.target.value)}
@@ -100,7 +108,7 @@ export function TopBar() {
           </div>
         )}
       </div>
-      <div className="spacer" data-tauri-drag-region />
+      </div>
     </div>
   );
 }
@@ -135,7 +143,7 @@ export function MiniPlayer() {
   if (!current || current.videoId || (view.kind === "episode" && view.id === current.id)) return null;
   return (
     <div className="mini">
-      <button className="play-btn sm" aria-label={playing ? t("暂停") : t("播放")} onClick={() => player?.toggle()} disabled={!player} aria-busy={!!loading}>{loading ? <Loader2 size={16} className="spin" /> : playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}</button>
+      <button className="play-btn sm" aria-label={playing ? t("暂停") : t("播放")} onClick={() => player?.toggle()} disabled={!player} aria-busy={!!loading}>{loading ? <Loader2 size={16} className="spin" /> : playing ? <BrandGlyph name="pause" size={19} /> : <BrandGlyph name="play" size={19} />}</button>
       <button className="mini-open" onClick={() => openEpisode(current)}>
         {current.cover && <img className="mini-cover" src={current.cover} alt="" />}
         <span className="mini-meta">
@@ -235,6 +243,12 @@ export function AddDialog() {
 }
 
 export function Toast() {
-  const toast = useStore((s) => s.toast);
-  return toast ? <div className="toast" role="status">{toast}</div> : null;
+  const { toast, kind } = useStore(useShallow((s) => ({ toast: s.toast, kind: s.toastKind })));
+  return toast ? <div className="toast" data-kind={kind} role="status">
+    {kind === "cache" && <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.6" aria-hidden="true">
+      <path d="M3 14.6v4.6A1.8 1.8 0 0 0 4.8 21h14.4a1.8 1.8 0 0 0 1.8-1.8v-4.6M3 15h4.7l2.1 2.3h4.4l2.1-2.3H21"/>
+      <path className="cache-arrival" d="m8.8 10 2.3 2.4 4.4-5.5"/>
+    </svg>}
+    {toast}
+  </div> : null;
 }

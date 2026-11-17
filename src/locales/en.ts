@@ -1101,6 +1101,9 @@ const dict: Record<string, string> = {
   "推荐「词元之外」": "Recommend Next Token",
   "连接证书无法验证": "The connection certificate could not be verified",
   "可选模型": "Available models",
+  "声渡": "SubCast",
+  "已为你添加 {n} 档节目": "We added {n} shows to get you started.",
+  "全屏播放": "Play Full Screen",
 };
 
 export default dict;

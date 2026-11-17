@@ -29,6 +29,11 @@ final class SettingsIndex: UITableViewController {
     title = state.title
     navigationItem.largeTitleDisplayMode = .always
     navigationItem.rightBarButtonItem = UIBarButtonItem(title: state.done, style: .done, target: self, action: #selector(close))
+    tableView.backgroundColor = UIColor { trait in
+      trait.userInterfaceStyle == .dark
+        ? UIColor(red: 0.10, green: 0.08, blue: 0.07, alpha: 1)
+        : UIColor(red: 0.98, green: 0.96, blue: 0.93, alpha: 1)
+    }
     tableView.register(UITableViewCell.self, forCellReuseIdentifier: "Setting")
     tableView.estimatedRowHeight = 52
     tableView.rowHeight = UITableView.automaticDimension
@@ -54,6 +59,11 @@ final class SettingsIndex: UITableViewController {
     content.image = UIImage(systemName: row.symbol)
     content.imageProperties.tintColor = view.tintColor
     cell.contentConfiguration = content
+    cell.backgroundColor = UIColor { trait in
+      trait.userInterfaceStyle == .dark
+        ? UIColor(red: 0.14, green: 0.11, blue: 0.09, alpha: 1)
+        : UIColor(red: 1, green: 0.99, blue: 0.97, alpha: 1)
+    }
     cell.accessoryType = .disclosureIndicator
     cell.accessibilityIdentifier = "settings-\(row.id)"
     return cell

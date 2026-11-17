@@ -4,9 +4,10 @@ import { selectionFeedback } from "../lib/feedback";
 import { playSoon } from "./Players";
 import { ask } from "../lib/confirm";
 import { create } from "zustand";
+import { flushSync } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDownToLine, BookOpen, Check, ChevronDown, ChevronRight, ListFilter, Loader2, MoreHorizontal, Play, Plus, RefreshCw, Search, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, BookOpen, Check, ChevronDown, ChevronRight, Loader2, Play, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { bytes, clearDownloads, useOffline } from "../lib/offline";
 import { api, errorText, type Episode, type Show, type ShowHit } from "../lib/api";
 import { date, duration, monthLabel } from "../lib/format";
@@ -17,10 +18,14 @@ import { AlsoOn, HomeShowBanner, YtButton } from "./YtPromo";
 import { useShowName, useZh } from "../lib/zh";
 import { useStore } from "../store";
 import { SkeletonFeed } from "./Skeleton";
-import { BookmarkArt, EmptyState, FlatLineArt, HeadphonesArt, TrayArt } from "./Illustrations";
+import { BookmarkArt, EmptyState, QuietArt, SearchArt, TrayArt } from "./Illustrations";
 import { MonthFilter, useMonthFilter } from "./MonthFilter";
 import { clearQueue, playAll, useLibrary } from "../lib/library";
 import { recommend, type Recommendation } from "../lib/recommend";
+import { BrandGlyph } from "./BrandGlyph";
+import { PageHeading } from "./PageHeading";
+import grooves from "../assets/editorial/continue-grooves.webp";
+import listeningShell from "../assets/editorial/listening-shell.webp";
 
 // ---- episode rows -------------------------------------------------------------------------------
 
@@ -116,7 +121,7 @@ const clockShort = (s: number) => { const h = Math.floor(s / 3600), m = Math.flo
 
 function EpisodeList({ episodes, showShow, grouped = true }: { episodes: Episode[] | null; showShow: boolean; grouped?: boolean }) {
   if (episodes == null) return <SkeletonFeed />;
-  if (!episodes.length) return <EmptyState art={<FlatLineArt />} title={t("暂无单集")} />;
+  if (!episodes.length) return <EmptyState art={<QuietArt />} title={t("暂无单集")} />;
   if (!grouped) return <div className="ep-feed">{episodes.map((e) => <EpisodeRow key={e.id} ep={e} showShow={showShow} />)}</div>;
   const groups: { label: string; items: Episode[] }[] = [];
   for (const e of episodes) {
@@ -138,42 +143,32 @@ function EpisodeList({ episodes, showShow, grouped = true }: { episodes: Episode
 
 // ---- home ---------------------------------------------------------------------------------------
 
-function ContinueHero({ ep }: { ep: Episode }) {
+function ContinueHero({ ep, continuing }: { ep: Episode; continuing: boolean }) {
   const openEpisode = useStore((s) => s.openEpisode);
+  const recentTime = useStore((s) => s.current?.id === ep.id ? Math.floor(s.time / 5) * 5 : null);
   const zh = useZh(ep.title);
-  const pct = ep.duration ? Math.min(100, (ep.progress / ep.duration) * 100) : 0;
-  const left = ep.duration ? Math.max(1, Math.round((ep.duration - ep.progress) / 60)) : 0;
-  // The whole card resumes: open the episode and start playing where it stopped.
-  const resume = () => { openEpisode(ep); playSoon(ep.id); };
-  return (
-    <div className="hero" role="button" tabIndex={0} title={t("继续播放")} onClick={resume} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), resume())}>
-      <div className={`hero-cover ${ep.videoId ? "wide" : ""}`}>
-        {ep.cover ? <img src={ep.cover} alt="" /> : <div className="cover-fallback" />}
-        {pct > 0 && <span className="hero-bar" aria-hidden><span style={{ width: `${pct}%` }} /></span>}
-      </div>
-      <div className="hero-meta">
-        <p className="meta-line">{t("继续收听")}{ep.showTitle && ep.showId !== "single" ? <> · <ShowName title={ep.showTitle} /></> : null}</p>
-        <p className="hero-title">{zh ?? ep.title}</p>
-        {zh && zh !== ep.title && <p className="orig-line clamp1">{ep.title}</p>}
-        <div className="hero-foot">
-          <span className="btn primary hero-play" aria-hidden><Play size={15} fill="currentColor" /> {t("继续播放")}</span>
-          {left > 0 && <span className="hero-left">{t("还剩 {left} 分钟", { left })}</span>}
-        </div>
+  const time = recentTime ?? ep.progress;
+  const progress = ep.duration ? Math.max(0, Math.min(1, time / ep.duration)) : null;
+  const left = continuing && ep.duration ? Math.max(1, Math.ceil((ep.duration - time) / 60)) : null;
+  const action = continuing ? t("继续播放") : t("播放这一集");
+  const label = continuing ? t("继续收听") : t("最新单集");
+  return <section className="resume-card" aria-label={label} style={{ "--record-art": `url("${grooves}")` } as React.CSSProperties}>
+    <div className="resume-kicker"><BrandGlyph name="sound" size={17} />{label}</div>
+    <button className="resume-detail" onClick={() => openEpisode(ep)}>
+      <span className="resume-meta">
+        {ep.showId !== "single" && <ShowName title={ep.showTitle} />}
+        <span className="resume-title">{zh ?? ep.title}</span>
+      </span>
+      {ep.cover && <img className="resume-cover" src={ep.cover} alt="" />}
+    </button>
+    <div className="resume-action">
+      <button className="resume-play" aria-label={action} onClick={() => { openEpisode(ep); playSoon(ep.id); }}><BrandGlyph name="play" size={25} /></button>
+      <div className="resume-play-meta">
+        {continuing && progress != null && <div className="resume-progress" aria-hidden><span style={{ width: `${progress * 100}%` }} /></div>}
+        <span>{left ? t("还剩 {left} 分钟", { left }) : action}</span>
       </div>
     </div>
-  );
-}
-
-function ShowTile({ show }: { show: Show }) {
-  const go = useStore((s) => s.go);
-  const { zh, orig } = useShowName(show.title);
-  return (
-    <div className="show-tile" role="button" tabIndex={0} onClick={() => go({ kind: "show", id: show.id })} onKeyDown={(e) => e.key === "Enter" && go({ kind: "show", id: show.id })}>
-      <div className="tile-cover">{show.cover ? <img src={show.cover} alt="" loading="lazy" /> : <div className="cover-fallback">{orig.slice(0, 1)}</div>}</div>
-      <p className="tile-name clamp1">{zh ?? orig}</p>
-      {zh && <p className="tile-sub clamp1">{orig}</p>}
-    </div>
-  );
+  </section>;
 }
 
 /** A compact episode card for the home rows: picture, show and date, title, and a play button on hover. */
@@ -200,7 +195,7 @@ function EpisodeCard({ ep, wide }: { ep: Episode; wide?: boolean }) {
   const shared = useSharedHits((s) => !!s.ids[ep.id]);
   const left = ep.duration && pct > 0 ? Math.max(1, Math.round((ep.duration - ep.progress) / 60)) : 0;
   const play = (e: React.MouseEvent) => { e.stopPropagation(); playAll([ep]); };
-  const playButton = <button type="button" className="card-play" title={t("播放")} aria-label={t("播放")} onClick={play}><Play size={16} fill="currentColor" /></button>;
+  const playButton = <button type="button" className="card-play" title={t("播放")} aria-label={t("播放")} onClick={play}><BrandGlyph name="play" size={20} /></button>;
   return (
     <div className={`ep-card ${wide ? "wide" : ""}`} role="button" tabIndex={0} onClick={() => openEpisode(ep)} onKeyDown={(e) => e.key === "Enter" && openEpisode(ep)}>
       <div className={`ep-thumb ${ep.videoId ? "video" : "square"}`}>
@@ -234,7 +229,7 @@ function RecRow({ r, onAdd, adding, done }: { r: Recommendation; onAdd: () => vo
 }
 
 export function LatestView() {
-  const { shows, set, go, reloadShows, notify } = useStore(useShallow((s) => ({ shows: s.shows, set: s.set, go: s.go, reloadShows: s.reloadShows, notify: s.notify })));
+  const { shows, go, reloadShows, notify } = useStore(useShallow((s) => ({ shows: s.shows, go: s.go, reloadShows: s.reloadShows, notify: s.notify })));
   const favorites = useLibrary((s) => s.favorites);
   const savedIds = useOffline((s) => Object.keys(s.saved).join());
   const [eps, setEps] = useState<Episode[] | null>(null);
@@ -260,6 +255,9 @@ export function LatestView() {
   const shared = useSharedHits((s) => s.ids);
   useEffect(() => { checkShared(unheard.slice(0, 18)); }, [eps]);
   const fresh = [...unheard.slice(0, 18).filter((e) => hasSubs(e, shared)), ...unheard.slice(0, 18).filter((e) => !hasSubs(e, shared)), ...unheard.slice(18)];
+  const featured = hero ?? fresh[0] ?? null;
+  const queued = upNext.slice(0, 2);
+  const latest = fresh.filter((episode) => episode.id !== featured?.id && !queued.some(({ id }) => episode.id === id));
   const recs = useMemo(() => recommend({ shows, recent, favorites: favEps, downloads: dlEps }, 6), [shows, recent, favEps, dlEps]);
   const subscribe = async (input: string, name: string) => {
     setAdding(input);
@@ -270,31 +268,36 @@ export function LatestView() {
   const settingUp = useStore((s) => s.settingUp);
   return (
     <div className="page home">
-      <h1 className="page-title">{t("首页")}</h1>
+      <PageHeading wordmark>
+        <button className="heading-tool" onClick={() => {
+          flushSync(() => useStore.setState({ view: { kind: "discover" }, history: [] }));
+          document.querySelector<HTMLInputElement>(".top-search input")?.focus();
+        }} aria-label={t("搜索节目")}><BrandGlyph name="search" /></button>
+      </PageHeading>
       {welcome && <WelcomeCard />}
-      {hero && <ContinueHero ep={hero} />}
-      {(upNext.length > 0 || hero || favorites.length > 0) && (
+      {featured && <ContinueHero ep={featured} continuing={!!hero} />}
+      {upNext.length > 0 && (
         <section>
           <div className="module-head">
             <h2 className="module-title">{t("接下来听")}</h2>
-            <button className="link-btn" onClick={() => go({ kind: "recent" })}>{favorites.length ? t("全部 · 收藏 {n}", { n: favorites.length }) : t("全部")} <ChevronRight size={13} /></button>
+            <button className="link-btn" onClick={() => go({ kind: "recent" })}>{t("全部")} <ChevronRight size={13} /></button>
           </div>
-          {upNext.length > 0 && <div className="card-strip">{upNext.map((e) => <EpisodeCard key={e.id} ep={e} />)}</div>}
+          <div className="card-grid compact-queue">{queued.map((e) => <EpisodeCard key={e.id} ep={e} wide />)}</div>
         </section>
       )}
       <div className="home-grid">
         <section className="home-main">
-          <div className="module-head">
+          {(latest.length > 0 || all || eps == null) && <div className="module-head">
             <h2 className="module-title">{t("最新单集")}</h2>
-            {fresh.length > 9 && <button className="link-btn" onClick={() => setAll(!all)}>{all ? t("收起") : t("查看全部")}</button>}
-          </div>
-          {!shows.length && settingUp ? <SkeletonFeed /> : !shows.length ? <EmptyState art={<HeadphonesArt />} title={t("还没有订阅节目")}><button className="btn primary" onClick={() => go({ kind: "discover" })}>{t("去发现节目")}</button></EmptyState>
+            {(all || latest.length > 9) && <button className="link-btn" onClick={() => setAll(!all)}>{all ? t("收起") : t("查看全部")}</button>}
+          </div>}
+          {!shows.length && settingUp ? <SkeletonFeed /> : !shows.length ? <EmptyState art={<img className="listening-shell" src={listeningShell} alt="" />} title={t("还没有订阅节目")}><button className="btn primary" onClick={() => go({ kind: "discover" })}>{t("去发现节目")}</button></EmptyState>
             : eps == null ? <SkeletonFeed />
             : all ? <>
                 <EpisodeList episodes={eps.slice(0, limit)} showShow />
                 {eps.length > limit && <div className="center"><button className="btn" onClick={() => setLimit(limit + 40)}>{t("加载更多")}</button></div>}
               </>
-            : <div className="card-grid">{fresh.slice(0, 9).map((e) => <EpisodeCard key={e.id} ep={e} wide />)}</div>}
+            : <div className="card-grid">{latest.slice(0, 9).map((e) => <EpisodeCard key={e.id} ep={e} wide />)}</div>}
         </section>
         <aside className="home-side">
           {recs.length > 0 && (
@@ -306,13 +309,6 @@ export function LatestView() {
               <div className="rec-list">{recs.map((r) => <RecRow key={r.pick.id} r={r} adding={adding === r.pick.input} done={isSubscribed(r.pick, shows)} onAdd={() => void subscribe(r.pick.input, pickName(r.pick))} />)}</div>
             </section>
           )}
-          <section>
-            <div className="module-head">
-              <h2 className="module-title">{t("订阅节目")}</h2>
-              <button className="link-btn" onClick={() => set({ addOpen: true, addTab: "search" })}><Plus size={13} /> {t("添加")}</button>
-            </div>
-            <div className="show-grid">{shows.slice(0, 16).map((s) => <ShowTile key={s.id} show={s} />)}</div>
-          </section>
         </aside>
       </div>
     </div>
@@ -320,7 +316,6 @@ export function LatestView() {
 }
 
 export function RecentView({ savedFirst = false }: { savedFirst?: boolean }) {
-  const [tab, setTab] = useState<"recent" | "saved">(() => (savedFirst || (useLibrary.getState().favorites.length && !useStore.getState().current) ? "saved" : "recent"));
   const favorites = useLibrary((s) => s.favorites);
   const queued = useLibrary((s) => s.queue.length);
   const [eps, setEps] = useState<Episode[] | null>(null);
@@ -334,22 +329,19 @@ export function RecentView({ savedFirst = false }: { savedFirst?: boolean }) {
   // "Play all" skips what's already finished.
   const playable = (saved ?? []).filter((e) => !e.duration || e.progress < e.duration * 0.97);
   return (
-    <div className="page">
-      <div className="page-head">
-        <h1 className="page-title">{t("接下来听")}</h1>
-        <div className="seg-control" role="tablist">
-          <button role="tab" aria-selected={tab === "recent"} className={tab === "recent" ? "on" : ""} onClick={() => setTab("recent")}>{t("最近播放")}</button>
-          <button role="tab" aria-selected={tab === "saved"} className={tab === "saved" ? "on" : ""} onClick={() => setTab("saved")}>{t("收藏")}{favorites.length ? ` ${favorites.length}` : ""}</button>
-        </div>
-        <span className="spacer" />
-        {tab === "saved" && playable.length > 0 && (
-          <button className="btn primary sm" onClick={() => playAll(playable)}><Play size={13} fill="currentColor" /> {t("全部播放（{n} 集）", { n: playable.length })}</button>
-        )}
-        {tab === "saved" && queued > 0 && <button className="btn ghost sm" onClick={clearQueue}>{t("清空待播（{n}）", { n: queued })}</button>}
-      </div>
-      {tab === "recent"
-        ? <EpisodeList episodes={eps} showShow grouped={false} />
-        : saved && !saved.length
+    <div className="page collection-page">
+      <PageHeading title={savedFirst ? t("收藏") : t("最近播放")} />
+      {savedFirst && (playable.length > 0 || queued > 0) && <div className="collection-actions">
+        {playable.length > 0 && <button className="btn primary" onClick={() => playAll(playable)}>
+          <BrandGlyph name="play" size={20} />{t("全部播放（{n} 集）", { n: playable.length })}
+        </button>}
+        {queued > 0 && <button className="link-btn" onClick={clearQueue}>{t("清空待播（{n}）", { n: queued })}</button>}
+      </div>}
+      {!savedFirst
+        ? eps?.length === 0
+          ? <EmptyState art={<QuietArt />} title={t("还没有收听记录")} />
+          : <EpisodeList episodes={eps} showShow grouped={false} />
+        : saved?.length === 0
           ? <EmptyState art={<BookmarkArt />} title={t("还没有收藏")} note={t("在单集的「更多」里收藏。")} />
           : <EpisodeList episodes={saved} showShow grouped={false} />}
     </div>
@@ -373,14 +365,11 @@ export function DownloadsView() {
     await clearDownloads();
   };
   return (
-    <div className="page">
-      <div className="page-head">
-        <h1 className="page-title">{t("离线音频")}</h1>
-        <div className="row-actions">
-          {n > 0 && <button className="btn ghost sm" onClick={clear}><Trash2 size={13} /> {t("全部删除")}</button>}
-        </div>
-      </div>
-      <p className="muted page-sub">{n ? t("{n} 集 · 占用 {size} · 没有网络也能听", { n, size: bytes(total) }) : t("缓存音频后即可离线收听")}</p>
+    <div className="page collection-page">
+      <PageHeading title={t("离线音频")}>
+        {n > 0 && <button className="link-btn" onClick={clear}>{t("全部删除")}</button>}
+      </PageHeading>
+      {n > 0 && <p className="muted page-sub">{t("{n} 集 · 占用 {size} · 没有网络也能听", { n, size: bytes(total) })}</p>}
       {ids.length > 0 && <p className="muted small">{t("新缓存连续 30 天未使用，会在下次启动时清理")}</p>}
       {!ids.length ? <EmptyState art={<TrayArt />} title={t("还没有离线音频")} note={t("单集「更多」里可以缓存音频")} /> : <EpisodeList episodes={eps} showShow grouped={false} />}
     </div>
@@ -442,7 +431,7 @@ export function ShowView({ id }: { id: string }) {
   const links = showLinks(show.feedUrl);
   const activeFilter = filter !== "all" || !!month;
   return (<>
-    <MobileBack trailing={<button onClick={() => setMenu(true)} aria-haspopup="dialog" aria-label={t("更多")}><MoreHorizontal /></button>} />
+    <MobileBack trailing={<button onClick={() => setMenu(true)} aria-haspopup="dialog" aria-label={t("更多")}><BrandGlyph name="more" /></button>} />
     <div className="page show-page">
       <div className="show-head">
         {show.cover ? <img src={show.cover} alt="" /> : <div className="cover-fallback" />}
@@ -472,8 +461,8 @@ export function ShowView({ id }: { id: string }) {
         {!query && playable.length > 0 && <button className="queue-play" onClick={() => playAll(playable)}><Play size={16} fill="currentColor" />{t("播放全部")}</button>}
         <button className="icon-btn" aria-label={t("搜索本节目")} aria-expanded={searchOpen} onClick={() => {
           if (searchOpen) { setQuery(""); setSearchOpen(false); } else { setSearchOpen(true); requestAnimationFrame(() => searchBox.current?.focus()); }
-        }}><Search /></button>
-        {!query && <button className={`icon-btn ${activeFilter ? "filter-active" : ""}`} aria-label={t("筛选单集")} aria-haspopup="dialog" onClick={() => setFilterOpen(true)}><ListFilter /></button>}
+        }}><BrandGlyph name="search" /></button>
+        {!query && <button className={`icon-btn ${activeFilter ? "filter-active" : ""}`} aria-label={t("筛选单集")} aria-haspopup="dialog" onClick={() => setFilterOpen(true)}><BrandGlyph name="filter" /></button>}
       </div>
       {searchOpen && <div className="show-query"><input type="search" ref={searchBox} autoFocus enterKeyHint="search" value={query} placeholder={t("搜索本节目的单集、简介和字幕")} onChange={(e) => setQuery(e.target.value)} /></div>}
       {activeFilter && !query && <button className="filter-summary" onClick={() => { setFilter("all"); setMonth(null); }}>{[filter === "unplayed" ? t("未听") : filter === "subs" ? t("有字幕") : "", month].filter(Boolean).join(" · ")}<X size={16} /></button>}
@@ -487,7 +476,7 @@ export function ShowView({ id }: { id: string }) {
             <p className="muted small search-count">{t("找到 {n} 集", { n: hits.length })}{hits.some((h) => h.field === "transcript") ? ` · ${t("点字幕匹配会从那一句开始播放")}` : ""}</p>
             <div className="ep-feed">{hits.map((h) => <EpisodeRow key={h.episode.id} ep={h.episode} showShow={false} hit={h} query={query.trim()} />)}</div>
           </>
-        ) : <EmptyState art={<FlatLineArt />} title={t("没有找到「{q}」", { q: query.trim() })} />
+        ) : <EmptyState art={<SearchArt />} title={t("没有找到「{q}」", { q: query.trim() })} />
       ) : (
         <>
           <EpisodeList episodes={shown} showShow={false} />
@@ -510,7 +499,7 @@ function PickCard({ p, onOpen, action }: { p: Pick; onOpen: () => void; action: 
 function TopicChips({ topics, setTopics }: { topics: Topic[]; setTopics: (t: Topic[]) => void }) {
   const [open, setOpen] = useState(false);
   return <><button className="topic-filter" onClick={() => setOpen(true)} aria-haspopup="dialog">
-    <ListFilter size={20} />{topics.length ? topics.map((x) => t(x)).join(" · ") : t("全部话题")}<ChevronDown size={16} />
+    <BrandGlyph name="filter" size={20} />{topics.length ? topics.map((x) => t(x)).join(" · ") : t("全部话题")}<ChevronDown size={16} />
   </button>{open && <MobileSheet title={t("筛选话题")} doneLabel={t("完成")} onClose={() => setOpen(false)}>
     <button aria-pressed={!topics.length} onClick={() => setTopics([])}>{t("全部")}{!topics.length && <Check className="row-check" />}</button>
     {TOPICS.map((x) => <button key={x} aria-pressed={topics.includes(x)} onClick={() => {
@@ -544,7 +533,7 @@ function WelcomeCard() {
     <div className="welcome-card">
       <div className="welcome-text">
         <p className="welcome-title">{t("欢迎使用 SubCast")}</p>
-        <p className="muted small">{settingUp ? t("正在为你准备几档精选节目…") : t("已经为你订阅了 {n} 档精选节目，点任意一集就有双语字幕。", { n: shows.length })}{" "}{t("想听自己的？")}</p>
+        <p className="muted small">{settingUp ? t("正在准备") : t("已为你添加 {n} 档节目", { n: shows.length })}</p>
       </div>
       <div className="row-actions">
         <button className="btn sm primary" onClick={() => set({ addOpen: true, addTab: "import" })}><Plus size={18} /> {t("导入订阅")}</button>
@@ -576,8 +565,6 @@ export function DiscoverView() {
     : <button className="tile-add" title={t("订阅")} onClick={(e) => { e.stopPropagation(); void add(input, title); }} disabled={adding != null}>{adding === input ? <Loader2 size={16} className="spin" /> : <Plus size={18} />}</button>;
   return (
     <div className="page discover-page">
-      <h1 className="page-title">{t("发现")}</h1>
-
       {showBanner && home && !topics.length && <HomeShowBanner onHide={() => { void useStore.getState().saveSettings({ homeBannerHidden: true }); notify(t("好的，不再显示。可以在设置 › 通用里重新打开")); }} subscribed={subscribed(home)} busy={adding === home.input} onSubscribe={() => void add(home.input, pickName(home))} onOpen={() => go({ kind: "channel", input: home.input })} />}
       <TopicChips topics={topics} setTopics={setTopics} />
       <div className="discover-list">
@@ -641,7 +628,7 @@ export function ChannelView({ input }: { input: string }) {
         </div>
       </div>
       {error ? <div className="channel-unavailable" role="status">
-        <EmptyState art={<FlatLineArt />} title={t("暂时无法加载单集")}
+        <EmptyState art={<QuietArt />} title={t("暂时无法加载单集")}
           note={error === "trust" ? t("连接证书无法验证，可检查代理设置") : t("请稍后重试")} />
         <div className="row-actions">
           <button className="btn" onClick={() => setAttempt((n) => n + 1)}><RefreshCw size={16} />{t("重试")}</button>

@@ -18,6 +18,7 @@ export interface PlayerHandle {
   seek(seconds: number): void;
   toggle(): void;
   play(): void;
+  pause?(): void;
   setRate(rate: number): void;
   /** Mutes or unmutes; returns whether it is muted now. */
   toggleMute?(): boolean;
@@ -53,6 +54,7 @@ interface State {
   /** Which tab the add dialog opens on. */
   addTab?: "search" | "link" | "import";
   toast: string | null;
+  toastKind?: "cache";
   settingsOpen: boolean;
   settingsSection?: "model" | "asr" | "reading" | "tts" | "shortcuts" | "general" | "storage" | "about";
   addOpen: boolean;
@@ -64,7 +66,7 @@ interface State {
   openEpisode(ep: Episode): void;
   /** Loads an episode into the player without navigating. */
   load(ep: Episode): void;
-  notify(text: string): void;
+  notify(text: string, kind?: "cache"): void;
   openSettings(section?: "model" | "asr" | "tts" | "general" | "storage" | "about"): void;
   /** Checks every subscription for new episodes; tells the user when there are some. */
   checkUpdates(): Promise<void>;
@@ -143,8 +145,8 @@ export const useStore = create<State>((set, get) => ({
       playWhenReady: requested ? ep.id : null, loadingSince: requested ? s.loadingSince : null,
     });
   },
-  notify(text) {
-    set({ toast: text });
+  notify(text, kind) {
+    set({ toast: text, toastKind: kind });
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => set({ toast: null }), 4200);
   },

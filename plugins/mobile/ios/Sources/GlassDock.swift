@@ -80,7 +80,7 @@ private struct Dock: View {
   let action: (String, String) -> Void
 
   private var accent: Color {
-    colorScheme == .dark ? Color(red: 1, green: 0.57, blue: 0.39) : Color(red: 0.73, green: 0.20, blue: 0.02)
+    colorScheme == .dark ? Color(red: 1, green: 0.67, blue: 0.54) : Color(red: 0.65, green: 0.21, blue: 0.13)
   }
 
   var body: some View {
@@ -103,8 +103,10 @@ private struct Dock: View {
           action("tab", tab.id)
         } label: {
           VStack(spacing: 2) {
-            Image(systemName: symbol(tab.id, selected: current))
-              .font(.system(size: 19, weight: .medium))
+            Image(navAsset(tab.id))
+              .renderingMode(.template)
+              .resizable()
+              .frame(width: 22, height: 22)
               .accessibilityHidden(true)
             Text(tab.title)
               .font(.caption2.weight(current ? .semibold : .medium))
@@ -116,7 +118,7 @@ private struct Dock: View {
           .contentShape(.capsule)
           .background {
             if current {
-              Capsule().fill(Color.primary.opacity(0.09))
+              Capsule().fill(accent.opacity(0.13))
                 .matchedGeometryEffect(id: "active", in: selection)
             }
           }
@@ -130,11 +132,11 @@ private struct Dock: View {
     .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: state.selected)
   }
 
-  private func symbol(_ id: String, selected: Bool) -> String {
+  private func navAsset(_ id: String) -> String {
     switch id {
-    case "latest": return selected ? "house.fill" : "house"
-    case "discover": return "safari"
-    default: return selected ? "books.vertical.fill" : "books.vertical"
+    case "latest": return "BrandNavHome"
+    case "discover": return "BrandNavDiscover"
+    default: return "BrandNavLibrary"
     }
   }
 
@@ -159,7 +161,7 @@ private struct Dock: View {
             if let show = player.show { Text(show).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
             if player.progress > 0 {
               GeometryReader { bar in
-                Capsule().fill(Color.primary.opacity(0.09))
+                Capsule().fill(accent.opacity(0.13))
                   .overlay(alignment: .leading) {
                     Capsule().fill(accent)
                       .frame(width: bar.size.width * min(1, max(0, player.progress)))

@@ -39,13 +39,14 @@ export function VideoDock() {
   useLayoutEffect(() => {
     const dock = box.current;
     if (!dock) return;
-    if (!slotElement) { dock.removeAttribute("style"); return; }
+    if (!slotElement) { dock.removeAttribute("style"); dock.removeAttribute("data-compact"); return; }
     let frame = 0;
     const column = slotElement.closest(".ep-left") ?? document.body;
     const measure = () => {
       frame = 0;
       const r = slotElement.getBoundingClientRect();
       const bounds = column.getBoundingClientRect();
+      dock.toggleAttribute("data-compact", r.height < 80);
       const top = Math.max(0, bounds.top - r.top), bottom = Math.max(0, r.bottom - bounds.bottom);
       Object.assign(dock.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px",
         clipPath: top || bottom ? `inset(${top}px 0 ${bottom}px 0 round 12px)` : "" });

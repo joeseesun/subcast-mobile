@@ -39,7 +39,7 @@ export async function downloadEpisode(ep: Episode) {
   try {
     const saved = await api.downloadEpisode(ep.id);
     useOffline.setState((s) => ({ saved: { ...s.saved, [ep.id]: saved }, active: drop(s.active, ep.id) }));
-    useStore.getState().notify(t("已缓存，可离线收听"));
+    useStore.getState().notify(t("已缓存，可离线收听"), "cache");
   } catch (e) {
     useOffline.setState((s) => ({ active: drop(s.active, ep.id) }));
     const msg = errorText(e);

@@ -2,9 +2,11 @@ import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Loader2, Minimize2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
+import { Loader2, Maximize2, Minimize2, Play } from "lucide-react";
+import { BrandGlyph } from "./BrandGlyph";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, type Episode } from "../lib/api";
+import { selectionFeedback } from "../lib/feedback";
 import { clock } from "../lib/format";
 import { loadYouTube } from "../lib/youtube";
 import { useStore, type PlayerHandle } from "../store";
@@ -21,6 +23,18 @@ export function playSoon(id: string) {
   if (s.current?.id === id && s.player?.episodeId === id) { s.player.play(); return; }
   s.set({ playWhenReady: id });
 }
+/** Jump into normal playback even if the selected player is still opening. */
+export function seekEpisode(ep: Episode, time: number) {
+  const state = useStore.getState();
+  if (state.current?.id === ep.id && state.player?.episodeId === ep.id) {
+    state.player.seek(time);
+    return;
+  }
+  if (state.current?.id !== ep.id) state.load({ ...ep, progress: time });
+  useStore.setState({ time, playWhenReady: ep.id });
+  playSoon(ep.id);
+}
+
 useStore.subscribe((s, prev) => {
   if (s.player && s.player !== prev.player && s.playWhenReady === s.player.episodeId && s.current?.id === s.playWhenReady) {
     const p = s.player;
@@ -87,6 +101,7 @@ function mediaHandle(el: HTMLMediaElement, episodeId: string) {
       if (useStore.getState().current?.id === episodeId) useStore.setState({ time: target });
       play();
     },
+    pause: () => el.pause(),
     toggle: () => el.paused ? play() : el.pause(),
     setRate: (rate: number) => { el.playbackRate = rate; },
     toggleMute: () => { el.muted = !el.muted; return el.muted; },
@@ -382,16 +397,30 @@ function EmbedVideo({ ep, onBlocked, onError }: { ep: Episode; onBlocked: (why: 
   return <div className="video-host" ref={host} />;
 }
 
+type IOSVideo = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void;
+  webkitDisplayingFullscreen?: boolean;
+};
+
 /** `onFail`: the stream can't be played (stale address, or HLS unsupported here); the caller gets another. */
 function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind: "hls" | "mp4"; onFail?: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const rate = useStore((s) => s.settings.playbackRate);
-  const [preparing, setPreparing] = useState(false);
   const priming = useRef(false);
   const quietPause = useRef(false);
+  const shouldPlay = useRef(false);
+  const recoveredAt = useRef(0);
+  const recovering = useRef<number | undefined>(undefined);
+  const recentWaits = useRef<number[]>([]);
   const stalled = useRef<number | undefined>(undefined);
   const failure = useRef(onFail);
+  const playing = useStore((s) => s.playing);
   failure.current = onFail;
+
+  const clearRecovery = () => {
+    window.clearTimeout(recovering.current);
+    recovering.current = undefined;
+  };
 
   const clearStall = () => {
     window.clearTimeout(stalled.current);
@@ -401,6 +430,13 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
     if (priming.current || el.paused) return;
     waiting(true);
     if (stalled.current !== undefined) return;
+    const now = performance.now();
+    recentWaits.current = recentWaits.current.filter((time) => now - time < 20_000);
+    recentWaits.current.push(now);
+    if (recentWaits.current.length >= 3 && !el.seeking && shouldPlay.current) {
+      failure.current?.();
+      return;
+    }
     const position = el.currentTime;
     stalled.current = window.setTimeout(() => {
       stalled.current = undefined;
@@ -417,8 +453,10 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
       && !(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
     priming.current = mayPrime;
     quietPause.current = false;
+    shouldPlay.current = false;
+    recoveredAt.current = 0;
+    recentWaits.current = [];
     el.muted = mayPrime;
-    setPreparing(mayPrime);
     let hls: any;
     let active = true;
     if (kind === "mp4" || el.canPlayType("application/vnd.apple.mpegurl")) el.src = src;
@@ -435,14 +473,34 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
       if (priming.current) {
         priming.current = false;
         el.muted = false;
-        setPreparing(false);
       }
       quietPause.current = false;
     };
-    const handle = { ...ordinary,
-      play: () => { takeControl(); ordinary.play(); },
-      toggle: () => { if (priming.current) { takeControl(); ordinary.play(); } else ordinary.toggle(); },
-      seek: (time: number) => { takeControl(); ordinary.seek(time); },
+    const play = () => {
+      takeControl();
+      shouldPlay.current = true;
+      window.clearTimeout(recovering.current);
+      ordinary.play();
+    };
+    const pause = () => {
+      shouldPlay.current = false;
+      clearRecovery();
+      clearStall();
+      waiting(false);
+      if (useStore.getState().player === handle) useStore.setState({ playing: false });
+      ordinary.pause();
+    };
+    const handle = {
+      ...ordinary,
+      play, pause,
+      toggle: () => shouldPlay.current ? pause() : play(),
+      seek: (time: number) => {
+        takeControl();
+        clearRecovery();
+        recentWaits.current = [];
+        shouldPlay.current = true;
+        ordinary.seek(time);
+      },
     };
     useStore.getState().set({ player: handle });
     // WebKit may ignore preload=auto on iPhone. Decode the first frame silently in the
@@ -453,7 +511,6 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
       quietPause.current = true;
       el.pause();
       el.muted = false;
-      setPreparing(false);
       syncBuffer(el, ep.id);
     };
     const whenPlaying = () => { if (!el.seeking) park(); };
@@ -464,6 +521,7 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
       active = false;
       window.clearTimeout(timer);
       clearStall();
+      clearRecovery();
       el.removeEventListener("playing", whenPlaying);
       el.pause();
       hls?.destroy?.();
@@ -475,18 +533,71 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
   useEffect(() => { if (ref.current) ref.current.playbackRate = rate; }, [rate]);
   return (
     <>
-      <video ref={ref} className="video-native" playsInline controls={!preparing} poster={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} preload="auto"
+      <video ref={ref} className="video-native" playsInline controls={!IS_MAC} poster={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} preload="auto"
         onError={onFail}
         onLoadedMetadata={(e) => { const el = e.currentTarget; el.playbackRate = rate; const start = useStore.getState().time; if (start > 0 && (!Number.isFinite(el.duration) || start < el.duration)) el.currentTime = start; track(ep, el.currentTime, el.duration); }}
         onProgress={(e) => syncBuffer(e.currentTarget, ep.id)}
         onSeeked={(e) => { syncBuffer(e.currentTarget, ep.id); if (!priming.current) track(ep, e.currentTarget.currentTime); }}
         onTimeUpdate={(e) => { if (!priming.current && !quietPause.current) track(ep, e.currentTarget.currentTime); }}
-        onPlay={(e) => { if (priming.current) return; quietPause.current = false; useStore.getState().set({ playing: true }); if (e.currentTarget.readyState < 3) onStall(e.currentTarget); }}
-        onWaiting={(e) => onStall(e.currentTarget)}
+        onPlay={(e) => {
+          if (priming.current) return;
+          if ((e.currentTarget as IOSVideo).webkitDisplayingFullscreen) shouldPlay.current = true;
+          quietPause.current = false;
+          useStore.getState().set({ playing: true });
+          if (e.currentTarget.readyState < 3) onStall(e.currentTarget);
+        }}
         onPlaying={() => { clearStall(); if (!priming.current && !quietPause.current && !ref.current?.paused) { useStore.setState({ playing: true }); waiting(false); } }}
-        onPause={(e) => { clearStall(); if (priming.current || quietPause.current) return; waiting(false); useStore.getState().set({ playing: false }); void api.setProgress(ep.id, e.currentTarget.currentTime); }}
-        onEnded={(e) => { clearStall(); void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }} />
-      {preparing && <button className="video-preroll" aria-label={t("播放")} onClick={() => playSoon(ep.id)}><Play size={28} fill="currentColor" /></button>}
+        onWaiting={(e) => onStall(e.currentTarget)}
+        onPause={(e) => {
+          clearStall();
+          const el = e.currentTarget as IOSVideo;
+          if (priming.current || quietPause.current || !el.paused) return;
+          const stillCurrent = useStore.getState().current?.id === ep.id && ref.current === el;
+          if (IS_MAC && shouldPlay.current && stillCurrent && !el.ended && !document.hidden && !el.webkitDisplayingFullscreen) {
+            const now = performance.now();
+            if (recoveredAt.current && now - recoveredAt.current < 12_000) {
+              failure.current?.();
+              return;
+            }
+            recoveredAt.current = now;
+            waiting(true);
+            recovering.current = window.setTimeout(() => {
+              recovering.current = undefined;
+              if (!shouldPlay.current || ref.current !== el) return;
+              if (document.hidden) {
+                shouldPlay.current = false;
+                waiting(false);
+                useStore.setState({ playing: false });
+                return;
+              }
+              void el.play().catch(() => { if (shouldPlay.current && ref.current === el) failure.current?.(); });
+            }, 220);
+            return;
+          }
+          shouldPlay.current = false;
+          if (stillCurrent) {
+            waiting(false);
+            useStore.setState({ playing: false });
+            void api.setProgress(ep.id, el.currentTime);
+          }
+        }}
+        onEnded={(e) => { shouldPlay.current = false; clearStall(); clearRecovery(); void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }} />
+      {IS_MAC && <>
+        <button className="inline-video-toggle" aria-label={playing ? t("暂停") : t("播放")} onClick={() => {
+          const player = useStore.getState().player;
+          if (player?.episodeId === ep.id) player.toggle();
+          else playSoon(ep.id);
+        }}>
+          {!playing && <span><BrandGlyph name="play" size={29} /></span>}
+        </button>
+        <button className="inline-fullscreen" aria-label={t("全屏播放")} onClick={() => {
+          const video = ref.current as IOSVideo | null;
+          if (video?.webkitEnterFullscreen && video.readyState >= 2) {
+            try { video.webkitEnterFullscreen(); return; } catch { /* Use the app's expanded view. */ }
+          }
+          toggleTheater(true);
+        }}><Maximize2 size={19} /></button>
+      </>}
     </>
   );
 }
@@ -504,11 +615,11 @@ export function Controls({ compact = false, leading }: { compact?: boolean; lead
   return (
     <div className={`controls ${compact ? "compact" : ""}`}>
       {leading}
-      <button className="icon-btn" title={t("后退 {n} 秒（←）", { n: settings.skipBack ?? 15 })} onClick={() => player?.seek(Math.max(0, time - (settings.skipBack ?? 15)))} disabled={!player}><RotateCcw size={18} /></button>
-      <button className={`play-btn ${loadingSince ? "loading" : ""}`} title={loadingSince ? t("正在加载…") : playing ? t("暂停（空格）") : t("播放（空格）")} aria-label={playing ? t("暂停") : t("播放")} onClick={() => { if (player) player.toggle(); else if (current) playSoon(current.id); }} disabled={!player && !current} aria-busy={!!loadingSince}>
-        {loadingSince ? <Loader2 size={20} className="spin" /> : playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+      <button className="icon-btn" title={t("后退 {n} 秒（←）", { n: settings.skipBack ?? 15 })} onClick={() => player?.seek(Math.max(0, time - (settings.skipBack ?? 15)))} disabled={!player}><BrandGlyph name="back" interval={settings.skipBack ?? 15} /></button>
+      <button className={`play-btn ${loadingSince ? "loading" : ""}`} title={loadingSince ? t("正在加载…") : playing ? t("暂停（空格）") : t("播放（空格）")} aria-label={playing ? t("暂停") : t("播放")} onClick={() => { selectionFeedback(); if (player) player.toggle(); else if (current) playSoon(current.id); }} disabled={!player && !current} aria-busy={!!loadingSince}>
+        {loadingSince ? <Loader2 size={20} className="spin" /> : playing ? <BrandGlyph name="pause" size={25} /> : <BrandGlyph name="play" size={25} />}
       </button>
-      <button className="icon-btn" title={t("前进 {n} 秒（→）", { n: settings.skipForward ?? 30 })} onClick={() => player?.seek(time + (settings.skipForward ?? 30))} disabled={!player}><RotateCw size={18} /></button>
+      <button className="icon-btn" title={t("前进 {n} 秒（→）", { n: settings.skipForward ?? 30 })} onClick={() => player?.seek(time + (settings.skipForward ?? 30))} disabled={!player}><BrandGlyph name="next" interval={settings.skipForward ?? 30} /></button>
       <span className="time">{clock(shown)}</span>
       <input
         className="seek"

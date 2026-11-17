@@ -1,3 +1,4 @@
+import { seekEpisode } from "./Players";
 import { useShallow } from "zustand/react/shallow";
 import { SkeletonLines } from "./Skeleton";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -83,7 +84,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const official = useJobs((s) => s.officialChecked[ep.id]);
   const officialError = useJobs((s) => s.officialError[ep.id]);
   const translation = useJobs((s) => s.translations[ep.id]);
-  const { player, settings, saveSettings, current, openSettings } = useStore(useShallow((s) => ({ player: s.player, settings: s.settings, saveSettings: s.saveSettings, current: s.current, openSettings: s.openSettings })));
+  const { settings, saveSettings, current, openSettings } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings, current: s.current, openSettings: s.openSettings })));
   const isCurrent = current?.id === ep.id;
   const list = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(0);
@@ -95,7 +96,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const [canUpgrade, setCanUpgrade] = useState(false);
   const segments = transcript?.segments ?? [];
   const active = useStore((s) => isCurrent && transcript ? activeIndex(transcript.segments, s.time) : -1);
-  const seek = useCallback((time: number) => { if (isCurrent) player?.seek(time); }, [isCurrent, player]);
+  const seek = useCallback((time: number) => seekEpisode(ep, time), [ep]);
   const wantsZh = transcript ? needsTranslation(transcript) : false;
   const mode = wantsZh ? settings.subtitleMode : "original";
 
