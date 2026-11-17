@@ -2,8 +2,9 @@ import { useShallow } from "zustand/react/shallow";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Loader2, Maximize2, Minimize2, Play } from "lucide-react";
+import { Check, Loader2, Maximize2, Minimize2, Play } from "lucide-react";
 import { BrandGlyph } from "./BrandGlyph";
+import { MobileSheet } from "./MobileSheet";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, type Episode } from "../lib/api";
 import { selectionFeedback } from "../lib/feedback";
@@ -695,6 +696,53 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
   );
 }
 
+function PlaybackRate({ rate }: { rate: number }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const presenting = useRef(false);
+  const [webSheet, setWebSheet] = useState(false);
+  const options = Array.from(new Set([...RATES, rate])).sort((a, b) => a - b);
+  const choose = (value: number) => {
+    const state = useStore.getState();
+    if (state.settings.playbackRate === value) return;
+    state.player?.setRate(value);
+    void state.saveSettings({ playbackRate: value });
+  };
+  const open = async () => {
+    if (!IS_MAC) { setWebSheet(true); return; }
+    if (presenting.current) return;
+    presenting.current = true;
+    try {
+      const choice = await invoke<string | null>("plugin:mobile|present_settings_index", {
+        state: {
+          title: t("播放速度"), done: t("取消"), choiceSheet: true,
+          groups: [options.map((value) => ({ id: String(value), title: `${value}×`, selected: value === rate }))],
+        },
+      });
+      if (choice === null) { setWebSheet(true); return; }
+      const value = options.find((value) => String(value) === choice);
+      if (value !== undefined) choose(value);
+      trigger.current?.focus({ preventScroll: true });
+    } catch {
+      setWebSheet(true);
+    } finally {
+      presenting.current = false;
+    }
+  };
+  return <>
+    <button ref={trigger} className={`rate-btn ${rate === 1 ? "" : "fast"}`}
+      aria-label={`${t("播放速度")} ${rate}×`} aria-haspopup="dialog" onClick={() => void open()}>{rate}×</button>
+    {webSheet && <MobileSheet title={t("播放速度")} onClose={() => setWebSheet(false)}>
+      {options.map((value) => <button key={value} aria-pressed={value === rate} onClick={() => {
+        setWebSheet(false);
+        if (value !== rate) selectionFeedback();
+        choose(value);
+      }}>
+        {value}×{value === rate && <Check className="row-check" />}
+      </button>)}
+    </MobileSheet>}
+  </>;
+}
+
 export function Controls({ compact = false, leading }: { compact?: boolean; leading?: React.ReactNode }) {
   const current = useStore((s) => s.current);
   const { time, length, bufferedUntil, playing, player, settings, loadingSince } = useStore(useShallow((s) => ({ time: s.time, length: s.length, bufferedUntil: s.bufferedUntil, playing: s.playing, player: s.player, settings: s.settings, loadingSince: s.loadingSince })));
@@ -729,11 +777,7 @@ export function Controls({ compact = false, leading }: { compact?: boolean; lead
         aria-label={t("播放进度")}
       />
       <span className="time">{length ? clock(length) : "--:--"}</span>
-      <select className="rate-btn" value={settings.playbackRate} aria-label={t("播放速度")} onChange={(event) => {
-        const rate = Number(event.currentTarget.value);
-        player?.setRate(rate);
-        void useStore.getState().saveSettings({ playbackRate: rate });
-      }}>{Array.from(new Set([...RATES, settings.playbackRate])).sort((a, b) => a - b).map((r) => <option key={r} value={r}>{r}×</option>)}</select>
+      <PlaybackRate rate={settings.playbackRate} />
     </div>
   );
 }

@@ -136,9 +136,22 @@ class MobilePlugin: Plugin {
             parent.viewIfLoaded?.window != nil else { invoke.resolve(); return }
       let settings = SettingsIndex(state: state) { choice in invoke.resolve(choice) }
       let navigation = UINavigationController(rootViewController: settings)
-      navigation.navigationBar.prefersLargeTitles = true
-      navigation.view.tintColor = UIColor(red: 0.72, green: 0.21, blue: 0.03, alpha: 1)
-      navigation.modalPresentationStyle = .fullScreen
+      navigation.navigationBar.prefersLargeTitles = state.choiceSheet != true
+      navigation.view.tintColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark
+          ? UIColor(red: 1, green: 0.62, blue: 0.43, alpha: 1)
+          : UIColor(red: 0.72, green: 0.21, blue: 0.03, alpha: 1)
+      }
+      navigation.modalPresentationStyle = state.choiceSheet == true ? .pageSheet : .fullScreen
+      if state.choiceSheet == true, let sheet = navigation.sheetPresentationController {
+        if #available(iOS 16.0, *) {
+          sheet.detents = [.custom { min(450, $0.maximumDetentValue * 0.85) }, .large()]
+        } else {
+          sheet.detents = [.medium(), .large()]
+        }
+        sheet.prefersGrabberVisible = true
+        sheet.delegate = settings
+      }
       parent.present(navigation, animated: true)
     }
   }

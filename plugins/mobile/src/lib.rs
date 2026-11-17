@@ -85,7 +85,7 @@ async fn present_settings_index<R: Runtime>(app: tauri::AppHandle<R>, state: Val
     #[cfg(target_os = "ios")]
     {
         let Some(handle) = app.state::<Mobile<R>>().0.clone() else { return Ok(None) };
-        handle.run_mobile_plugin("presentSettingsIndex", state).map_err(|error| error.to_string())
+        handle.run_mobile_plugin_async("presentSettingsIndex", state).await.map_err(|error| error.to_string())
     }
     #[cfg(not(target_os = "ios"))]
     { let _ = (app, state); Ok(None) }

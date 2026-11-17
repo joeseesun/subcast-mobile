@@ -197,6 +197,7 @@
   .m-episode .controls > .play-btn { background: var(--accent); color: #291a14; }
 }
 .m-episode .controls .rate-btn { background: var(--soft); color: var(--text-2); border-radius: 12px; }
+.m-episode .controls .rate-btn.fast { background: var(--accent-soft); color: var(--accent-text); }
 .mobile-sheet { box-shadow: 0 -12px 46px #140d0926; border-radius: 28px 28px 0 0; }
 .mobile-sheet::backdrop { background: #21161072; }
 .mobile-sheet h2 { font-family: var(--display); font-size: 22px; }
