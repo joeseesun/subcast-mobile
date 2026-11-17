@@ -540,7 +540,7 @@ async fn refresh_config(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
 
 
 /// A direct stream for a video the embedded player can't play, straight from InnerTube (phones have no yt-dlp).
-/// `mode`: "native-hls" / "proxy-hls" (HLS; the proxy adds the headers googlevideo wants) or "mp4".
+/// The relay routes preserve the issuing client’s headers and choose one distinct media format.
 #[tauri::command]
 async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: String, mode: Option<String>, fresh: Option<bool>) -> Res<VideoStream> {
     asr::streams::init(&state.data);
@@ -549,17 +549,21 @@ async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: St
     let _ = app.emit("yt-stream", json!({ "videoId": video_id, "stage": "resolve", "progress": 0.0 }));
     // A direct address may require the issuing client's User-Agent or the user's in-app proxy.
     // WebKit cannot set those headers. The loopback route retains them for every range and HLS segment.
-    let relay = mode == "relay" || mode == "proxy-hls" || !net::proxy().is_empty();
+    let relay = matches!(mode.as_str(), "relay-hls" | "relay-mp4" | "proxy-hls") || !net::proxy().is_empty();
     let cached = if relay || fresh.unwrap_or(false) { None } else { asr::streams::get(&key) };
     let (url, agent) = match cached {
         Some(url) => (url, String::new()),
         None => {
-            let purpose = if mode == "mp4" { youtube::StreamUse::Mp4 } else { youtube::StreamUse::Video };
+            let purpose = match mode.as_str() {
+                "mp4" | "relay-mp4" => youtube::StreamUse::Mp4,
+                "relay-hls" => youtube::StreamUse::Hls,
+                _ => youtube::StreamUse::Video,
+            };
             let s = tokio::time::timeout(std::time::Duration::from_secs(12), youtube::streams(&video_id, purpose)).await
                 .map_err(|_| "获取视频地址超时，请检查网络或代理".to_string())?.map_err(e)?;
             let url = match mode.as_str() {
-                "mp4" => s.mp4,
-                "relay" => s.mp4.or(s.hls),
+                "mp4" | "relay-mp4" => s.mp4,
+                "relay-hls" => s.hls,
                 _ => s.hls.or(s.mp4),
             }.ok_or("这个视频没有可直接播放的地址")?;
             if !relay { asr::streams::put(&key, &url); }

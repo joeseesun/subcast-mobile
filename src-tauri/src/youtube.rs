@@ -128,13 +128,14 @@ fn ua_for(name: &str, version: &str, sdk: Option<u32>) -> String {
 }
 
 #[derive(Clone, Copy)]
-pub enum StreamUse { Audio, Video, Mp4 }
+pub enum StreamUse { Audio, Video, Hls, Mp4 }
 
 impl StreamUse {
     fn accepts(self, streams: &Streams) -> bool {
         match self {
             Self::Audio => streams.audio.is_some(),
             Self::Video => streams.hls.is_some() || streams.mp4.is_some(),
+            Self::Hls => streams.hls.is_some(),
             Self::Mp4 => streams.mp4.is_some(),
         }
     }
@@ -339,6 +340,8 @@ mod stream_tests {
         assert!(!StreamUse::Video.accepts(&audio));
         let hls = Streams { hls: Some("hls".into()), ..Default::default() };
         assert!(StreamUse::Video.accepts(&hls));
+        assert!(StreamUse::Hls.accepts(&hls));
+        assert!(!StreamUse::Hls.accepts(&audio));
         assert!(!StreamUse::Mp4.accepts(&hls));
     }
 }

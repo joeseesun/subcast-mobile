@@ -36,7 +36,12 @@ pub async fn proxied(url: &str, agent: &str) -> Result<String> {
     Ok(wrap(&root, url))
 }
 
-fn wrap(base: &str, url: &str) -> String { format!("{base}/p?u={}", urlencoding::encode(url)) }
+fn wrap(base: &str, url: &str) -> String {
+    let path = if Url::parse(url).is_ok_and(|url| is_playlist_path(url.path())) { "p.m3u8" } else { "p" };
+    format!("{base}/{path}?u={}", urlencoding::encode(url))
+}
+
+fn is_playlist_path(path: &str) -> bool { path.ends_with(".m3u8") || path.contains("/manifest/hls") }
 
 fn allowed(url: &Url) -> bool {
     url.scheme() == "https" && url.host_str().is_some_and(|h| h == "youtube.com" || h.ends_with(".youtube.com") || h.ends_with(".googlevideo.com"))
@@ -72,7 +77,7 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
         sock.write_all(format!("HTTP/1.1 204 No Content\r\n{CORS}Connection: close\r\n\r\n").as_bytes()).await?;
         return Ok(());
     }
-    let Some((agent_path, raw_url)) = path.strip_prefix(&format!("/{token}/")).and_then(|p| p.split_once("/p?u=")) else { return Ok(()) };
+    let Some((agent_path, raw_url)) = path.strip_prefix(&format!("/{token}/")).and_then(|p| p.split_once("/p?u=").or_else(|| p.split_once("/p.m3u8?u="))) else { return Ok(()) };
     let agent = urlencoding::decode(agent_path)?;
     let target = urlencoding::decode(raw_url).ok()
         .and_then(|u| Url::parse(&u).ok())
@@ -94,10 +99,10 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
     };
     let status = res.status();
     let kind = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream").to_string();
-    if method == "GET" && (kind.contains("mpegurl") || target.path().ends_with(".m3u8") || target.path().contains("/manifest/hls")) {
+    if method == "GET" && status.is_success() && (kind.contains("mpegurl") || is_playlist_path(target.path())) {
         let from = res.url().clone();
         let body = rewrite(&res.text().await?, &from, &format!("{base}/{agent_path}"));
-        sock.write_all(format!("HTTP/1.1 {} {}\r\nContent-Type: {kind}\r\n{CORS}Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", status.as_u16(), status.canonical_reason().unwrap_or(""), body.len()).as_bytes()).await?;
+        sock.write_all(format!("HTTP/1.1 {} {}\r\nContent-Type: application/vnd.apple.mpegurl\r\n{CORS}Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", status.as_u16(), status.canonical_reason().unwrap_or(""), body.len()).as_bytes()).await?;
         sock.write_all(body.as_bytes()).await?;
         return Ok(());
     }
@@ -122,8 +127,8 @@ mod tests {
         let from = Url::parse("https://manifest.googlevideo.com/api/manifest/hls_variant/id/1/file/index.m3u8").unwrap();
         let p = "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,URI=\"https://manifest.googlevideo.com/a/index.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nhttps://manifest.googlevideo.com/v/index.m3u8\nseg/1.ts\n";
         let out = rewrite(p, &from, "http://127.0.0.1:1/t");
-        assert!(out.contains(r#"URI="http://127.0.0.1:1/t/p?u=https%3A%2F%2Fmanifest.googlevideo.com%2Fa%2Findex.m3u8""#), "{out}");
-        assert!(out.contains("\nhttp://127.0.0.1:1/t/p?u=https%3A%2F%2Fmanifest.googlevideo.com%2Fv%2Findex.m3u8\n"));
+        assert!(out.contains(r#"URI="http://127.0.0.1:1/t/p.m3u8?u=https%3A%2F%2Fmanifest.googlevideo.com%2Fa%2Findex.m3u8""#), "{out}");
+        assert!(out.contains("\nhttp://127.0.0.1:1/t/p.m3u8?u=https%3A%2F%2Fmanifest.googlevideo.com%2Fv%2Findex.m3u8\n"));
         assert!(out.contains("file%2Fseg%2F1.ts"));
         assert!(out.starts_with("#EXTM3U\n#EXT-X-MEDIA"));
     }

@@ -1081,6 +1081,7 @@ const dict: Record<string, string> = {
   "新缓存连续 30 天未使用，会在下次启动时清理": "New caches unused for 30 days are cleared on the next launch.",
   "清理这一集的离线音频？": "Clear this episode’s offline audio?",
   "清理缓存": "Clear cache",
+  "视频缓冲超时": "Video buffering timed out",
 };
 
 export default dict;

@@ -105,7 +105,7 @@ export const api = {
   qiaomuDetail,
   listModels: (provider: Provider) => invoke<string[]>("list_models", { provider }),
   ttsSpeak: (text: string, voice: string, resource?: string) => invoke<string>("tts_speak", { text, voice, resource }),
-  youtubeStream: (videoId: string, mode: "native-hls" | "proxy-hls" | "relay" | "mp4", fresh = false) => invoke<{ url: string; kind: "hls" | "mp4" }>("youtube_stream", { videoId, mode, fresh }),
+  youtubeStream: (videoId: string, mode: "native-hls" | "proxy-hls" | "relay-hls" | "relay-mp4" | "mp4", fresh = false) => invoke<{ url: string; kind: "hls" | "mp4" }>("youtube_stream", { videoId, mode, fresh }),
   uiReady: () => invoke<{ shell: string; build: number | null }>("ui_ready"),
   shareTranslation: (episodeId: string, engine: string, model: string) => invoke<string>("share_translation", { episodeId, engine, model }),
   exportOpml: () => invoke<string>("export_opml"),

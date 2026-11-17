@@ -233,7 +233,7 @@ export const RATES = [0.8, 1, 1.15, 1.25, 1.5, 1.75, 2];
 /** On iOS let WebKit play HLS or MP4 inline, with the system full-screen controls.
  * Android tries the embed first. Each failed source advances at most once. */
 export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; overlay?: React.ReactNode; onUnplayable?: () => void }) {
-  const routes = IS_MAC ? ["direct", "mp4", "embed"] : ["embed", "direct", "mp4"];
+  const routes = IS_MAC ? ["native-hls", "relay-hls", "relay-mp4", "embed"] as const : ["embed", "proxy-hls", "mp4"] as const;
   const [attempt, setAttempt] = useState(0);
   const [media, setMedia] = useState<{ url: string; kind: "hls" | "mp4"; attempt: number } | null>(null);
   const [reason, setReason] = useState("");
@@ -252,8 +252,7 @@ export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; over
     if (!route) { useStore.setState({ playing: false, loadingSince: null, playWhenReady: null }); return; }
     if (route === "embed") return;
     let active = true;
-    const mode = route === "mp4" ? (IS_MAC ? "relay" : "mp4") : IS_MAC ? "native-hls" : "proxy-hls";
-    void api.youtubeStream(ep.videoId!, mode, route === "mp4").then((result) => {
+    void api.youtubeStream(ep.videoId!, route, route !== "native-hls").then((result) => {
       if (active) setMedia({ ...result, attempt });
     }).catch((err) => { if (active) fail(tr(String(err?.message ?? err))); });
     return () => { active = false; };
@@ -300,6 +299,9 @@ function EmbedVideo({ ep, onBlocked, onError }: { ep: Episode; onBlocked: (why: 
 
   useEffect(() => {
     let player: any, timer: number | undefined, disposed = false;
+    let stalledAt = 0;
+    let previousTime = -1;
+    const start = useStore.getState().current?.id === ep.id ? useStore.getState().time : ep.progress;
     const timeout = window.setTimeout(() => onBlocked(t("无法加载 YouTube 播放器，请检查网络或代理")), 15000);
     loadYouTube().then((YT) => {
       if (disposed || !host.current) return;
@@ -310,7 +312,7 @@ function EmbedVideo({ ep, onBlocked, onError }: { ep: Episode; onBlocked: (why: 
         width: "100%",
         height: "100%",
         host: "https://www.youtube.com",
-        playerVars: { controls: 1, fs: 1, playsinline: 1, rel: 0, modestbranding: 1, cc_load_policy: 0, iv_load_policy: 3, start: Math.floor(ep.progress > 5 ? ep.progress : 0), origin: window.location.origin },
+        playerVars: { controls: 1, fs: 1, playsinline: 1, rel: 0, modestbranding: 1, cc_load_policy: 0, iv_load_policy: 3, start: Math.floor(Math.max(0, start)), origin: window.location.origin },
         events: {
           onReady: () => {
             if (disposed) return;
@@ -330,8 +332,19 @@ function EmbedVideo({ ep, onBlocked, onError }: { ep: Episode; onBlocked: (why: 
               },
             });
             timer = window.setInterval(() => {
-              const t = player.getCurrentTime?.();
-              if (typeof t === "number") track(ep, t, player.getDuration?.());
+              const time = player.getCurrentTime?.();
+              if (typeof time !== "number") return;
+              track(ep, time, player.getDuration?.());
+              const status = player.getPlayerState();
+              const loading = useStore.getState().loadingSince;
+              if ((status === 3 || ((status === -1 || status === 5) && loading)) && Math.abs(time - previousTime) < 0.1) {
+                if (!stalledAt) stalledAt = performance.now();
+                if (performance.now() - stalledAt > 12_000) {
+                  window.clearInterval(timer);
+                  onError(t("视频缓冲超时"));
+                }
+              } else stalledAt = 0;
+              previousTime = time;
             }, 250);
           },
           onStateChange: (e: any) => {
@@ -472,7 +485,7 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
         onWaiting={(e) => onStall(e.currentTarget)}
         onPlaying={() => { clearStall(); if (!priming.current && !quietPause.current && !ref.current?.paused) { useStore.setState({ playing: true }); waiting(false); } }}
         onPause={(e) => { clearStall(); if (priming.current || quietPause.current) return; waiting(false); useStore.getState().set({ playing: false }); void api.setProgress(ep.id, e.currentTarget.currentTime); }}
-        onEnded={(e) => { void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }} />
+        onEnded={(e) => { clearStall(); void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }} />
       {preparing && <button className="video-preroll" aria-label={t("播放")} onClick={() => playSoon(ep.id)}><Play size={28} fill="currentColor" /></button>}
     </>
   );
