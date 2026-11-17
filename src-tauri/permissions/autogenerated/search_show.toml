@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-search-show"
+description = "Enables the search_show command without any pre-configured scope."
+commands.allow = ["search_show"]
+
+[[permission]]
+identifier = "deny-search-show"
+description = "Denies the search_show command without any pre-configured scope."
+commands.deny = ["search_show"]

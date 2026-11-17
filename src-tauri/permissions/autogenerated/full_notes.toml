@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-full-notes"
+description = "Enables the full_notes command without any pre-configured scope."
+commands.allow = ["full_notes"]
+
+[[permission]]
+identifier = "deny-full-notes"
+description = "Denies the full_notes command without any pre-configured scope."
+commands.deny = ["full_notes"]

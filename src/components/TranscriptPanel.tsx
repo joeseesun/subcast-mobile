@@ -1,0 +1,475 @@
+import { useShallow } from "zustand/react/shallow";
+import { SkeletonLines } from "./Skeleton";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { BookA, Check, ChevronDown, Ellipsis, Languages, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { Modal } from "./Chrome";
+import type { EpisodeContext } from "../lib/ai";
+import { CassetteArt, FlatLineArt, NightNote, TrayArt, WaveToTextArt } from "./Illustrations";
+import { bytes } from "../lib/offline";
+import { api, errorText, rawErrorText, type Episode, type ModelInfo, type Segment } from "../lib/api";
+import { clock } from "../lib/format";
+import { generateTranscript, llmReady, loadTranslation, needsTranslation, stopTranslation, switchYoutubeTrack, translateEpisode, useJobs } from "../lib/jobs";
+import { providerFor, useStore } from "../store";
+import { ASR_SERVICES, CLOUD_ASR_MAIN, type Settings } from "../lib/settings";
+import { lang, t, tk, tr, useLang } from "../lib/i18n";
+
+const SOURCE_LABEL: Record<string, string> = { youtube: tk("YouTube 字幕"), "youtube-auto": tk("YouTube 自动字幕"), rss: tk("节目方文字稿"), whisper: tk("本机识别"), cloud: tk("云端识别"), qiaomu: tk("精读站原文 · 时间为估算"), podscribe: tk("Podscribe 文字稿") };
+
+export function activeIndex(segments: Segment[], time: number): number {
+  let lo = 0, hi = segments.length - 1, found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (segments[mid].start <= time + 0.15) { found = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return found;
+}
+
+function highlight(text: string, query: string) {
+  if (!query) return text;
+  const i = text.toLowerCase().indexOf(query.toLowerCase());
+  return i < 0 ? text : <>{text.slice(0, i)}<mark>{text.slice(i, i + query.length)}</mark>{text.slice(i + query.length)}</>;
+}
+
+const Row = memo(function Row({ seg, zh, active, mode, pending, onSeek, query, current }: { seg: Segment; zh?: string | null; active: boolean; mode: string; pending: boolean; onSeek: (t: number) => void; query: string; current: boolean }) {
+  const showZh = mode !== "original";
+  const showOrig = mode !== "translation" || (!zh && !pending);
+  return (
+    <div className={`line ${active ? "active" : ""} ${current ? "hit" : ""}`} data-active={active || undefined} data-hit={current || undefined} role="button" tabIndex={0} onClick={() => onSeek(seg.start)} onKeyDown={(e) => e.key === "Enter" && onSeek(seg.start)}>
+      <span className="line-time">{clock(seg.start)}</span>
+      <div className="line-text">
+        {showZh && (zh ? <p className="zh">{highlight(zh, query)}</p> : pending ? <span className="skeleton" /> : null)}
+        {showOrig && <p className="orig">{highlight(seg.text, query)}</p>}
+      </div>
+    </div>
+  );
+});
+
+function useModels() {
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const refresh = () => api.asrModels().then(setModels);
+  useEffect(() => { void refresh(); }, []);
+  return { models, refresh };
+}
+
+export function useModelDownload(onDone: () => void) {
+  const [downloading, setDownloading] = useState<{ id: string; received: number; total?: number } | null>(null);
+  useEffect(() => {
+    const un = listen<{ id: string; received: number; total?: number }>("model-download", (e) => setDownloading(e.payload));
+    return () => { void un.then((f) => f()); };
+  }, []);
+  /** Tries the China mirror first, then the original source if that fails: no setting needed. */
+  // Phones have no local models to download: the cloud stand-in is always ready.
+  const start = async (_id: string, _legacy?: boolean) => { onDone(); return true; };
+  return { downloading, start, cancel: (id: string) => api.cancelJob(`model:${id}`) };
+}
+
+/** The one line under the tabs that says how this episode's subtitles stand, with the one action that applies. */
+function StatusLine({ left, text, spin, progress, action, right, title }: { left?: React.ReactNode; text: React.ReactNode; spin?: boolean; progress?: number; action?: React.ReactNode; right?: React.ReactNode; title?: string }) {
+  return (
+    <div className="status-line" title={title}>
+      {left}
+      <span className="status-text" key={typeof text === "string" ? text : undefined}>{spin && <Loader2 size={13} className="spin" />}{text}</span>
+      {progress != null && <div className="bar slim"><div style={{ width: `${Math.max(2, progress * 100)}%` }} /></div>}
+      <div className="spacer" />
+      {action}
+      {right}
+    </div>
+  );
+}
+
+export function TranscriptPanel({ ep }: { ep: Episode }) {
+  const transcript = useJobs((s) => s.transcripts[ep.id]);
+  const official = useJobs((s) => s.officialChecked[ep.id]);
+  const officialError = useJobs((s) => s.officialError[ep.id]);
+  const translation = useJobs((s) => s.translations[ep.id]);
+  const { time, player, settings, saveSettings, current, openSettings } = useStore(useShallow((s) => ({ time: s.time, player: s.player, settings: s.settings, saveSettings: s.saveSettings, current: s.current, openSettings: s.openSettings })));
+  const isCurrent = current?.id === ep.id;
+  const list = useRef<HTMLDivElement>(null);
+  const userScrolled = useRef(0);
+  const searchInput = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [hit, setHit] = useState(0);
+  const [startError, setStartError] = useState<string | null>(null);
+  const [canUpgrade, setCanUpgrade] = useState(false);
+  const segments = transcript?.segments ?? [];
+  const active = isCurrent ? activeIndex(segments, time) : -1;
+  const seek = (t: number) => { if (isCurrent) player?.seek(t); };
+  const wantsZh = transcript ? needsTranslation(transcript) : false;
+  const mode = wantsZh ? settings.subtitleMode : "original";
+
+  useEffect(() => { if (transcript) void loadTranslation(ep.id, transcript.segments.length); }, [transcript, ep.id]);
+  useEffect(() => { void llmReady("translate").then(setCanUpgrade); }, [settings]);
+
+
+  useEffect(() => {
+    if (active < 0 || Date.now() - userScrolled.current < 5000 || query) return;
+    list.current?.querySelector<HTMLElement>("[data-active]")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [active, query]);
+
+  // ⌘F searches the transcript; Enter / ⇧Enter step through matches.
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); setSearching(true); setTimeout(() => searchInput.current?.focus(), 0); } };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+
+  const matches = useMemo(() => {
+    if (!query) return null;
+    const q = query.toLowerCase();
+    return segments.map((s, i) => (s.text.toLowerCase().includes(q) || translation?.items[i]?.toLowerCase().includes(q) ? i : -1)).filter((i) => i >= 0);
+  }, [query, segments, translation]);
+  useEffect(() => { setHit(0); }, [query]);
+  useEffect(() => { list.current?.querySelector<HTMLElement>("[data-hit]")?.scrollIntoView({ block: "center" }); }, [hit, matches]);
+
+  if (!transcript) return <NoTranscript ep={ep} official={official} officialError={officialError} />;
+
+  const total = segments.length;
+  const done = Math.min(total, translation?.items.slice(0, total).filter((x) => x != null).length ?? 0);
+  const running = !!translation?.running;
+  const providerName = providerFor(settings, "translate")?.name;
+  const engineName = translation?.engine === "shared" ? t("共享译文") : translation?.engine === "youtube" ? t("节目方中文字幕") : translation?.engine === "google" ? t("谷歌翻译") : t("{name}翻译", { name: providerName ? t(providerName) : t("模型") });
+  const error = startError ?? translation?.error;
+  const pending = wantsZh && (running || (!error && done < total));
+  const start = (force?: "llm" | "google") => { setStartError(null); translateEpisode(ep, transcript, force).catch((e) => setStartError(rawErrorText(e))); };
+
+  const modeControl = wantsZh && (
+    <div className="seg-control" role="radiogroup" aria-label={t("字幕显示（快捷键 C）")}>
+      {(["bilingual", "translation", "original"] as const).map((m) => (
+        <button key={m} role="radio" aria-checked={settings.subtitleMode === m} className={settings.subtitleMode === m ? "on" : ""} onClick={() => saveSettings({ subtitleMode: m })}>
+          {m === "bilingual" ? t("双语") : m === "translation" ? t("中文") : t("原文")}
+        </button>
+      ))}
+    </div>
+  );
+  const searchBtn = <>
+    {transcript.source.startsWith("youtube") && <TrackPicker ep={ep} language={transcript.language} auto={transcript.source === "youtube-auto"} />}
+    <button className="icon-btn" title={t("搜索文稿（⌘F）")} onClick={() => { setSearching(true); setTimeout(() => searchInput.current?.focus(), 0); }}><Search size={15} /></button>
+    {wantsZh && canUpgrade && <PanelMenu ep={ep} onRetranslate={() => start("llm")} />}
+  </>;
+  const source = SOURCE_LABEL[transcript.source] ? t(SOURCE_LABEL[transcript.source]) : transcript.source;
+
+  let status: React.ReactNode;
+  if (!wantsZh) status = <StatusLine left={<span className="source-tag">{source}</span>} text="" right={searchBtn} />;
+  else if (running) status = <StatusLine left={modeControl} text={t("{engine} · 正在翻译 {done}/{total}", { engine: engineName, done, total })} spin progress={done / total} action={<button className="btn ghost sm" onClick={() => stopTranslation(ep.id)}>{t("停止")}</button>} right={searchBtn} />;
+  else if (error && /设置|API Key|模型/.test(error)) status = <StatusLine left={modeControl} text={tr(error)} action={<button className="btn primary sm" onClick={() => openSettings("model")}>{t("去设置")}</button>} right={searchBtn} />;
+  else if (done < total && (error || translation?.failed)) status = <StatusLine left={modeControl} text={`${t("已翻译 {done}/{total}", { done, total })}${error ? ` · ${tr(error).slice(0, 40)}` : ""}`} action={<button className="btn primary sm" onClick={() => start()}>{t("重试")}</button>} right={searchBtn} />;
+  else if (done < total) status = <StatusLine left={modeControl} text={done ? t("已翻译 {done}/{total}", { done, total }) : source} action={<button className="btn primary sm" onClick={() => start()}>{done ? t("继续翻译") : t("翻译成中文")}</button>} right={searchBtn} />;
+  else status = <StatusLine left={modeControl} text="" title={`${source} · ${engineName}`} action={translation?.engine === "google" && canUpgrade ? <button className="btn ghost sm" onClick={() => start("llm")}>{t("用模型重译")}</button> : undefined} right={searchBtn} />;
+
+  const rows = matches ?? segments.map((_, i) => i);
+  return (
+    <div className="transcript">
+      {status}
+      {searching && (
+        <div className="search-row">
+          <Search size={14} />
+          <input ref={searchInput} spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("搜索中文或原文")}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") { setQuery(""); setSearching(false); }
+              if (e.key === "Enter" && matches?.length) setHit((h) => (h + (e.shiftKey ? -1 : 1) + matches.length) % matches.length);
+            }} />
+          {matches && <span className="muted small">{matches.length ? `${hit + 1}/${matches.length}` : t("无结果")}</span>}
+          <button className="icon-btn sm" onClick={() => { setQuery(""); setSearching(false); }} aria-label={t("关闭搜索")}><X size={14} /></button>
+        </div>
+      )}
+      <div className="lines" ref={list} onWheel={() => (userScrolled.current = Date.now())}>
+        {rows.map((i, k) => (
+          <Row key={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} mode={mode} pending={pending} onSeek={seek} query={query} current={!!matches && k === hit} />
+        ))}
+        {!matches && total > 0 && (
+          <div className={`lines-end ${active === total - 1 ? "reached" : ""}`}>
+            <FlatLineArt />
+            {active === total - 1 && <p>{t("到最后一句了，耳朵辛苦了")}</p>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "…" on the subtitle bar: the rarer tools (本集术语表, retranslating with the model). */
+function PanelMenu({ ep, onRetranslate }: { ep: Episode; onRetranslate: () => void }) {
+  const [menu, setMenu] = useState(false);
+  const [gloss, setGloss] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menu) return;
+    const h = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setMenu(false); };
+    document.addEventListener("pointerdown", h);
+    return () => document.removeEventListener("pointerdown", h);
+  }, [menu]);
+  return (
+    <div className="panel-menu" ref={box}>
+      <button className="icon-btn" title={t("更多")} aria-label={t("更多")} aria-expanded={menu} onClick={() => setMenu(!menu)}><Ellipsis size={15} /></button>
+      {menu && (
+        <div className="panel-menu-pop" role="menu">
+          <button role="menuitem" onClick={() => { setMenu(false); setGloss(true); }}><BookA size={14} /> {t("本集术语表…")}</button>
+          <button role="menuitem" onClick={() => { setMenu(false); onRetranslate(); }}><RefreshCw size={14} /> {t("用模型重新翻译")}</button>
+        </div>
+      )}
+      {gloss && <Glossary ep={ep} onRetranslate={onRetranslate} onClose={() => setGloss(false)} />}
+    </div>
+  );
+}
+
+/** The episode's names and terms (made before translating), editable; edits are kept when it is remade. */
+function Glossary({ ep, onRetranslate, onClose }: { ep: Episode; onRetranslate: () => void; onClose: () => void }) {
+  const [open, setOpenRaw] = useState(false);
+  const setOpen = (v: boolean) => { setOpenRaw(v); if (!v) onClose(); };
+  useEffect(() => { void load(); }, []);
+  const [ctx, setCtx] = useState<EpisodeContext | null>(null);
+  const [rows, setRows] = useState<{ src: string; zh: string; user?: boolean }[]>([]);
+  useLang((s) => s.lang);
+  const load = async () => {
+    let c: EpisodeContext | null = null;
+    try { const raw = await api.getBlob(ep.id, "ctx"); c = raw ? JSON.parse(raw) : null; } catch { c = null; }
+    setCtx(c); setRows(c?.terms ?? []); setOpen(true);
+  };
+  const save = async (andRetranslate: boolean) => {
+    const terms = rows.map((r) => ({ src: r.src.trim(), zh: r.zh.trim(), user: true })).filter((r) => r.src && r.zh);
+    const next: EpisodeContext = { summary: ctx?.summary ?? "", speakers: ctx?.speakers ?? [], terms, basis: ctx?.basis };
+    await api.setBlob(ep.id, "ctx", JSON.stringify(next));
+    setOpen(false);
+    if (andRetranslate) onRetranslate();
+  };
+  return (
+    <>
+      {open && (
+        <Modal title={t("本集术语表")} onClose={() => setOpen(false)}>
+          <div className="gloss">
+            <p className="muted small">{t("翻译每一句时都会照这里的译法，保证人名和术语前后一致。改动会保留。")}</p>
+            {ctx?.summary && <p className="gloss-summary">{ctx.summary}</p>}
+            <div className="gloss-list">
+              {rows.map((r, i) => (
+                <div className="gloss-row" key={i}>
+                  <input value={r.src} placeholder={t("原文")} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, src: e.target.value } : x)))} />
+                  <span className="arrow">→</span>
+                  <input value={r.zh} placeholder={t("译为")} onChange={(e) => setRows(rows.map((x, j) => (j === i ? { ...x, zh: e.target.value } : x)))} />
+                  <button className="icon-btn sm" aria-label={t("删除")} onClick={() => setRows(rows.filter((_, j) => j !== i))}><X size={13} /></button>
+                </div>
+              ))}
+              {!rows.length && <p className="muted small">{t("还没有术语。翻译开始时会自动整理，也可以自己添加。")}</p>}
+            </div>
+            <div className="gloss-foot">
+              <button className="btn sm" onClick={() => setRows([...rows, { src: "", zh: "" }])}>{t("添加")}</button>
+              <span className="spacer" />
+              <button className="btn sm" onClick={() => void save(false)}>{t("保存")}</button>
+              <button className="btn sm primary" onClick={() => void save(true)}>{t("保存并重新翻译")}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+const trackCache = new Map<string, { language: string; auto: boolean }[]>();
+/** The subtitle language, when the video has captions in more than one. */
+function TrackPicker({ ep, language, auto }: { ep: Episode; language: string; auto: boolean }) {
+  const [tracks, setTracks] = useState(trackCache.get(ep.id) ?? null);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useLang((s) => s.lang);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", h); document.addEventListener("keydown", k);
+    return () => { document.removeEventListener("pointerdown", h); document.removeEventListener("keydown", k); };
+  }, [open]);
+  useEffect(() => {
+    if (tracks) return;
+    void api.youtubeTracks(ep.id).then((list) => { trackCache.set(ep.id, list); setTracks(list); }).catch(() => {});
+  }, [ep.id]);
+  if (!tracks || tracks.length < 2) return null;
+  let names: Intl.DisplayNames | null = null;
+  try { names = new Intl.DisplayNames([lang()], { type: "language" }); } catch { /* old WebView */ }
+  const name = (l: string) => { try { return names?.of(l) ?? l; } catch { return l; } };
+  const label = (x: { language: string; auto: boolean }) => `${name(x.language)}${x.auto ? ` · ${t("自动生成")}` : ""}`;
+  const pick = async (x: { language: string; auto: boolean }) => {
+    setOpen(false);
+    if (x.language === language && x.auto === auto) return;
+    setBusy(true);
+    try { await switchYoutubeTrack(ep, x.language, x.auto); }
+    catch (e) { useStore.getState().notify(t("切换字幕失败：{error}", { error: errorText(e) })); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="panel-menu" ref={box}>
+      <button className="track-pick" title={t("字幕语言")} aria-label={t("字幕语言")} aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}>
+        {busy ? <Loader2 size={13} className="spin" /> : <Languages size={14} />}
+        <span>{label({ language, auto })}</span>
+        <ChevronDown size={12} className={open ? "flip" : ""} />
+      </button>
+      {open && (
+        <div className="panel-menu-pop" role="menu">
+          {tracks.map((x) => {
+            const on = x.language === language && x.auto === auto;
+            return <button key={`${x.auto}:${x.language}`} role="menuitemradio" aria-checked={on} className={on ? "on" : ""} onClick={() => void pick(x)}><Check size={14} className="pick-check" />{label(x)}</button>;
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** What the episode's pickers offer: the main cloud services and whatever is in use. The rest are in Settings
+ *  (the 「更多…」 entry opens it). */
+const pickerCloud = (s: Settings) => ASR_SERVICES.filter((a) => CLOUD_ASR_MAIN.includes(a.id) || s.asrEngine === a.id);
+
+/** Episodes transcription was started for automatically this session (never twice). */
+const autoStarted = new Set<string>();
+
+function NoTranscript({ ep, official, officialError }: { ep: Episode; official?: string; officialError?: string }) {
+  const asr = useJobs((s) => s.asr[ep.id]);
+  const { settings, saveSettings, player, current } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings, player: s.player, current: s.current })));
+  const { models, refresh } = useModels();
+  const { downloading, start, cancel } = useModelDownload(refresh);
+  const [options, setOptions] = useState(false);
+  const model = models.find((m) => m.id === settings.asrModel) ?? models[0];
+  const cloud = settings.asrEngine !== "local" ? settings.cloudAsr[settings.asrEngine] : undefined;
+  const [cloudKey, setCloudKey] = useState<boolean | null>(null);
+  const settingsOpen = useStore((s) => s.settingsOpen);
+  useEffect(() => {
+    setCloudKey(null);
+    // DeepSeek recognition shares the Q&A key.
+    if (cloud?.needsKey && !settingsOpen) void Promise.all([api.hasApiKey(`asr.${cloud.id}`), cloud.protocol === "deepseek" ? api.hasApiKey("deepseek") : Promise.resolve(false)]).then(([a, b]) => setCloudKey(a || b));
+  }, [cloud?.id, settingsOpen]);
+  const missingKey = !!cloud?.needsKey && cloudKey === false;
+  const pickEngine = (value: string) => {
+    if (value === "more") { useStore.getState().openSettings("asr"); return; }
+    const [kind, id] = value.split(":");
+    void saveSettings(kind === "cloud" ? { asrEngine: id } : { asrEngine: "local", asrModel: id });
+  };
+  const generate = async () => {
+    if (!model) return;
+    if (missingKey) { useStore.getState().openSettings("asr"); return; }
+    if (!cloud && !model.installed && !(await start(model.id, settings.mirrorFirst))) return;
+    void generateTranscript(ep, model.id, settings.asrLanguage);
+  };
+  const retry = () => useJobs.setState((s) => { const a = { ...s.asr }; delete a[ep.id]; return { asr: a }; });
+  // Once a way of transcribing is ready (local model downloaded, or a cloud service the listener chose with its
+  // key), pressing play on an episode that has no subtitles anywhere (cache, publisher, shared library: all
+  // checked by now) starts transcribing by itself. The first time still takes a click (it downloads ~1 GB).
+  const playing = useStore((s) => s.playing && s.current?.id === ep.id);
+  const ready = !!model && (cloud ? cloudKey === true || !cloud.needsKey : model.installed);
+  useEffect(() => {
+    if (playing && ready && official === "none" && !asr && !autoStarted.has(ep.id)) { autoStarted.add(ep.id); void generateTranscript(ep, model!.id, settings.asrLanguage); }
+  }, [playing, ready, official, !!asr, ep.id]);
+  /** Stops the running transcription and waits until it has stopped. */
+  const stopRunning = async () => {
+    await api.cancelJob(ep.id);
+    for (let i = 0; i < 80 && useJobs.getState().asr[ep.id]?.stage !== "error" && useJobs.getState().asr[ep.id]?.stage !== "done"; i++) await new Promise((r) => setTimeout(r, 100));
+    retry();
+  };
+  /** Mid-way, switch to another way of transcribing: the running one stops, the new one starts from the beginning. */
+  const switchEngine = async (value: string) => {
+    if (value === "more") { useStore.getState().openSettings("asr"); return; }
+    const [kind, id] = value.split(":");
+    await saveSettings(kind === "cloud" ? { asrEngine: id } : { asrEngine: "local", asrModel: id });
+    await stopRunning();
+    const m = kind === "cloud" ? models.find((x) => x.id === settings.asrModel) ?? models[0] : models.find((x) => x.id === id);
+    if (!m) return;
+    if (kind !== "cloud" && !m.installed && !(await start(m.id, settings.mirrorFirst))) return;
+    void generateTranscript(ep, m.id, settings.asrLanguage);
+  };
+
+  if (official === "searching" || official === undefined) {
+    return <div className="transcript"><StatusLine text={t("正在查找字幕…")} spin /><SkeletonLines /></div>;
+  }
+  if (downloading) {
+    const pct = downloading.total ? downloading.received / downloading.total : 0;
+    return (
+      <GenCard icon={<TrayArt busy />} title={t("正在准备识别模型")} note={t("只需下载这一次，完成后自动生成字幕。可以先听着。")}>
+        <div className="gen-progress"><div className="bar live"><div style={{ width: `${Math.max(2, pct * 100)}%` }} /></div><span>{Math.round(pct * 100)}%</span></div>
+        {downloading.total ? <p className="gen-size num">{bytes(downloading.received)} / {bytes(downloading.total)}</p> : null}
+        <button className="btn ghost sm" onClick={() => cancel(downloading.id)}>{t("取消")}</button>
+      </GenCard>
+    );
+  }
+  if (asr && asr.stage !== "done") {
+    if (asr.stage === "error") {
+      return (
+        <GenCard icon={<CassetteArt mode="tangled" />} title={t("字幕没有生成成功")} note={t("可以换一个识别模型，或检查网络后再试。")}>
+          {asr.message && <p className="gen-warn" title={tr(asr.message)}><span>{plainError(tr(asr.message))}</span></p>}
+          <button className="btn primary gen-go" onClick={retry}>{t("重试")}</button>
+        </GenCard>
+      );
+    }
+    const label = asr.message ? tr(asr.message) : asr.stage === "download" ? t("正在获取音频") : ep.duration ? t("正在识别 · {elapsed} / {total}", { elapsed: clock(asr.progress * ep.duration), total: clock(ep.duration) }) : t("正在识别");
+    return (
+      <div className="transcript">
+        <StatusLine text={`${label} · ${Math.round(asr.progress * 100)}%`} spin progress={asr.progress} action={
+          <span className="row-actions tight">
+            <select className="engine-switch-mini" aria-label={t("换一种识别方式")} title={t("换一种识别方式（从头开始）")} value="" onChange={(e) => e.target.value && void switchEngine(e.target.value)}>
+              <option value="">{t("换一种方式…")}</option>
+              <optgroup label={t("云端服务 · 更快，需要 Key")}>
+                {pickerCloud(settings).filter((a) => settings.asrEngine !== a.id).map((a) => <option key={a.id} value={`cloud:${a.id}`}>{t(a.name)}</option>)}
+              </optgroup>
+              <option value="more">{t("更多")}…</option>
+            </select>
+            <button className="btn ghost sm" onClick={() => void stopRunning()}>{t("取消")}</button>
+          </span>
+        } />
+        <div className="lines">
+          {asr.live.map((s, i) => (
+            <div className="line live" key={i} role="button" tabIndex={0} onClick={() => current?.id === ep.id && player?.seek(s.start)}>
+              <span className="line-time">{clock(s.start)}</span>
+              <div className="line-text"><p className="orig">{s.text}{i === asr.live.length - 1 && <span className="live-caret" aria-hidden />}</p></div>
+            </div>
+          ))}
+          {!asr.live.length && (
+            <div className="asr-wait">
+              <CassetteArt mode={asr.stage === "download" ? "fetch" : "listen"} />
+              <p className="muted">{asr.stage === "download" ? t("先把音频取回来，马上开始听写") : t("识别完成后会一次性显示全部文字")}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <GenCard icon={<WaveToTextArt />} title={t("这集还没有字幕")}
+      note={cloud ? t("用{name}生成，音频会上传到该服务，速度更快。生成后自动翻译成中文。", { name: t(cloud.name) }) : t("用本机模型生成，音频只在这台电脑上处理。生成后自动翻译成中文。")}>
+      {official === "error" && officialError && <p className="gen-warn" title={tr(officialError)}><span>{t("节目自带的字幕没读到：{error}", { error: plainError(tr(officialError)) })}</span></p>}
+      <button className="btn primary gen-go" onClick={generate} disabled={!model}>{missingKey ? t("先填写 API Key") : t("生成字幕")}</button>
+      {missingKey && <p className="gen-size">{t("用{name}识别需要它的 API Key，填好就能开始", { name: t(cloud!.name) })}</p>}
+      <button className="link-btn gen-more" aria-expanded={options} onClick={() => setOptions(!options)}>{t("识别设置")}<ChevronDown size={12} className={options ? "flip" : ""} /></button>
+      {!options && <NightNote />}
+      {options && (
+        <div className="gen-options">
+          <label><span>{t("识别方式")}</span>
+            <select value={`cloud:${cloud?.id}`} onChange={(e) => pickEngine(e.target.value)}>
+              <optgroup label={t("云端服务 · 更快，需要 Key")}>
+                {pickerCloud(settings).map((a) => <option key={a.id} value={`cloud:${a.id}`}>{t(a.name)}</option>)}
+              </optgroup>
+              <option value="more">{t("更多")}…</option>
+            </select>
+          </label>
+        </div>
+      )}
+    </GenCard>
+  );
+}
+
+/** An error for reading: long addresses carry no meaning for the listener (the full text stays in the tooltip). */
+const plainError = (m: string) => m.replace(/[：:]?\s*https?:\/\/\S+/g, "").trim() || m;
+
+/** The centred card shown in the subtitle panel while an episode has no subtitles yet. */
+function GenCard({ icon, title, note, children }: { icon: React.ReactNode; title: string; note: string; children?: React.ReactNode }) {
+  return (
+    <div className="transcript">
+      <div className="gen-wrap">
+        <div className="gen-card">
+          <span className="gen-art" aria-hidden>{icon}</span>
+          <h3 className="gen-title">{title}</h3>
+          <p className="gen-note">{note}</p>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}

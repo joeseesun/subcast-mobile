@@ -1,0 +1,72 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "iOS",
+    "android"
+  ],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "opener:default",
+    "allow-add-subscription",
+    "allow-refresh-show",
+    "allow-refresh-all",
+    "allow-list-shows",
+    "allow-list-episodes",
+    "allow-recent-episodes",
+    "allow-get-episode",
+    "allow-remove-show",
+    "allow-set-progress",
+    "allow-search-podcasts",
+    "allow-search-show",
+    "allow-load-transcript",
+    "allow-fetch-official-transcript",
+    "allow-transcribe",
+    "allow-cancel-job",
+    "allow-get-blob",
+    "allow-set-blob",
+    "allow-get-settings",
+    "allow-set-settings",
+    "allow-set-api-key",
+    "allow-has-api-key",
+    "allow-llm-chat",
+    "allow-translate-texts",
+    "allow-shared-transcript",
+    "allow-shared-exists",
+    "allow-shared-guide",
+    "allow-share-guide",
+    "allow-log-listen",
+    "allow-listening-stats",
+    "allow-export-opml",
+    "allow-share-translation",
+    "allow-ui-ready",
+    "allow-refresh-config",
+    "allow-youtube-stream",
+    "allow-prepare-youtube",
+    "allow-youtube-tracks",
+    "allow-use-youtube-track",
+    "allow-qiaomu-detail",
+    "allow-preview-show",
+    "allow-list-models",
+    "allow-tts-speak",
+    "allow-cached-show",
+    "allow-save-image",
+    "allow-download-episode",
+    "allow-list-downloads",
+    "allow-delete-download",
+    "allow-clear-downloads",
+    "allow-storage-info",
+    "allow-clear-temp",
+    "allow-full-notes"
+  ],
+  "remote": {
+    "urls": [
+      "http://localhost:14327"
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-refresh-config"
+description = "Enables the refresh_config command without any pre-configured scope."
+commands.allow = ["refresh_config"]
+
+[[permission]]
+identifier = "deny-refresh-config"
+description = "Denies the refresh_config command without any pre-configured scope."
+commands.deny = ["refresh_config"]
