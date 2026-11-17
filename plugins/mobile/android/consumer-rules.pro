@@ -1,0 +1,1 @@
+-keep class ai.qiaomu.subcast.mobileplugin.** { *; }

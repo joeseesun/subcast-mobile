@@ -13,6 +13,7 @@
     "core:default",
     "core:event:default",
     "opener:default",
+    "mobile:default",
     "allow-add-subscription",
     "allow-refresh-show",
     "allow-refresh-all",

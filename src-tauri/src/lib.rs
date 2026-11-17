@@ -958,6 +958,7 @@ async fn translate_texts(state: State<'_, AppState>, texts: Vec<String>, target:
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_mobile::init())
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data)?;

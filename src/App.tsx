@@ -13,6 +13,7 @@ import { AddDialog, MiniPlayer, Toast, TopBar } from "./components/Chrome";
 import { LibraryView, MobileNav } from "./components/MobileNav";
 import { DiscoverView, DownloadsView, LatestView, RecentView, ShowView, ChannelView, firstRunSetup } from "./components/Lists";
 import { startOffline } from "./lib/offline";
+import { startNowPlaying } from "./lib/nowplaying";
 import { loadFavorites } from "./lib/library";
 import { EpisodeView } from "./components/EpisodeView";
 import { StatsView } from "./components/StatsView";
@@ -32,6 +33,7 @@ export default function App() {
 
   useEffect(() => {
     startJobListeners();
+    startNowPlaying();
     void startOffline();
     void loadFavorites();
     // Listening time is flushed when playback stops, not only every 20 s.
