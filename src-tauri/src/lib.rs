@@ -675,7 +675,7 @@ async fn transcribe(app: AppHandle, state: State<'_, AppState>, episode_id: Stri
         return Ok(t);
     }
     let _ = model; // phones have no local recogniser: every transcription is a cloud one
-    if cloud.is_none() { return Err("请先在 设置 › 字幕识别 里选一个云端识别服务并填好 Key".into()); }
+    if cloud.is_none() { return Err("请先在 设置 › 字幕 里选一个云端识别服务并填好 Key".into()); }
     let cancel = state.job(&episode_id);
     let work = state.data.join("work").join(&episode_id);
     let result = async {
