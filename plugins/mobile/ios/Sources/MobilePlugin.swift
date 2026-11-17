@@ -29,8 +29,10 @@ class MobilePlugin: Plugin {
   private var artwork: MPMediaItemArtwork?
   private var commandsReady = false
   private var interruptions: [NSObjectProtocol] = []
+  private weak var podcastWebView: WKWebView?
 
   override func load(webview: WKWebView) {
+    podcastWebView = webview
     // .playback keeps the web view's <audio> going with the screen locked or the app in the background
     // (with UIBackgroundModes = audio in Info.plist) and ignores the mute switch, like any podcast app.
     let session = AVAudioSession.sharedInstance()
@@ -57,6 +59,7 @@ class MobilePlugin: Plugin {
   }
 
   private let podcast = PodcastAudio()
+  private let podcastVideo = PodcastVideoSurface()
   private var glassDock: AnyObject?
 
   @objc public func updateGlassDock(_ invoke: Invoke) throws {
@@ -76,8 +79,39 @@ class MobilePlugin: Plugin {
   @objc public func podcastAudio(_ invoke: Invoke) throws {
     let command = try invoke.parseArgs(PodcastCommand.self)
     DispatchQueue.main.async {
-      self.podcast.notify = { [weak self] data in self?.trigger("podcast", data: data) }
-      self.podcast.apply(command)
+      switch command.action {
+      case "video-layout":
+        if self.podcast.session == command.session, let layout = command.layout {
+          self.podcastVideo.update(layout)
+        }
+      case "video-fullscreen":
+        guard self.podcast.session == command.session, let controller = self.manager.viewController,
+              self.podcastVideo.showFullscreen(from: controller) else {
+          invoke.reject("Full-screen video is unavailable")
+          return
+        }
+      default:
+        if command.action == "prepare" || (command.action == "dispose" && self.podcast.session == command.session) {
+          self.podcastVideo.stop()
+        }
+        self.podcastVideo.didReturnInline = { [weak self] in self?.podcast.returnedToInlineVideo() }
+        self.podcast.isSystemVideoFullscreen = { [weak self] in self?.podcastVideo.isFullscreen ?? false }
+        self.podcast.notify = { [weak self] data in
+          if let playing = data["playing"] as? Bool, let waiting = data["waiting"] as? Bool {
+            self?.podcastVideo.setTransport(playing: playing, waiting: waiting)
+          }
+          self?.trigger("podcast", data: data)
+        }
+        self.podcast.apply(command)
+        if command.action == "prepare", command.video == true {
+          guard command.session == self.podcast.session, let player = self.podcast.player,
+                let webView = self.podcastWebView, let root = self.manager.viewController?.view else {
+            invoke.reject("Inline video is unavailable")
+            return
+          }
+          self.podcastVideo.attach(player, webView: webView, host: root)
+        }
+      }
       invoke.resolve()
     }
   }

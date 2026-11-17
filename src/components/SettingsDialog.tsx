@@ -1,6 +1,6 @@
 import { ask } from "../lib/confirm";
 import { useShallow } from "zustand/react/shallow";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { BookOpen, Check, ChevronLeft, ChevronRight, ChevronDown, ExternalLink, Github, Loader2, MessageCircle, RefreshCw, Trash2, Captions, HardDrive, Info, PlayCircle, Mic, Volume2, SlidersHorizontal, Sparkles } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
@@ -121,6 +121,7 @@ export function SettingsDialog() {
   const initial = useStore((s) => s.settingsSection);
   const [section, setSection] = useState<Section | null>(() => settingPage(initial)?.id ?? null);
   const [nativeIndex, setNativeIndex] = useState(IS_MAC);
+  const presentation = useRef<Promise<string | null> | null>(null);
   const [provider, setProvider] = useState<string | null>(null);
   const providerName = useStore((state) => provider ? state.settings.providers[provider]?.name : undefined);
   const lang = useLang((s) => s.lang);
@@ -129,17 +130,20 @@ export function SettingsDialog() {
   useEffect(() => {
     if (section || !nativeIndex) return;
     let active = true;
-    void invoke<string | null>("plugin:mobile|present_settings_index", {
+    const pending = presentation.current ??= invoke<string | null>("plugin:mobile|present_settings_index", {
       state: {
         title: t("设置"), done: t("完成"),
         groups: SETTING_GROUPS.map((group) => group.map(({ id, label, symbol }) => ({ id, title: t(label), symbol }))),
       },
-    }).then((choice) => {
+    });
+    void pending.then((choice) => {
       if (!active) return;
       if (choice === "") close();
       else if (choice && settingPage(choice)) setSection(settingPage(choice)!.id);
       else setNativeIndex(false);
-    }).catch(() => { if (active) setNativeIndex(false); });
+    }).catch(() => { if (active) setNativeIndex(false); }).finally(() => {
+      if (presentation.current === pending) presentation.current = null;
+    });
     return () => { active = false; };
   }, [section, nativeIndex, lang]);
 
@@ -224,7 +228,6 @@ function GeneralSettings() {
         ...LANGS.map((language) => [language.id, language.name] as const),
       ]} onChange={(uiLang) => void saveSettings({ uiLang })} />
       <SettingsSwitch label={t("推荐「词元之外」")} value={!settings.homeBannerHidden} onChange={(on) => void saveSettings({ homeBannerHidden: !on })} />
-      <SettingsSwitch label={t("显示节目的 YouTube 订阅按钮")} value={settings.youtubePromo} onChange={(youtubePromo) => void saveSettings({ youtubePromo })} />
     </SettingGroup>
     <SettingGroup title={t("订阅")}>
       <button className="ios-setting-action" onClick={() => set({ settingsOpen: false, addOpen: true, addTab: "import" })}>{t("导入订阅…")}<ChevronRight size={18} /></button>

@@ -1621,11 +1621,6 @@ body.tape-seek .seek::-webkit-slider-thumb { border-radius: 3px; width: 12px; he
 .controls { position: relative; }
 .play-btn.loading { opacity: .85; }
 /* First run */
-.welcome-card { position: relative; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 16px 44px 16px 18px; margin-bottom: 18px; border-radius: 14px; background: var(--accent-soft); }
-.welcome-text { flex: 1; min-width: 240px; }
-.welcome-text p { margin: 0; }
-.welcome-title { font-size: 15px; font-weight: 650; margin-bottom: 4px !important; }
-.welcome-close { position: absolute; top: 10px; right: 10px; }
 .model-elsewhere { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--text-2); line-height: 1.6; }
 /* Settings › 阅读与字幕 */
 .subtitle-overlay p, .asub-line p, .lines .line-text p { font-family: var(--sub-font, inherit); }

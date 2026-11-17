@@ -24,6 +24,7 @@ export interface PlayerHandle {
   toggleMute?(): boolean;
   /** The episode this player plays. A video's player can be ready before the episode becomes current. */
   episodeId?: string;
+  systemVideo?: boolean;
 }
 
 interface State {
@@ -46,8 +47,7 @@ interface State {
   loadingSince?: number | null;
   /** Play as soon as the player for `current` is ready (it may take a few seconds to appear). */
   playWhenReady?: string | null;
-  /** First run: show the welcome card; shows are being subscribed in the background. */
-  welcome?: boolean;
+  /** Starter shows are being subscribed in the background. */
   settingUp?: boolean;
   /** The video fills the window (and the window the screen), subtitles on it. */
   theater?: boolean;

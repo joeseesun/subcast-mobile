@@ -550,7 +550,11 @@ async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: St
     // A direct address may require the issuing client's User-Agent or the user's in-app proxy.
     // WebKit cannot set those headers. The loopback route retains them for every range and HLS segment.
     let relay = matches!(mode.as_str(), "relay-hls" | "relay-mp4" | "proxy-hls") || !net::proxy().is_empty();
-    let cached = if relay || fresh.unwrap_or(false) { None } else { asr::streams::get(&key) };
+    let ios_progressive = cfg!(target_os = "ios") && mode == "native-hls";
+    let hls = |url: &str| url.contains("m3u8") || url.contains("/manifest/hls");
+    let cached = if relay || fresh.unwrap_or(false) { None } else {
+        asr::streams::get(&key).filter(|url| !ios_progressive || hls(url))
+    };
     let (url, agent) = match cached {
         Some(url) => (url, String::new()),
         None => {
@@ -566,12 +570,13 @@ async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: St
                 "relay-hls" => s.hls,
                 _ => s.hls.or(s.mp4),
             }.ok_or("这个视频没有可直接播放的地址")?;
-            if !relay { asr::streams::put(&key, &url); }
+            if !relay && (!ios_progressive || hls(&url)) { asr::streams::put(&key, &url); }
             (url, s.ua)
         }
     };
-    let is_hls = url.contains("m3u8") || url.contains("/manifest/hls");
-    let url = if relay { hlsproxy::proxied(&url, &agent).await.map_err(e)? } else { url };
+    let is_hls = hls(&url);
+    let use_relay = relay || (ios_progressive && !is_hls);
+    let url = if use_relay { hlsproxy::proxied(&url, &agent, !is_hls).await.map_err(e)? } else { url };
     Ok(VideoStream { url, kind: if is_hls { "hls" } else { "mp4" } })
 }
 

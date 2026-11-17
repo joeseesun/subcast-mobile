@@ -31,9 +31,9 @@ async fn base() -> Result<String> {
 }
 
 /// The proxied address of a YouTube HLS playlist.
-pub async fn proxied(url: &str, agent: &str) -> Result<String> {
+pub async fn proxied(url: &str, agent: &str, mp4: bool) -> Result<String> {
     let root = format!("{}/{}", base().await?, urlencoding::encode(agent));
-    Ok(wrap(&root, url))
+    Ok(if mp4 { format!("{root}/p.mp4?u={}", urlencoding::encode(url)) } else { wrap(&root, url) })
 }
 
 fn wrap(base: &str, url: &str) -> String {
@@ -58,6 +58,64 @@ fn rewrite(playlist: &str, from: &Url, base: &str) -> String {
     }).collect::<Vec<_>>().join("\n")
 }
 
+const MP4_WINDOW: u64 = 4 * 1024 * 1024;
+
+fn byte_range(range: &str) -> Option<(u64, Option<u64>)> {
+    let (from, to) = range.strip_prefix("bytes=")?.split_once('-')?;
+    let start = from.parse::<u64>().ok()?;
+    let end = if to.is_empty() { None } else { Some(to.parse::<u64>().ok()?) };
+    if end.is_some_and(|end| end < start) { return None }
+    Some((start, end))
+}
+
+fn range_window(start: u64, end: Option<u64>) -> String {
+    let limit = start.saturating_add(MP4_WINDOW - 1);
+    format!("bytes={start}-{}", end.unwrap_or(limit).min(limit))
+}
+
+fn content_range(response: &reqwest::Response) -> Option<(u64, u64, u64)> {
+    let value = response.headers().get("content-range")?.to_str().ok()?.strip_prefix("bytes ")?;
+    let (span, total) = value.split_once('/')?;
+    let (start, end) = span.split_once('-')?;
+    let (start, end, total) = (start.parse().ok()?, end.parse().ok()?, total.parse().ok()?);
+    (start <= end && end < total).then_some((start, end, total))
+}
+
+/// The CDN can throttle very large ranges to playback speed. Read a progressive
+/// file in bounded windows while returning the full range AVPlayer requested.
+async fn serve_mp4(
+    sock: &mut TcpStream,
+    request: reqwest::RequestBuilder,
+    mut response: reqwest::Response,
+    kind: &str,
+    first: (u64, u64, u64),
+    end: u64,
+) -> Result<()> {
+    let (start, mut last, total) = first;
+    let length = end - start + 1;
+    sock.write_all(format!("HTTP/1.1 206 Partial Content\r\nContent-Type: {kind}\r\n{CORS}Accept-Ranges: bytes\r\nContent-Range: bytes {start}-{end}/{total}\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n").as_bytes()).await?;
+    loop {
+        send_body(sock, response).await?;
+        if last == end { return Ok(()) }
+        let from = last + 1;
+        response = request.try_clone().ok_or_else(|| anyhow!("cannot repeat the MP4 request"))?
+            .header("Range", range_window(from, Some(end))).send().await?.error_for_status()?;
+        let (next_start, next_end, next_total) = content_range(&response).ok_or_else(|| anyhow!("missing MP4 content range"))?;
+        if next_start != from || next_total != total || next_end > end {
+            return Err(anyhow!("unexpected MP4 content range"));
+        }
+        last = next_end;
+    }
+}
+
+async fn send_body(sock: &mut TcpStream, response: reqwest::Response) -> Result<()> {
+    let mut body = response.bytes_stream();
+    while let Some(part) = body.next().await {
+        sock.write_all(&part?).await?;
+    }
+    Ok(())
+}
+
 const CORS: &str = "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: Range\r\nAccess-Control-Expose-Headers: Content-Length, Content-Range\r\n";
 
 async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
@@ -77,7 +135,9 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
         sock.write_all(format!("HTTP/1.1 204 No Content\r\n{CORS}Connection: close\r\n\r\n").as_bytes()).await?;
         return Ok(());
     }
-    let Some((agent_path, raw_url)) = path.strip_prefix(&format!("/{token}/")).and_then(|p| p.split_once("/p?u=").or_else(|| p.split_once("/p.m3u8?u="))) else { return Ok(()) };
+    let Some((agent_path, resource)) = path.strip_prefix(&format!("/{token}/")).and_then(|p| p.split_once('/')) else { return Ok(()) };
+    let Some((route, raw_url)) = resource.split_once("?u=") else { return Ok(()) };
+    if !matches!(route, "p" | "p.m3u8" | "p.mp4") { return Ok(()) }
     let agent = urlencoding::decode(agent_path)?;
     let target = urlencoding::decode(raw_url).ok()
         .and_then(|u| Url::parse(&u).ok())
@@ -87,18 +147,35 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
         return Ok(());
     };
     let client = net::client();
-    let mut req = match method {
+    let req = match method {
         "HEAD" => client.head(target.clone()),
         "GET" => client.get(target.clone()),
         _ => return Ok(()),
     }.header("User-Agent", agent.as_ref()).header("Accept-Encoding", "identity");
-    if let Some(r) = &range { req = req.header("Range", r); }
+    let progressive = if route == "p.mp4" && method == "GET" {
+        range.as_deref().and_then(byte_range)
+    } else {
+        None
+    };
+    let bounded = progressive.map(|(start, end)| range_window(start, end));
+    let repeat = bounded.as_ref().and_then(|_| req.try_clone());
+    let range = bounded.or(range);
+    let req = if let Some(r) = &range { req.header("Range", r) } else { req };
     let res = match req.send().await {
         Ok(r) => r,
         Err(_) => { sock.write_all(format!("HTTP/1.1 502 Bad Gateway\r\n{CORS}Content-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await?; return Ok(()); }
     };
     let status = res.status();
     let kind = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream").to_string();
+    if status == reqwest::StatusCode::PARTIAL_CONTENT {
+        if let (Some(request), Some((begin, requested_end)), Some(first)) = (repeat, progressive, content_range(&res)) {
+            let (start, last, total) = first;
+            let end = requested_end.unwrap_or(total - 1).min(total - 1);
+            if start == begin && last < end {
+                return serve_mp4(&mut sock, request, res, &kind, first, end).await;
+            }
+        }
+    }
     if method == "GET" && status.is_success() && (kind.contains("mpegurl") || is_playlist_path(target.path())) {
         let from = res.url().clone();
         let body = rewrite(&res.text().await?, &from, &format!("{base}/{agent_path}"));
@@ -112,16 +189,25 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
     }
     sock.write_all(format!("HTTP/1.1 {} {}\r\nContent-Type: {kind}\r\n{CORS}{extra}Connection: close\r\n\r\n", status.as_u16(), status.canonical_reason().unwrap_or("")).as_bytes()).await?;
     if method == "HEAD" { return Ok(()); }
-    let mut body = res.bytes_stream();
-    while let Some(part) = body.next().await {
-        sock.write_all(&part.map_err(|e| anyhow!(e))?).await?;
-    }
-    Ok(())
+    send_body(&mut sock, res).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounds_open_ended_and_full_file_ranges() {
+        let (start, end) = byte_range("bytes=0-179130727").unwrap();
+        assert_eq!(range_window(start, end), "bytes=0-4194303");
+        let (start, end) = byte_range("bytes=100001-").unwrap();
+        assert_eq!(range_window(start, end), "bytes=100001-4294304");
+        let (start, end) = byte_range("bytes=0-1").unwrap();
+        assert_eq!(range_window(start, end), "bytes=0-1");
+        assert_eq!(byte_range("bytes=-256"), None);
+        assert_eq!(byte_range("bytes=0-1,8-9"), None);
+        assert_eq!(byte_range("bytes=9-8"), None);
+    }
+
     #[test]
     fn playlists_point_back_through_the_proxy() {
         let from = Url::parse("https://manifest.googlevideo.com/api/manifest/hls_variant/id/1/file/index.m3u8").unwrap();
@@ -148,7 +234,7 @@ mod live {
     #[tokio::test]
     #[ignore]
     async fn serve_for_a_browser() {
-        let url = super::proxied(&std::env::var("HLS_URL").unwrap(), crate::net::UA).await.unwrap();
+        let url = super::proxied(&std::env::var("HLS_URL").unwrap(), crate::net::UA, false).await.unwrap();
         std::fs::write("/tmp/proxied-hls.txt", &url).unwrap();
         println!("{url}");
         tokio::time::sleep(std::time::Duration::from_secs(50)).await;

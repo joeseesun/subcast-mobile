@@ -21,8 +21,8 @@ export function VideoSlot({ ep, overlay, onUnplayable }: Omit<Slot, "el">) {
     useVideoDock.setState({ slot: { ep, el, overlay, onUnplayable }, floating: null });
     return () => {
       const s = useStore.getState();
-      const playing = s.current?.id === ep.id && s.playing;
-      useVideoDock.setState((d) => (d.slot?.el === el ? { slot: null, floating: playing ? { ep, overlay } : null } : d));
+      const keep = s.current?.id === ep.id && (s.playing || s.playWhenReady === ep.id || s.player?.systemVideo);
+      useVideoDock.setState((d) => (d.slot?.el === el ? { slot: null, floating: keep ? { ep, overlay } : null } : d));
     };
   }, [ep.id]);
   useEffect(() => { useVideoDock.setState((d) => (d.slot?.el === ref.current ? { slot: { ...d.slot!, overlay, onUnplayable } } : d)); }, [overlay, onUnplayable]);
@@ -39,7 +39,7 @@ export function VideoDock() {
   useLayoutEffect(() => {
     const dock = box.current;
     if (!dock) return;
-    if (!slotElement) { dock.removeAttribute("style"); dock.removeAttribute("data-compact"); return; }
+    if (!slotElement) { dock.removeAttribute("style"); dock.removeAttribute("data-compact"); delete dock.dataset.clipTop; delete dock.dataset.clipBottom; return; }
     let frame = 0;
     const column = slotElement.closest(".ep-left") ?? document.body;
     const measure = () => {
@@ -48,6 +48,8 @@ export function VideoDock() {
       const bounds = column.getBoundingClientRect();
       dock.toggleAttribute("data-compact", r.height < 80);
       const top = Math.max(0, bounds.top - r.top), bottom = Math.max(0, r.bottom - bounds.bottom);
+      dock.dataset.clipTop = String(top);
+      dock.dataset.clipBottom = String(bottom);
       Object.assign(dock.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px",
         clipPath: top || bottom ? `inset(${top}px 0 ${bottom}px 0 round 12px)` : "" });
     };

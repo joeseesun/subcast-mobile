@@ -8,12 +8,18 @@ struct PodcastCommand: Decodable {
   let url: String?
   let value: Double?
   let rate: Double?
+  let video: Bool?
+  let revision: Int?
+  let layout: PodcastVideoLayout?
 }
 
 /// One selected episode. Preparing an item may fetch and decode audio, but never starts the clock.
 final class PodcastAudio {
-  private var session = ""
-  private var player: AVPlayer?
+  private(set) var session = ""
+  private(set) var player: AVPlayer?
+  private var hasVideo = false
+  private var stallTimer: DispatchWorkItem?
+  var isSystemVideoFullscreen: (() -> Bool)?
   private var itemStatus: NSKeyValueObservation?
   private var playerStatus: NSKeyValueObservation?
   private var positioning = false
@@ -21,6 +27,7 @@ final class PodcastAudio {
   private var periodic: Any?
   private var notifications = [NSObjectProtocol]()
   private var wantsPlay = false
+  private var revision = 0
   private var ready = false
   private var rate: Float = 1
   private var position: Double = 0
@@ -37,7 +44,8 @@ final class PodcastAudio {
       position = max(0, command.value ?? 0)
       rate = Float(command.rate ?? 1)
       let item = AVPlayerItem(url: url)
-      item.preferredForwardBufferDuration = 20
+      hasVideo = command.video == true
+      item.preferredForwardBufferDuration = hasVideo ? 12 : 20
       let p = AVPlayer(playerItem: item)
       player = p
       p.automaticallyWaitsToMinimizeStalling = true
@@ -48,7 +56,13 @@ final class PodcastAudio {
         DispatchQueue.main.async { self?.prepareIfReady(p) }
       }
       timeStatus = p.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
-        DispatchQueue.main.async { if self?.player === p { self?.publish() } }
+        DispatchQueue.main.async {
+          guard let self, self.player === p else { return }
+          if self.hasVideo && self.ready && self.isSystemVideoFullscreen?() == true {
+            self.wantsPlay = p.timeControlStatus != .paused
+          }
+          self.publish()
+        }
       }
       bufferObserver = item.observe(\.loadedTimeRanges, options: [.new]) { [weak self] _, _ in
         DispatchQueue.main.async {
@@ -86,8 +100,10 @@ final class PodcastAudio {
       return
     }
     guard session == command.session, let p = player else { return }
+    if let revision = command.revision { self.revision = revision }
     switch command.action {
     case "dispose": stop(); return
+    case "pause": wantsPlay = false; p.pause()
     case "toggle" where wantsPlay: wantsPlay = false; p.pause()
     case "toggle", "play": wantsPlay = true; if ready { start() }
     case "seek":
@@ -105,6 +121,12 @@ final class PodcastAudio {
     publish()
   }
 
+  func returnedToInlineVideo() {
+    guard hasVideo, ready, wantsPlay, let player, player.timeControlStatus == .paused else { return }
+    start()
+    publish()
+  }
+
   private func prepareIfReady(_ p: AVPlayer) {
     guard player === p, let item = p.currentItem else { return }
     if item.status == .failed || p.status == .failed { publish("failed"); return }
@@ -117,6 +139,8 @@ final class PodcastAudio {
       self.positioning = false
       if self.position != target { self.prepareIfReady(p); return }
       self.ready = true
+      self.stallTimer?.cancel()
+      self.stallTimer = nil
       if self.wantsPlay { self.start() }
       else if p.status == .readyToPlay && p.rate == 0 { p.preroll(atRate: self.rate) { _ in } }
       self.publish()
@@ -153,12 +177,28 @@ final class PodcastAudio {
     let duration = p.currentItem?.duration.seconds ?? 0
     let playing = p.timeControlStatus == .playing
     let buffered = bufferEnd()
+    let waiting = wantsPlay && !playing
+    if hasVideo && waiting && event != "failed" {
+      if stallTimer == nil {
+        let timer = DispatchWorkItem { [weak self, weak p] in
+          guard let self, let p, self.player === p, self.wantsPlay, p.timeControlStatus != .playing else { return }
+          self.publish("failed")
+        }
+        stallTimer = timer
+        // Opening a progressive file can require several metadata ranges before the first seek.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (ready ? 11 : 24), execute: timer)
+      }
+    } else {
+      stallTimer?.cancel()
+      stallTimer = nil
+    }
     notify?(["session": session, "event": event, "time": time.isFinite ? time : 0,
              "duration": duration.isFinite ? duration : 0, "buffer": buffered.isFinite ? buffered : 0,
-             "playing": playing, "waiting": wantsPlay && !playing])
+             "playing": playing, "waiting": waiting, "revision": revision])
   }
 
   private func stop() {
+    stallTimer?.cancel(); stallTimer = nil
     itemStatus = nil; playerStatus = nil; timeStatus = nil; bufferObserver = nil
     if let observer = periodic { player?.removeTimeObserver(observer) }
     notifications.forEach { NotificationCenter.default.removeObserver($0) }
@@ -167,6 +207,6 @@ final class PodcastAudio {
     player?.cancelPendingPrerolls()
     player?.pause()
     player?.replaceCurrentItem(with: nil)
-    player = nil; ready = false; positioning = false; wantsPlay = false; lastBuffer = -1
+    player = nil; ready = false; positioning = false; wantsPlay = false; lastBuffer = -1; hasVideo = false; revision = 0
   }
 }

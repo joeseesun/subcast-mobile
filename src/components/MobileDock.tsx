@@ -46,13 +46,14 @@ function useDockCovered() {
 }
 
 export function MobileDock() {
-  const { view, history, current, playing, loading, canPlay, progress } = useStore(useShallow((s) => ({
+  const { view, history, current, playing, loading, canPlay, progress, systemVideo } = useStore(useShallow((s) => ({
     view: s.view,
     history: s.history,
     current: s.current,
     playing: s.playing,
     loading: !!s.loadingSince,
     canPlay: !!s.player,
+    systemVideo: !!s.player?.systemVideo,
     progress: s.length > 0 ? Math.round((s.time / s.length) * 100) / 100 : 0,
   })));
   useLang((s) => s.lang);
@@ -60,7 +61,7 @@ export function MobileDock() {
   const [ready, setReady] = useState(false);
   const [native, setNative] = useState(false);
   const queue = useRef(Promise.resolve());
-  const mini = current && !current.videoId && !(view.kind === "episode" && view.id === current.id) ? current : null;
+  const mini = current && (!current.videoId || systemVideo) && !(view.kind === "episode" && view.id === current.id) ? current : null;
   const translated = useZh(mini?.title);
 
   useEffect(() => {
@@ -92,7 +93,7 @@ export function MobileDock() {
       title: translated ?? mini.title,
       show: mini.showTitle && mini.showId !== "single" ? showName(mini.showTitle) : null,
       artwork: mini.cover?.startsWith("http") ? mini.cover : null,
-      playLabel: playing ? t("暂停") : t("播放"),
+      playLabel: playing || loading ? t("暂停") : t("播放"),
       isPlaying: playing,
       isLoading: loading,
       canPlay,

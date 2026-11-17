@@ -140,10 +140,10 @@ function TaskChip() {
 export function MiniPlayer() {
   const loading = useStore((s) => s.loadingSince);
   const { current, view, playing, player, time, length, openEpisode } = useStore(useShallow((s) => ({ current: s.current, view: s.view, playing: s.playing, player: s.player, time: s.time, length: s.length, openEpisode: s.openEpisode })));
-  if (!current || current.videoId || (view.kind === "episode" && view.id === current.id)) return null;
+  if (!current || (current.videoId && !player?.systemVideo) || (view.kind === "episode" && view.id === current.id)) return null;
   return (
     <div className="mini">
-      <button className="play-btn sm" aria-label={playing ? t("暂停") : t("播放")} onClick={() => player?.toggle()} disabled={!player} aria-busy={!!loading}>{loading ? <Loader2 size={16} className="spin" /> : playing ? <BrandGlyph name="pause" size={19} /> : <BrandGlyph name="play" size={19} />}</button>
+      <button className="play-btn sm" aria-label={playing || loading ? t("暂停") : t("播放")} onClick={() => player?.toggle()} disabled={!player} aria-busy={!!loading}>{loading ? <Loader2 size={16} className="spin" /> : playing ? <BrandGlyph name="pause" size={19} /> : <BrandGlyph name="play" size={19} />}</button>
       <button className="mini-open" onClick={() => openEpisode(current)}>
         {current.cover && <img className="mini-cover" src={current.cover} alt="" />}
         <span className="mini-meta">

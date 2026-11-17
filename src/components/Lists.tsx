@@ -13,8 +13,6 @@ import { api, errorText, type Episode, type Show, type ShowHit } from "../lib/ap
 import { date, duration, monthLabel } from "../lib/format";
 import { PICKS, TOPICS, deepPickFor, isSubscribed, pickName, pickSub, sameFeed, showName, type Pick, type Topic } from "../lib/picks";
 import { isChineseUi, t } from "../lib/i18n";
-import { HOME_SHOW_FEED, showLinks } from "../lib/showLinks";
-import { AlsoOn, HomeShowBanner, YtButton } from "./YtPromo";
 import { useShowName, useZh } from "../lib/zh";
 import { useStore } from "../store";
 import { SkeletonFeed } from "./Skeleton";
@@ -264,7 +262,6 @@ export function LatestView() {
     try { const r = await api.addSubscription(input); await reloadShows(); if (r.show) notify(t("已订阅「{name}」", { name })); }
     catch (err) { notify(errorText(err)); } finally { setAdding(null); }
   };
-  const welcome = useStore((s) => s.welcome);
   const settingUp = useStore((s) => s.settingUp);
   return (
     <div className="page home">
@@ -274,7 +271,6 @@ export function LatestView() {
           document.querySelector<HTMLInputElement>(".top-search input")?.focus();
         }} aria-label={t("搜索节目")}><BrandGlyph name="search" /></button>
       </PageHeading>
-      {welcome && <WelcomeCard />}
       {featured && <ContinueHero ep={featured} continuing={!!hero} />}
       {upNext.length > 0 && (
         <section>
@@ -382,7 +378,6 @@ type Filter = "all" | "unplayed" | "subs";
 
 export function ShowView({ id }: { id: string }) {
   const { shows, reloadShows, notify, go } = useStore(useShallow((s) => ({ shows: s.shows, reloadShows: s.reloadShows, notify: s.notify, go: s.go })));
-  const ytPromo = useStore((s) => s.settings.youtubePromo);
   const show = shows.find((s) => s.id === id);
   const [eps, setEps] = useState<Episode[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -409,9 +404,16 @@ export function ShowView({ id }: { id: string }) {
     return () => { active = false; window.clearTimeout(timer); };
   }, [query, id]);
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); setSearchOpen(true); requestAnimationFrame(() => { searchBox.current?.focus(); searchBox.current?.select(); }); } };
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
+    const key = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        flushSync(() => setSearchOpen(true));
+        searchBox.current?.focus();
+        searchBox.current?.select();
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
   }, []);
   const byFilter = useMemo(() => eps?.filter((e) => filter === "all" || (filter === "unplayed" ? e.progress < 5 : e.hasTranscript || e.transcriptUrl)) ?? null, [eps, filter]);
   const { month, setMonth, filtered: shown } = useMonthFilter(byFilter);
@@ -428,8 +430,8 @@ export function ShowView({ id }: { id: string }) {
     await api.removeShow(id); await reloadShows(); go({ kind: "latest" });
   };
   const descText = showOrig || !descZh ? desc : descZh;
-  const links = showLinks(show.feedUrl);
   const activeFilter = filter !== "all" || !!month;
+  const companion = show.kind !== "qiaomu" ? deepPickFor(show.title) : null;
   return (<>
     <MobileBack trailing={<button onClick={() => setMenu(true)} aria-haspopup="dialog" aria-label={t("更多")}><BrandGlyph name="more" /></button>} />
     <div className="page show-page">
@@ -443,28 +445,25 @@ export function ShowView({ id }: { id: string }) {
           {expanded && descZh && <button className="link-btn" onClick={() => setShowOrig(!showOrig)}>{showOrig ? t("看中文") : t("查看原文")}</button>}
             {menu && <MobileSheet title={names.zh ?? names.orig} onClose={() => setMenu(false)}>
               <button disabled={busy} onClick={() => { setMenu(false); void refresh(); }}><RefreshCw />{t("检查更新")}</button>
-              {ytPromo && links.youtube && <YtButton channel={links.youtube} small />}
-              {ytPromo && links.youtube && <AlsoOn feedUrl={show.feedUrl} />}
               <button className="destructive" onClick={() => void remove()}><Trash2 />{t("取消订阅")}</button>
             </MobileSheet>}
         </div>
       </div>
-      {show.kind !== "qiaomu" && deepPickFor(show.title) && (
-        <div className="deep-hint" role="button" tabIndex={0} onClick={() => go({ kind: "channel", input: deepPickFor(show.title)!.input })}>
-          <BookOpen size={16} />
-          <div><p className="deep-hint-t">{t("这档节目有乔木精读版")}</p><p className="muted small">{t("中文标题、每期精读长文和原文文稿，点击查看")}</p></div>
-          <ChevronRight size={16} className="muted" />
-        </div>
-      )}
+      {companion && <button className="show-companion" onClick={() => go({ kind: "channel", input: companion.input })}>
+        <BookOpen size={19} aria-hidden /> <span>{t("乔木精读")}</span><ChevronRight size={16} aria-hidden />
+      </button>}
       <div className="episode-list-tools">
         <h2>{hits ? t("搜索结果") : t("全部单集")}</h2>
         {!query && playable.length > 0 && <button className="queue-play" onClick={() => playAll(playable)}><Play size={16} fill="currentColor" />{t("播放全部")}</button>}
         <button className="icon-btn" aria-label={t("搜索本节目")} aria-expanded={searchOpen} onClick={() => {
-          if (searchOpen) { setQuery(""); setSearchOpen(false); } else { setSearchOpen(true); requestAnimationFrame(() => searchBox.current?.focus()); }
+          if (searchOpen) { setQuery(""); setSearchOpen(false); } else {
+            flushSync(() => setSearchOpen(true));
+            searchBox.current?.focus();
+          }
         }}><BrandGlyph name="search" /></button>
         {!query && <button className={`icon-btn ${activeFilter ? "filter-active" : ""}`} aria-label={t("筛选单集")} aria-haspopup="dialog" onClick={() => setFilterOpen(true)}><BrandGlyph name="filter" /></button>}
       </div>
-      {searchOpen && <div className="show-query"><input type="search" ref={searchBox} autoFocus enterKeyHint="search" value={query} placeholder={t("搜索本节目的单集、简介和字幕")} onChange={(e) => setQuery(e.target.value)} /></div>}
+      {searchOpen && <div className="show-query"><input type="search" ref={searchBox} enterKeyHint="search" value={query} placeholder={t("搜索本节目的单集、简介和字幕")} onChange={(e) => setQuery(e.target.value)} /></div>}
       {activeFilter && !query && <button className="filter-summary" onClick={() => { setFilter("all"); setMonth(null); }}>{[filter === "unplayed" ? t("未听") : filter === "subs" ? t("有字幕") : "", month].filter(Boolean).join(" · ")}<X size={16} /></button>}
       {filterOpen && <MobileSheet title={t("筛选单集")} doneLabel={t("完成")} onClose={() => setFilterOpen(false)}>
         {([["all", t("全部")], ["unplayed", t("未听")], ["subs", t("有字幕")]] as [Filter, string][]).map(([key, label]) => <button key={key} aria-pressed={filter === key} onClick={() => { setFilter(key); selectionFeedback(); }}>{label}{filter === key && <Check className="row-check" />}</button>)}
@@ -496,6 +495,21 @@ function PickCard({ p, onOpen, action }: { p: Pick; onOpen: () => void; action: 
   </div>;
 }
 
+function CreatorRow({ pick, subscribed, busy, onOpen, onSubscribe, onHide }: {
+  pick: Pick; subscribed: boolean; busy: boolean; onOpen: () => void; onSubscribe: () => void; onHide: () => void;
+}) {
+  return <div className="creator-row">
+    <button className="creator-open" onClick={onOpen}>
+      <img src={pick.cover} alt="" /><span><small>{t("主创的播客")}</small><strong>{pickName(pick)}</strong></span>
+    </button>
+    {subscribed ? <Check size={19} aria-label={t("已订阅")} />
+      : <button className="round-btn" onClick={onSubscribe} aria-label={t("订阅")} disabled={busy}>
+        {busy ? <Loader2 className="spin" /> : <BrandGlyph name="plus" />}
+      </button>}
+    <button className="icon-btn" aria-label={t("不再显示")} onClick={onHide}><X size={18} /></button>
+  </div>;
+}
+
 function TopicChips({ topics, setTopics }: { topics: Topic[]; setTopics: (t: Topic[]) => void }) {
   const [open, setOpen] = useState(false);
   return <><button className="topic-filter" onClick={() => setOpen(true)} aria-haspopup="dialog">
@@ -510,14 +524,13 @@ function TopicChips({ topics, setTopics }: { topics: Topic[]; setTopics: (t: Top
 
 const visible = (topics: Topic[]) => PICKS.filter((p) => !topics.length || p.topics.some((x) => topics.includes(x)));
 
-/** First run: no picking screen. A few curated shows are subscribed in the background and the home page fills in
- *  as they arrive; a welcome card says what happened and how to bring in your own. */
+/** Subscribe to a few curated shows on first launch so Home fills in with playable episodes. */
 const STARTER = ["nexttoken", "no-priors", "lex", "zhang", "latetalk"];
 export async function firstRunSetup() {
   const { settings, shows, saveSettings, reloadShows } = useStore.getState();
   if (settings.onboarded || shows.length) return;
   await saveSettings({ onboarded: true });
-  useStore.setState({ welcome: true, settingUp: true });
+  useStore.setState({ settingUp: true });
   const queue = PICKS.filter((p) => STARTER.includes(p.id));
   await Promise.all(Array.from({ length: 3 }, async () => {
     for (let p = queue.shift(); p; p = queue.shift()) {
@@ -527,23 +540,6 @@ export async function firstRunSetup() {
   useStore.setState({ settingUp: false });
 }
 
-function WelcomeCard() {
-  const { set, shows, settingUp } = useStore(useShallow((s) => ({ set: s.set, shows: s.shows, settingUp: s.settingUp })));
-  return (
-    <div className="welcome-card">
-      <div className="welcome-text">
-        <p className="welcome-title">{t("欢迎使用 SubCast")}</p>
-        <p className="muted small">{settingUp ? t("正在准备") : t("已为你添加 {n} 档节目", { n: shows.length })}</p>
-      </div>
-      <div className="row-actions">
-        <button className="btn sm primary" onClick={() => set({ addOpen: true, addTab: "import" })}><Plus size={18} /> {t("导入订阅")}</button>
-        <button className="btn sm" onClick={() => useStore.getState().go({ kind: "discover" })}>{t("发现更多节目")}</button>
-      </div>
-      <button className="icon-btn sm welcome-close" aria-label={t("关闭")} onClick={() => set({ welcome: false })}><X size={14} /></button>
-    </div>
-  );
-}
-
 export function DiscoverView() {
   const { shows, reloadShows, notify, go } = useStore(useShallow((s) => ({ shows: s.shows, reloadShows: s.reloadShows, notify: s.notify, go: s.go })));
   const [adding, setAdding] = useState<string | null>(null);
@@ -551,7 +547,7 @@ export function DiscoverView() {
   const bannerHidden = useStore((s) => s.settings.homeBannerHidden);
   const showBanner = !bannerHidden;
   const subscribed = (p: Pick) => isSubscribed(p, shows);
-  const home = PICKS.find((p) => p.input === HOME_SHOW_FEED);
+  const home = PICKS.find((p) => p.id === "nexttoken");
   const add = async (input: string, title: string) => {
     setAdding(input);
     try {
@@ -565,7 +561,9 @@ export function DiscoverView() {
     : <button className="tile-add" title={t("订阅")} onClick={(e) => { e.stopPropagation(); void add(input, title); }} disabled={adding != null}>{adding === input ? <Loader2 size={16} className="spin" /> : <Plus size={18} />}</button>;
   return (
     <div className="page discover-page">
-      {showBanner && home && !topics.length && <HomeShowBanner onHide={() => { void useStore.getState().saveSettings({ homeBannerHidden: true }); notify(t("好的，不再显示。可以在设置 › 通用里重新打开")); }} subscribed={subscribed(home)} busy={adding === home.input} onSubscribe={() => void add(home.input, pickName(home))} onOpen={() => go({ kind: "channel", input: home.input })} />}
+      {showBanner && home && !topics.length && <CreatorRow pick={home} subscribed={subscribed(home)} busy={adding === home.input}
+        onOpen={() => go({ kind: "channel", input: home.input })} onSubscribe={() => void add(home.input, pickName(home))}
+        onHide={() => { selectionFeedback(); void useStore.getState().saveSettings({ homeBannerHidden: true }); }} />}
       <TopicChips topics={topics} setTopics={setTopics} />
       <div className="discover-list">
         {visible(topics).filter((p) => !(showBanner && p === home && !topics.length)).map((p) => <PickCard key={p.id} p={p} onOpen={() => go({ kind: "channel", input: p.input })} action={subBtn(p.input, pickName(p), subscribed(p))} />)}
@@ -623,7 +621,7 @@ export function ChannelView({ input }: { input: string }) {
             {sub
               ? <button className="btn sm" onClick={() => go({ kind: "show", id: sub.id })}><Check size={13} /> {t("已订阅 · 查看")}</button>
               : <button className="btn primary" onClick={subscribe} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Plus size={15} />} {t("订阅")}</button>}
-            {data && <span className="muted small">{t("{n} 期节目 · 不订阅也可以直接收听", { n: data.episodes.length })}{refreshing ? ` · ${t("正在更新…")}` : ""}</span>}
+            {data && <span className="muted small">{t("{n} 期节目", { n: data.episodes.length })}{refreshing ? ` · ${t("正在更新…")}` : ""}</span>}
           </div>
         </div>
       </div>

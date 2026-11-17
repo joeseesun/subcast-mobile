@@ -1,5 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Loader2, Maximize2, Minimize2, Play } from "lucide-react";
@@ -13,6 +13,7 @@ import { useStore, type PlayerHandle } from "../store";
 import { IS_MAC, t, tr } from "../lib/i18n";
 import { audioSrc, useOffline } from "../lib/offline";
 import { playNext } from "../lib/library";
+import { useNativeVideoLayout } from "../lib/nativeVideoLayout";
 
 const SAVE_EVERY = 10;
 /** Starts an episode as soon as its player exists: right away when it does, or when it appears (a YouTube
@@ -22,6 +23,11 @@ export function playSoon(id: string) {
   waiting(true);
   if (s.current?.id === id && s.player?.episodeId === id) { s.player.play(); return; }
   s.set({ playWhenReady: id });
+}
+function togglePendingPlayback(id: string) {
+  const state = useStore.getState();
+  if (state.playWhenReady === id) state.set({ playWhenReady: null, loadingSince: null });
+  else playSoon(id);
 }
 /** Jump into normal playback even if the selected player is still opening. */
 export function seekEpisode(ep: Episode, time: number) {
@@ -126,43 +132,61 @@ function EpisodeAudio({ audio }: { audio: Episode }) {
   return <WebAudio audio={audio} />;
 }
 
-type AudioStatus = {
-  session: string; event: string; playing: boolean; waiting: boolean;
+type MediaStatus = {
+  session: string; event: string; playing: boolean; waiting: boolean; revision: number;
   time: number; duration: number; buffer: number;
 };
+type SystemFailure = "bridge" | "source";
+type NativeCommand = (action: string, values?: object) => Promise<void>;
 
-function SystemAudio({ ep, src, onFallback }: { ep: Episode; src: string; onFallback: () => void }) {
+/** Audio and direct video share one AVPlayer session, timeline and transport. */
+function useSystemPlayback(ep: Episode, src: string, video: boolean, onFallback: (failure: SystemFailure) => void) {
   const fallbackRef = useRef(onFallback);
   fallbackRef.current = onFallback;
+  const [command, setCommand] = useState<NativeCommand | null>(null);
   useEffect(() => {
     const session = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    let active = true, failed = false, muted = false, requested = false;
-    let pending = Promise.resolve();
-    const fallback = () => {
+    let active = true, failed = false, muted = false, requested = false, played = false;
+    let lastPosition = 0;
+    let revision = 0;
+    let pending = Promise.resolve<unknown>(undefined);
+    const fallback = (reason: SystemFailure) => {
       if (!active || failed) return;
       failed = true;
       if (requested) useStore.setState({ playWhenReady: ep.id });
-      fallbackRef.current();
+      fallbackRef.current(reason);
     };
-    const send = (action: string, values: object = {}) => {
-      pending = pending.then(async () => {
+    const send: NativeCommand = (action, values = {}) => {
+      const run = pending.catch(() => {}).then(async () => {
         if (active || action === "dispose") await invoke("plugin:mobile|podcast_audio", { command: { session, action, ...values } });
-      }).catch(fallback);
-      return pending;
+      });
+      pending = run.catch(() => {});
+      return run;
     };
+    const transport = (action: string, values?: object) => { void send(action, values).catch(() => fallback("bridge")); };
+    const setIntent = (action: "play" | "pause" | "seek", value?: number) => {
+      requested = action !== "pause";
+      waiting(requested);
+      transport(action, { value, revision: ++revision });
+    };
+    const pause = () => setIntent("pause");
+    const play = () => setIntent("play");
     const handle: PlayerHandle = {
-      episodeId: ep.id,
-      play: () => { requested = true; waiting(true); void send("play"); },
-      toggle: () => { requested = !requested; waiting(requested); void send("toggle"); },
-      seek: (value) => { requested = true; useStore.setState({ time: value }); waiting(true); void send("seek", { value }); },
-      setRate: (value) => { void send("rate", { value }); },
-      toggleMute: () => { muted = !muted; void send("mute", { value: muted ? 1 : 0 }); return muted; },
+      episodeId: ep.id, systemVideo: video,
+      play, pause,
+      toggle: () => requested ? pause() : play(),
+      seek: (value) => { useStore.setState({ time: value }); setIntent("seek", value); },
+      setRate: (value) => transport("rate", { value }),
+      toggleMute: () => { muted = !muted; transport("mute", { value: muted ? 1 : 0 }); return muted; },
     };
-    const listener = addPluginListener<AudioStatus>("mobile", "podcast", (status) => {
+    const listener = addPluginListener<MediaStatus>("mobile", "podcast", (status) => {
       const s = useStore.getState();
-      if (!active || status.session !== session || s.current?.id !== ep.id || s.current.videoId) return;
-      if (status.event === "failed") { fallback(); return; }
+      if (!active || failed || status.session !== session || s.current?.id !== ep.id || !!s.current.videoId !== video) return;
+      if (status.event === "failed") { fallback("source"); return; }
+      if (status.revision < revision) return;
       if (s.playing && !status.playing) void api.setProgress(ep.id, status.time);
+      lastPosition = status.time;
+      played ||= status.playing;
       s.set({ playing: status.playing, bufferedUntil: status.buffer });
       requested = status.playing || status.waiting;
       waiting(status.waiting);
@@ -172,17 +196,48 @@ function SystemAudio({ ep, src, onFallback }: { ep: Episode; src: string; onFall
     void listener.then(async () => {
       if (!active) return;
       const s = useStore.getState();
-      await send("prepare", { url: src, value: s.time, rate: s.settings.playbackRate });
-      if (active && !failed) useStore.setState({ player: handle });
-    }).catch(fallback);
+      await send("prepare", { url: src, value: s.time, rate: s.settings.playbackRate, video });
+      if (active && !failed) {
+        useStore.setState({ player: handle });
+        setCommand(() => send);
+      }
+    }).catch(() => fallback("bridge"));
     return () => {
       active = false;
       if (useStore.getState().player === handle) useStore.setState({ player: null, bufferedUntil: 0, playing: false });
-      void send("dispose");
+      if (played && lastPosition > 0) void api.setProgress(ep.id, lastPosition);
+      void send("dispose").catch(() => {});
       void listener.then((l) => l.unregister()).catch(() => {});
     };
-  }, [ep.id, src]);
+  }, [ep.id, src, video]);
+  return command;
+}
+
+function SystemAudio({ ep, src, onFallback }: { ep: Episode; src: string; onFallback: () => void }) {
+  useSystemPlayback(ep, src, false, onFallback);
   return null;
+}
+
+function SystemVideo({ ep, src, onFallback }: { ep: Episode; src: string; onFallback: (failure: SystemFailure) => void }) {
+  const stage = useRef<HTMLDivElement>(null);
+  const { playing, loading } = useStore(useShallow((s) => ({ playing: s.playing, loading: !!s.loadingSince })));
+  const command = useSystemPlayback(ep, src, true, onFallback);
+  const layout = useMemo(() => command ? (value: object) => command("video-layout", { layout: value }) : null, [command]);
+  useNativeVideoLayout(stage, layout);
+  return <div className="system-video-frame" ref={stage} data-system-video>
+    <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" />
+    <button className="inline-video-toggle" aria-label={playing || loading ? t("暂停") : t("播放")} onClick={() => {
+      const { player } = useStore.getState();
+      selectionFeedback();
+      if (player?.episodeId === ep.id) player.toggle(); else togglePendingPlayback(ep.id);
+    }}>
+      {!playing && <span>{loading ? <Loader2 size={24} className="spin" /> : <BrandGlyph name="play" size={29} />}</span>}
+    </button>
+    <button className="inline-fullscreen" aria-label={t("全屏播放")} onClick={() => {
+      if (command) void command("video-fullscreen").catch(() => toggleTheater(true));
+      else toggleTheater(true);
+    }}><Maximize2 size={19} /></button>
+  </div>;
 }
 
 function WebAudio({ audio }: { audio: Episode }) {
@@ -245,11 +300,12 @@ function hideYouTubeCaptions(player: any) {
 
 export const RATES = [0.8, 1, 1.15, 1.25, 1.5, 1.75, 2];
 
-/** On iOS let WebKit play HLS or MP4 inline, with the system full-screen controls.
+/** On iOS, direct video uses AVPlayer with the system full-screen controls.
  * Android tries the embed first. Each failed source advances at most once. */
 export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; overlay?: React.ReactNode; onUnplayable?: () => void }) {
   const routes = IS_MAC ? ["native-hls", "relay-hls", "relay-mp4", "embed"] as const : ["embed", "proxy-hls", "mp4"] as const;
   const [attempt, setAttempt] = useState(0);
+  const [webAttempt, setWebAttempt] = useState(-1);
   const [media, setMedia] = useState<{ url: string; kind: "hls" | "mp4"; attempt: number } | null>(null);
   const [reason, setReason] = useState("");
   const route = routes[attempt];
@@ -280,14 +336,21 @@ export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; over
   return (
     <div className={`video ${theater ? "theater" : ""}`}>
       {!route ? <div className="video-error" role="status">
-        <p>{reason}</p><div className="row-actions">
-          <button className="btn sm" onClick={() => { playSoon(ep.id); setMedia(null); setAttempt(0); }}>{t("重试")}</button>
+        <p title={reason}>{t("暂时无法播放视频")}</p><div className="row-actions">
+          <button className="btn sm" onClick={() => { playSoon(ep.id); setMedia(null); setWebAttempt(-1); setAttempt(0); }}>{t("重试")}</button>
           {onUnplayable && <button className="btn sm" onClick={onUnplayable}>{t("仅音频")}</button>}
-          <button className="btn sm" onClick={openVideo}>{t("在 YouTube 打开")}</button>
+          {!onUnplayable && <button className="btn sm" onClick={openVideo}>{t("在 YouTube 打开")}</button>}
         </div>
       </div> : route === "embed" ? <EmbedVideo ep={ep} onBlocked={fail} onError={fail} /> :
-        media?.attempt === attempt ? <NativeVideo key={attempt} ep={ep} src={media.url} kind={media.kind} onFail={() => fail(t("视频地址失效，请稍后再试"))} /> :
-        <button className="video-loading" onClick={() => playSoon(ep.id)} aria-label={t("播放")}>
+        media?.attempt === attempt ? (
+          IS_MAC && webAttempt !== attempt
+            ? <SystemVideo key={attempt} ep={ep} src={media.url} onFallback={(failure) => {
+                if (failure === "bridge") setWebAttempt(attempt);
+                else fail(t("视频地址失效，请稍后再试"));
+              }} />
+            : <NativeVideo key={attempt} ep={ep} src={media.url} kind={media.kind} onFail={() => fail(t("视频地址失效，请稍后再试"))} />
+        ) :
+        <button className="video-loading" onClick={() => { selectionFeedback(); togglePendingPlayback(ep.id); }} aria-label={pending ? t("暂停") : t("播放")}>
           <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" />
           <span className="big-play">{pending ? <Loader2 className="spin" /> : <Play fill="currentColor" />}</span>
         </button>}
@@ -616,7 +679,7 @@ export function Controls({ compact = false, leading }: { compact?: boolean; lead
     <div className={`controls ${compact ? "compact" : ""}`}>
       {leading}
       <button className="icon-btn" title={t("后退 {n} 秒（←）", { n: settings.skipBack ?? 15 })} onClick={() => player?.seek(Math.max(0, time - (settings.skipBack ?? 15)))} disabled={!player}><BrandGlyph name="back" interval={settings.skipBack ?? 15} /></button>
-      <button className={`play-btn ${loadingSince ? "loading" : ""}`} title={loadingSince ? t("正在加载…") : playing ? t("暂停（空格）") : t("播放（空格）")} aria-label={playing ? t("暂停") : t("播放")} onClick={() => { selectionFeedback(); if (player) player.toggle(); else if (current) playSoon(current.id); }} disabled={!player && !current} aria-busy={!!loadingSince}>
+      <button className={`play-btn ${loadingSince ? "loading" : ""}`} title={loadingSince ? t("正在加载…") : playing ? t("暂停（空格）") : t("播放（空格）")} aria-label={playing || loadingSince ? t("暂停") : t("播放")} onClick={() => { selectionFeedback(); if (player) player.toggle(); else if (current) togglePendingPlayback(current.id); }} disabled={!player && !current} aria-busy={!!loadingSince}>
         {loadingSince ? <Loader2 size={20} className="spin" /> : playing ? <BrandGlyph name="pause" size={25} /> : <BrandGlyph name="play" size={25} />}
       </button>
       <button className="icon-btn" title={t("前进 {n} 秒（→）", { n: settings.skipForward ?? 30 })} onClick={() => player?.seek(time + (settings.skipForward ?? 30))} disabled={!player}><BrandGlyph name="next" interval={settings.skipForward ?? 30} /></button>
