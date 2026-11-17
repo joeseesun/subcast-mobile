@@ -299,3 +299,23 @@ mod reply_tests {
         assert_eq!(finish("  \n答".into(), false, false).unwrap(), "答");
     }
 }
+
+#[cfg(all(test, not(target_os = "ios")))]
+mod key_store_tests {
+    use super::*;
+    #[test]
+    fn file_store_round_trip() {
+        let dir = std::env::temp_dir().join(format!("subcast-keys-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        init_store(&dir);
+        set_key("deepseek", "sk-test").unwrap();
+        set_key("asr.doubao", "dk-test").unwrap();
+        assert_eq!(get_key("deepseek").as_deref(), Some("sk-test"));
+        assert_eq!(get_key("asr.doubao").as_deref(), Some("dk-test"));
+        set_key("deepseek", "").unwrap();
+        assert_eq!(get_key("deepseek"), None, "an empty key deletes it");
+        #[cfg(unix)]
+        { use std::os::unix::fs::PermissionsExt; assert_eq!(std::fs::metadata(dir.join("keys.json")).unwrap().permissions().mode() & 0o777, 0o600); }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

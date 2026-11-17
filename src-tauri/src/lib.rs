@@ -442,7 +442,8 @@ async fn qiaomu_detail(state: State<'_, AppState>, episode_id: String) -> Res<qi
 fn save_image(app: AppHandle, name: String, base64: String) -> Res<String> {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD.decode(base64.trim_start_matches("data:image/png;base64,")).map_err(e)?;
-    let dir = app.path().document_dir().map_err(e)?.join("SubCast");
+    // Android has no app Documents folder in Tauri's resolver: the app's own data folder (shared via FileProvider).
+    let dir = app.path().document_dir().or_else(|_| app.path().app_data_dir()).map_err(e)?.join("SubCast");
     std::fs::create_dir_all(&dir).map_err(e)?;
     let safe: String = name.chars().filter(|c| !"/\\:*?\"<>|".contains(*c)).take(60).collect();
     let mut path = dir.join(format!("{safe}.png"));
@@ -511,6 +512,7 @@ fn apply_config(v: &Value) {
 
 #[tauri::command]
 async fn refresh_config(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
+    // The "updater" entry in tauri.conf.json is kept only for this public key (signed remote config); phones have no updater.
     let pubkey = app.config().plugins.0.get("updater").and_then(|u| u["pubkey"].as_str()).ok_or("缺少更新公钥")?.to_string();
     let body = net::client().get(CONFIG_URL).send().await.map_err(e)?.error_for_status().map_err(e)?.bytes().await.map_err(e)?;
     let sig = net::get_text(&format!("{CONFIG_URL}.sig")).await.map_err(e)?;
