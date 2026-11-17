@@ -1,7 +1,29 @@
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
+import { invoke } from "@tauri-apps/api/core";
 import { X } from "lucide-react";
-import { t } from "../lib/i18n";
+import { IS_MAC, t } from "../lib/i18n";
+
+type Choice = { id: string; title: string; selected: boolean; symbol?: string };
+let presentingChoice = false;
+
+/** Returns null for the web fallback, or an empty string if the user dismisses the native sheet. */
+export async function presentNativeChoices(title: string, rows: Choice[], trigger: HTMLButtonElement) {
+  if (!IS_MAC) return null;
+  if (presentingChoice) return "";
+  presentingChoice = true;
+  try {
+    const choice = await invoke<string | null>("plugin:mobile|present_settings_index", {
+      state: { title, done: t("取消"), choiceSheet: true, groups: [rows] },
+    });
+    if (choice !== null) trigger.focus({ preventScroll: true });
+    return choice;
+  } catch {
+    return null;
+  } finally {
+    presentingChoice = false;
+  }
+}
 
 export function MobileSheet({ title, doneLabel, onClose, children }: { title: string; doneLabel?: string; onClose: () => void; children: React.ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null);

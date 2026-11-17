@@ -4,7 +4,7 @@ import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, Loader2, Maximize2, Minimize2, Play } from "lucide-react";
 import { BrandGlyph } from "./BrandGlyph";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, presentNativeChoices } from "./MobileSheet";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, type Episode } from "../lib/api";
 import { selectionFeedback } from "../lib/feedback";
@@ -697,8 +697,6 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
 }
 
 function PlaybackRate({ rate }: { rate: number }) {
-  const trigger = useRef<HTMLButtonElement>(null);
-  const presenting = useRef(false);
   const [webSheet, setWebSheet] = useState(false);
   const options = Array.from(new Set([...RATES, rate])).sort((a, b) => a - b);
   const choose = (value: number) => {
@@ -707,30 +705,16 @@ function PlaybackRate({ rate }: { rate: number }) {
     state.player?.setRate(value);
     void state.saveSettings({ playbackRate: value });
   };
-  const open = async () => {
-    if (!IS_MAC) { setWebSheet(true); return; }
-    if (presenting.current) return;
-    presenting.current = true;
-    try {
-      const choice = await invoke<string | null>("plugin:mobile|present_settings_index", {
-        state: {
-          title: t("播放速度"), done: t("取消"), choiceSheet: true,
-          groups: [options.map((value) => ({ id: String(value), title: `${value}×`, selected: value === rate }))],
-        },
-      });
-      if (choice === null) { setWebSheet(true); return; }
-      const value = options.find((value) => String(value) === choice);
-      if (value !== undefined) choose(value);
-      trigger.current?.focus({ preventScroll: true });
-    } catch {
-      setWebSheet(true);
-    } finally {
-      presenting.current = false;
-    }
+  const open = async (trigger: HTMLButtonElement) => {
+    const choice = await presentNativeChoices(t("播放速度"),
+      options.map((value) => ({ id: String(value), title: `${value}×`, selected: value === rate })), trigger);
+    if (choice === null) { setWebSheet(true); return; }
+    const value = options.find((value) => String(value) === choice);
+    if (value !== undefined) choose(value);
   };
   return <>
-    <button ref={trigger} className={`rate-btn ${rate === 1 ? "" : "fast"}`}
-      aria-label={`${t("播放速度")} ${rate}×`} aria-haspopup="dialog" onClick={() => void open()}>{rate}×</button>
+    <button className={`rate-btn ${rate === 1 ? "" : "fast"}`}
+      aria-label={`${t("播放速度")} ${rate}×`} aria-haspopup="dialog" onClick={(e) => void open(e.currentTarget)}>{rate}×</button>
     {webSheet && <MobileSheet title={t("播放速度")} onClose={() => setWebSheet(false)}>
       {options.map((value) => <button key={value} aria-pressed={value === rate} onClick={() => {
         setWebSheet(false);

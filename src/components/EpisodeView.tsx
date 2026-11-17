@@ -1,5 +1,5 @@
 import { BrandGlyph } from "./BrandGlyph";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, presentNativeChoices } from "./MobileSheet";
 import { selectionFeedback } from "../lib/feedback";
 import { ask } from "../lib/confirm";
 import { useShallow } from "zustand/react/shallow";
@@ -314,7 +314,17 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   if (ep.deep && noDeep !== ep.id) tabs.push(["deep", t("精读")]);
   tabs.push(["summary", t("导读")], ["chat", t("问答")]);
   if (notes) tabs.push(["notes", t("简介")]);
-  const modeButton = both && <button className="media-mode" aria-label={t("切换播放方式")} aria-haspopup="dialog" onClick={() => setSheet("media")}>
+  const mediaOptions = [
+    { id: "video", title: t("视频"), glyph: "film", symbol: "film", selected: !audioMode },
+    { id: "audio", title: t("仅音频"), glyph: "sound", symbol: "waveform", selected: audioMode },
+  ] as const;
+  const chooseMedia = async (trigger: HTMLButtonElement) => {
+    const choice = await presentNativeChoices(t("播放方式"), [...mediaOptions], trigger);
+    if (choice === null) { setSheet("media"); return; }
+    const mode = mediaOptions.find((option) => option.id === choice);
+    if (mode && !mode.selected) switchTo(mode.id === "audio");
+  };
+  const modeButton = both && <button className="media-mode" aria-label={t("切换播放方式")} aria-haspopup="dialog" onClick={(e) => void chooseMedia(e.currentTarget)}>
     {audioMode ? <BrandGlyph name="sound" size={21} /> : <BrandGlyph name="film" size={21} />}<span>{audioMode ? t("音频") : t("视频")}</span><ChevronDown size={12} />
   </button>;
   // Phone layout: the player stays on top (title, picture or cover, controls); the tabs fill the rest.
@@ -327,9 +337,9 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
       </header>
       {sheet === "actions" && <EpisodeActions ep={ep} close={() => setSheet(null)} />}
       {sheet === "media" && <MobileSheet title={t("播放方式")} onClose={() => setSheet(null)}>
-        {[false, true].map((audio) => <button key={String(audio)} aria-pressed={audio === audioMode} onClick={() => {
-          setSheet(null); if (audio !== audioMode) { selectionFeedback(); switchTo(audio); }
-        }}>{audio ? <BrandGlyph name="sound" /> : <BrandGlyph name="film" />}{audio ? t("仅音频") : t("视频")}{audio === audioMode && <Check className="row-check" />}</button>)}
+        {mediaOptions.map(({ id, title, glyph, selected }) => <button key={id} aria-pressed={selected} onClick={() => {
+          setSheet(null); if (!selected) { selectionFeedback(); switchTo(id === "audio"); }
+        }}><BrandGlyph name={glyph} />{title}{selected && <Check className="row-check" />}</button>)}
       </MobileSheet>}
       <section className={`m-ep-top ${compact ? "reader-player" : ""} ${showVideo ? "with-video" : ""}`}>
         <div className={`ep-title-block ${showVideo ? "" : "audio-heading"}`}>

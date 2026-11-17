@@ -145,7 +145,9 @@ class MobilePlugin: Plugin {
       navigation.modalPresentationStyle = state.choiceSheet == true ? .pageSheet : .fullScreen
       if state.choiceSheet == true, let sheet = navigation.sheetPresentationController {
         if #available(iOS 16.0, *) {
-          sheet.detents = [.custom { min(450, $0.maximumDetentValue * 0.85) }, .large()]
+          let rowCount = state.groups.reduce(0) { $0 + $1.count }
+          let height: CGFloat = rowCount <= 3 ? CGFloat(124 + 48 * rowCount) : 450
+          sheet.detents = [.custom { min(height, $0.maximumDetentValue * 0.85) }, .large()]
         } else {
           sheet.detents = [.medium(), .large()]
         }
