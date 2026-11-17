@@ -1114,10 +1114,8 @@ input:focus, select:focus, textarea:focus { border-color: color-mix(in srgb, var
 /* skeleton rows: the shimmer rolls down the list like a wave */
 .sk-row .sk::after { animation-delay: var(--d, 0ms); }
 
-/* boot screen: a small equalizer while the app wakes */
+/* Boot screen while the app opens its library. */
 .boot { display: grid; place-items: center; }
-.boot .ia-bars { width: 60px; height: 40px; stroke: var(--muted); }
-.boot .ia-bars .a { stroke: var(--accent); }
 
 /* download done: the tick draws itself once */
 .dl-check path { stroke: var(--accent); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }

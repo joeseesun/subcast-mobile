@@ -51,7 +51,7 @@ export interface CloudAsr { id: string; name: string; note: string; protocol: "d
 export interface ChatMessage { role: "user" | "assistant"; content: string; /** Which model wrote an answer, for display. */ model?: string }
 
 /** An episode saved for offline listening. */
-export interface Saved { episodeId: string; path: string; bytes: number; savedAt: number }
+export interface Saved { episodeId: string; path: string; bytes: number; savedAt: number; cached: boolean }
 
 export interface AsrEvent { episodeId: string; stage: "download" | "transcribe" | "segment" | "done" | "error"; progress: number; message?: string; segment?: Segment }
 

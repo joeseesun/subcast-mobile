@@ -240,13 +240,12 @@ export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; over
   const route = routes[attempt];
   const theater = useStore((s) => s.theater);
   const pending = useStore((s) => s.playWhenReady === ep.id);
-  const fail = (message: string, exhaustedDirect = false) => {
+  const fail = (message: string) => {
     const s = useStore.getState();
     if (s.current?.id !== ep.id || !s.current.videoId) return;
     if (s.playing || s.loadingSince) s.set({ playWhenReady: ep.id });
     setReason(message);
-    const next = exhaustedDirect && route === "direct" ? attempt + 2 : attempt + 1;
-    setAttempt((n) => n === attempt ? next : n);
+    setAttempt((n) => n === attempt ? n + 1 : n);
   };
   useEffect(() => {
     useStore.setState({ bufferedUntil: 0 });
@@ -256,7 +255,7 @@ export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; over
     const mode = route === "mp4" ? (IS_MAC ? "relay" : "mp4") : IS_MAC ? "native-hls" : "proxy-hls";
     void api.youtubeStream(ep.videoId!, mode, route === "mp4").then((result) => {
       if (active) setMedia({ ...result, attempt });
-    }).catch((err) => { if (active) fail(tr(String(err?.message ?? err)), true); });
+    }).catch((err) => { if (active) fail(tr(String(err?.message ?? err))); });
     return () => { active = false; };
   }, [ep.id, attempt]);
   useEffect(() => () => { if (useStore.getState().theater) toggleTheater(false); }, []);
@@ -377,6 +376,26 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
   const [preparing, setPreparing] = useState(false);
   const priming = useRef(false);
   const quietPause = useRef(false);
+  const stalled = useRef<number | undefined>(undefined);
+  const failure = useRef(onFail);
+  failure.current = onFail;
+
+  const clearStall = () => {
+    window.clearTimeout(stalled.current);
+    stalled.current = undefined;
+  };
+  const onStall = (el: HTMLVideoElement) => {
+    if (priming.current || el.paused) return;
+    waiting(true);
+    if (stalled.current !== undefined) return;
+    const position = el.currentTime;
+    stalled.current = window.setTimeout(() => {
+      stalled.current = undefined;
+      if (!el.paused && el.currentTime <= position + 0.1 && ref.current === el) {
+        failure.current?.();
+      }
+    }, 10_000);
+  };
 
   useEffect(() => {
     const el = ref.current;
@@ -431,6 +450,7 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
     return () => {
       active = false;
       window.clearTimeout(timer);
+      clearStall();
       el.removeEventListener("playing", whenPlaying);
       el.pause();
       hls?.destroy?.();
@@ -448,10 +468,10 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
         onProgress={(e) => syncBuffer(e.currentTarget, ep.id)}
         onSeeked={(e) => { syncBuffer(e.currentTarget, ep.id); if (!priming.current) track(ep, e.currentTarget.currentTime); }}
         onTimeUpdate={(e) => { if (!priming.current && !quietPause.current) track(ep, e.currentTarget.currentTime); }}
-        onPlay={(e) => { if (priming.current) return; quietPause.current = false; useStore.getState().set({ playing: true }); if (e.currentTarget.readyState < 3) waiting(true); }}
-        onWaiting={() => { if (!priming.current && !ref.current?.paused) waiting(true); }}
-        onPlaying={() => { if (!priming.current && !quietPause.current && !ref.current?.paused) { useStore.setState({ playing: true }); waiting(false); } }}
-        onPause={(e) => { if (priming.current || quietPause.current) return; waiting(false); useStore.getState().set({ playing: false }); void api.setProgress(ep.id, e.currentTarget.currentTime); }}
+        onPlay={(e) => { if (priming.current) return; quietPause.current = false; useStore.getState().set({ playing: true }); if (e.currentTarget.readyState < 3) onStall(e.currentTarget); }}
+        onWaiting={(e) => onStall(e.currentTarget)}
+        onPlaying={() => { clearStall(); if (!priming.current && !quietPause.current && !ref.current?.paused) { useStore.setState({ playing: true }); waiting(false); } }}
+        onPause={(e) => { clearStall(); if (priming.current || quietPause.current) return; waiting(false); useStore.getState().set({ playing: false }); void api.setProgress(ep.id, e.currentTarget.currentTime); }}
         onEnded={(e) => { void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }} />
       {preparing && <button className="video-preroll" aria-label={t("播放")} onClick={() => playSoon(ep.id)}><Play size={28} fill="currentColor" /></button>}
     </>

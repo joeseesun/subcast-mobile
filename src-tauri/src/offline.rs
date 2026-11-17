@@ -1,10 +1,14 @@
-//! Episodes saved for listening offline: one audio file per episode, named by episode id, in `downloads/`.
+//! Offline audio in `downloads/`. New caches carry a filename prefix so existing downloads remain durable.
 use crate::{asr, model::Episode};
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
+const CACHE_PREFIX: &str = "cache-";
+const CACHE_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -13,6 +17,7 @@ pub struct Saved {
     pub path: String,
     pub bytes: u64,
     pub saved_at: i64,
+    pub cached: bool,
 }
 
 pub fn dir(data: &Path) -> PathBuf { data.join("downloads") }
@@ -24,12 +29,14 @@ pub fn audio_ext(url: &str) -> String {
 }
 
 fn saved_file(p: &Path) -> Option<Saved> {
-    let id = p.file_stem()?.to_str()?;
+    let stem = p.file_stem()?.to_str()?;
+    let cached = stem.starts_with(CACHE_PREFIX);
+    let id = stem.strip_prefix(CACHE_PREFIX).unwrap_or(stem);
     let ext = p.extension()?.to_str()?;
     if ext == "part" || id.starts_with('.') { return None; }
     let meta = std::fs::metadata(p).ok().filter(|m| m.is_file())?;
     let saved_at = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64).unwrap_or(0);
-    Some(Saved { episode_id: id.to_string(), path: p.to_string_lossy().into_owned(), bytes: meta.len(), saved_at })
+    Some(Saved { episode_id: id.to_string(), path: p.to_string_lossy().into_owned(), bytes: meta.len(), saved_at, cached })
 }
 
 pub fn list(data: &Path) -> Vec<Saved> {
@@ -37,6 +44,34 @@ pub fn list(data: &Path) -> Vec<Saved> {
     let mut out: Vec<Saved> = rd.flatten().filter_map(|e| saved_file(&e.path())).collect();
     out.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
     out
+}
+
+/// Called before playback starts on a cold launch. Legacy downloads have no expiry.
+pub fn prune_cache(data: &Path, now: SystemTime) {
+    for item in list(data).into_iter().filter(|item| item.cached) {
+        let written = SystemTime::UNIX_EPOCH + Duration::from_millis(item.saved_at.max(0) as u64);
+        if now.duration_since(written).is_ok_and(|age| age >= CACHE_AGE) {
+            let _ = std::fs::remove_file(item.path);
+        }
+    }
+}
+
+/// Renew a cache for a listening session, at most once a day.
+pub fn renew_cache(data: &Path, episode_id: &str) {
+    let Ok(files) = std::fs::read_dir(dir(data)) else { return };
+    let stem = format!("{CACHE_PREFIX}{episode_id}");
+    for file in files.flatten() {
+        let path = file.path();
+        if path.file_stem().and_then(|value| value.to_str()) != Some(stem.as_str()) || path.extension().is_some_and(|value| value == "part") {
+            continue;
+        }
+        if let Ok(meta) = file.metadata() {
+            let now = SystemTime::now();
+            if meta.modified().ok().and_then(|time| now.duration_since(time).ok()).is_some_and(|age| age >= Duration::from_secs(86_400)) {
+                if let Ok(cache) = std::fs::File::open(path) { let _ = cache.set_modified(now); }
+            }
+        }
+    }
 }
 
 pub fn find(data: &Path, episode_id: &str) -> Option<Saved> { list(data).into_iter().find(|s| s.episode_id == episode_id) }
@@ -58,13 +93,17 @@ pub async fn download(data: &Path, ep: &Episode, cancel: Arc<AtomicBool>, mut pr
     let d = dir(data);
     tokio::fs::create_dir_all(&d).await?;
     let dest = if let Some(url) = &ep.audio_url {
-        let dest = d.join(format!("{}.{}", ep.id, audio_ext(url)));
-        asr::download(url, &dest, &cancel, |got, total| progress(total.map(|t| got as f64 / t.max(1) as f64))).await?;
+        let dest = d.join(format!("{CACHE_PREFIX}{}.{}", ep.id, audio_ext(url)));
+        let result = asr::download(url, &dest, &cancel, |got, total| progress(total.map(|t| got as f64 / t.max(1) as f64))).await;
+        if let Err(error) = result {
+            let _ = tokio::fs::remove_file(dest.with_extension("part")).await;
+            return Err(error);
+        }
         dest
     } else if let Some(vid) = &ep.video_id {
         let s = crate::youtube::streams(vid, crate::youtube::StreamUse::Audio).await?;
         let url = s.audio.ok_or_else(|| anyhow!("YouTube 没有给出这个视频的音频地址"))?;
-        let dest = d.join(format!("{}.m4a", ep.id));
+        let dest = d.join(format!("{CACHE_PREFIX}{}.m4a", ep.id));
         let part = d.join(format!(".tmp-{}.m4a", ep.id));
         let r = crate::youtube::download_stream(&url, &s.ua, &part, &cancel, |got, total| progress(total.map(|t| got as f64 / t.max(1) as f64))).await;
         if let Err(err) = r { let _ = tokio::fs::remove_file(&part).await; return Err(err); }
@@ -87,6 +126,23 @@ mod tests {
         assert_eq!(audio_ext("https://a.com/x/redirect"), "mp3");
         assert_eq!(audio_ext("https://a.com/v1.2/stream"), "mp3");
     }
+    #[test]
+    fn expires_only_stale_audio_caches() {
+        let data = std::env::temp_dir().join(format!("subcast-cache-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir(&data)).unwrap();
+        let now = SystemTime::now();
+        for name in ["old.mp3", "cache-old.mp3", "cache-fresh.mp3"] {
+            let file = std::fs::File::create(dir(&data).join(name)).unwrap();
+            if name != "cache-fresh.mp3" { file.set_modified(now - CACHE_AGE - Duration::from_secs(60)).unwrap(); }
+        }
+        prune_cache(&data, now);
+        assert!(!dir(&data).join("cache-old.mp3").exists());
+        assert!(!find(&data, "old").unwrap().cached);
+        assert!(find(&data, "fresh").unwrap().cached);
+        clear(&data).unwrap();
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
     #[test]
     fn lists_only_finished_files() {
         let data = std::env::temp_dir().join(format!("subcast-offline-{}", uuid::Uuid::new_v4()));

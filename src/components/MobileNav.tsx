@@ -2,23 +2,36 @@ import { selectionFeedback } from "../lib/feedback";
 import { useShallow } from "zustand/react/shallow";
 import { Bookmark, ChartColumn, ChevronRight, Compass, Download, House, Library, Plus, Settings } from "lucide-react";
 import { useStore, type View } from "../store";
-import { t, useLang } from "../lib/i18n";
+import { t, tk, useLang } from "../lib/i18n";
 import { LibraryShows } from "./Chrome";
 
-const roots = ["latest", "discover", "library"];
+export const mobileTabs = [
+  { id: "latest", label: tk("首页"), Icon: House },
+  { id: "discover", label: tk("发现"), Icon: Compass },
+  { id: "library", label: tk("资料库"), Icon: Library },
+] as const;
+export type Root = typeof mobileTabs[number]["id"];
+
+export function selectedRoot(view: View, history: View[]) {
+  return [...history, view].reverse().find((v) => mobileTabs.some(({ id }) => id === v.kind))?.kind ?? "library";
+}
+
+export function switchRoot(root: Root) {
+  const store = useStore.getState();
+  if (store.view.kind !== root) store.set({ view: { kind: root }, history: [] });
+  else document.querySelector(".page")?.scrollTo({ top: 0 });
+}
+
 export function MobileNav() {
-  const { view, history, set } = useStore(useShallow((s) => ({ view: s.view, history: s.history, set: s.set })));
+  const { view, history } = useStore(useShallow((s) => ({ view: s.view, history: s.history })));
   useLang((s) => s.lang);
   if (view.kind === "episode") return null;
-  const root = [...history, view].reverse().find((v) => roots.includes(v.kind))?.kind ?? "library";
-  const tab = (v: View, icon: React.ReactNode, label: string) => (
-    <button className={`m-tab ${root === v.kind ? "on" : ""}`} aria-current={root === v.kind ? "page" : undefined}
-      onClick={() => { if (view.kind !== v.kind) { selectionFeedback(); set({ view: v, history: [] }); } else document.querySelector(".page")?.scrollTo({ top: 0 }); }}>{icon}<span>{label}</span></button>
-  );
+  const root = selectedRoot(view, history);
   return <nav className="m-nav" aria-label={t("主导航")}>
-    {tab({ kind: "latest" }, <House />, t("首页"))}
-    {tab({ kind: "discover" }, <Compass />, t("发现"))}
-    {tab({ kind: "library" }, <Library />, t("资料库"))}
+    {mobileTabs.map(({ id, label, Icon }) => (
+      <button key={id} className={`m-tab ${root === id ? "on" : ""}`} aria-current={root === id ? "page" : undefined}
+        onClick={() => { if (view.kind !== id) selectionFeedback(); switchRoot(id); }}><Icon /><span>{t(label)}</span></button>
+    ))}
   </nav>;
 }
 
@@ -30,7 +43,7 @@ export function LibraryView() {
     </div>
     <div className="settings-list library-links">
       <button onClick={() => go({ kind: "recent", saved: true })}><Bookmark /><span>{t("收藏")}</span><ChevronRight /></button>
-      <button onClick={() => go({ kind: "downloads" })}><Download /><span>{t("已下载")}</span><ChevronRight /></button>
+      <button onClick={() => go({ kind: "downloads" })}><Download /><span>{t("离线音频")}</span><ChevronRight /></button>
       <button onClick={() => go({ kind: "stats" })}><ChartColumn /><span>{t("收听统计")}</span><ChevronRight /></button>
     </div>
     <div className="module-head"><h2 className="module-title">{t("订阅节目")}</h2>

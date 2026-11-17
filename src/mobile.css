@@ -52,7 +52,11 @@ button { touch-action: manipulation; }
 .library-group .show-item > svg:last-child, .settings-list button > svg:last-child { flex: none; color: var(--muted); }
 .m-library .module-title { margin: 22px 0 8px; }
 
-/* Bottom tab bar */
+/* Scroll the content behind the native dock and keep the last row above it. */
+.m-app:has(> [data-native-dock]) .page { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px) !important; }
+.m-app:has(> [data-native-dock="player"]) .page { padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 81px) !important; }
+
+/* Bottom tab bar for systems without the native dock. */
 .m-nav { flex: none; display: flex; height: calc(var(--nav-h) + var(--safe-bottom)); padding-bottom: var(--safe-bottom); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: saturate(1.6) blur(18px); -webkit-backdrop-filter: saturate(1.6) blur(18px); border-top: 1px solid var(--line); z-index: 30; }
 .m-tab { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: 0; background: transparent; color: var(--muted); font-size: 10.5px; font-weight: 500; padding: 0; }
 .m-tab.on { color: var(--accent-text); }

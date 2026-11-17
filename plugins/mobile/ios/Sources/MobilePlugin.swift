@@ -39,6 +39,21 @@ class MobilePlugin: Plugin {
   }
 
   private let podcast = PodcastAudio()
+  private var glassDock: AnyObject?
+
+  @objc public func updateGlassDock(_ invoke: Invoke) throws {
+    guard #available(iOS 26.0, *) else { invoke.resolve(false); return }
+    let state = try invoke.parseArgs(GlassDockState.self)
+    DispatchQueue.main.async {
+      guard let parent = self.manager.viewController else { invoke.resolve(false); return }
+      let dock = (self.glassDock as? GlassDock) ?? GlassDock()
+      self.glassDock = dock
+      dock.update(state, in: parent) { [weak self] action, id in
+        self?.trigger("glass-dock-action", data: ["action": action, "id": id])
+      }
+      invoke.resolve(true)
+    }
+  }
 
   @objc public func podcastAudio(_ invoke: Invoke) throws {
     let command = try invoke.parseArgs(PodcastCommand.self)

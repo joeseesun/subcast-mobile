@@ -57,7 +57,7 @@ function EpisodeRow({ ep, showShow, hit, query }: { ep: Episode; showShow: boole
   const zh = useZh(ep.title);
   const pct = ep.duration && ep.progress > 5 ? Math.min(100, (ep.progress / ep.duration) * 100) : 0;
   const deep = !!ep.deep;
-  const saved = useOffline((s) => !!s.saved[ep.id]);
+  const saved = useOffline((s) => s.saved[ep.id]);
   const loading = useOffline((s) => s.active[ep.id]);
   return (
     <div className={`ep-item ${current?.id === ep.id ? "playing" : ""} ${pct >= 97 ? "played" : ""}`} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => e.key === "Enter" && open()}>
@@ -86,8 +86,8 @@ function EpisodeRow({ ep, showShow, hit, query }: { ep: Episode; showShow: boole
         )}
         {(deep || ep.hasTranscript || ep.videoId || pct > 0 || saved || loading !== undefined) && (
           <p className="ep-tags">
-            {saved && <span className="tag saved"><ArrowDownToLine size={11} />{t("已下载")}</span>}
-            {loading !== undefined && <span className="tag saved">{loading == null ? t("下载中") : t("下载中 {pct}%", { pct: Math.round(loading * 100) })}</span>}
+            {saved && <span className="tag saved"><ArrowDownToLine size={11} />{saved.cached ? t("已缓存") : t("已下载")}</span>}
+            {loading !== undefined && <span className="tag saved">{loading == null ? t("缓存中") : t("缓存中 {pct}%", { pct: Math.round(loading * 100) })}</span>}
             {deep && <span className="tag deep">{t("精读")}</span>}
             {ep.hasTranscript && <span className="tag">{t("字幕")}</span>}
             {ep.videoId && <span className="tag">{t("视频")}</span>}
@@ -369,19 +369,20 @@ export function DownloadsView() {
   const total = Object.values(saved).reduce((n, x) => n + x.bytes, 0);
   const n = Object.keys(saved).length;
   const clear = async () => {
-    if (!(await ask({ title: t("删除全部已下载的音频？"), message: t("字幕、精读和收听进度都会保留。"), ok: t("全部删除"), danger: true }))) return;
+    if (!(await ask({ title: t("清理全部离线音频？"), message: t("字幕、精读和收听进度都会保留。"), ok: t("全部删除"), danger: true }))) return;
     await clearDownloads();
   };
   return (
     <div className="page">
       <div className="page-head">
-        <h1 className="page-title">{t("已下载")}</h1>
+        <h1 className="page-title">{t("离线音频")}</h1>
         <div className="row-actions">
           {n > 0 && <button className="btn ghost sm" onClick={clear}><Trash2 size={13} /> {t("全部删除")}</button>}
         </div>
       </div>
-      <p className="muted page-sub">{n ? t("{n} 集 · 占用 {size} · 没有网络也能听", { n, size: bytes(total) }) : t("在单集页点下载按钮，就能离线收听")}</p>
-      {!ids.length ? <EmptyState art={<TrayArt />} title={t("还没有下载")} note={t("在单集的「更多」里下载音频。")} /> : <EpisodeList episodes={eps} showShow grouped={false} />}
+      <p className="muted page-sub">{n ? t("{n} 集 · 占用 {size} · 没有网络也能听", { n, size: bytes(total) }) : t("缓存音频后即可离线收听")}</p>
+      {ids.length > 0 && <p className="muted small">{t("新缓存连续 30 天未使用，会在下次启动时清理")}</p>}
+      {!ids.length ? <EmptyState art={<TrayArt />} title={t("还没有离线音频")} note={t("单集「更多」里可以缓存音频")} /> : <EpisodeList episodes={eps} showShow grouped={false} />}
     </div>
   );
 }

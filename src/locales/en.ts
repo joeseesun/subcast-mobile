@@ -1065,6 +1065,22 @@ const dict: Record<string, string> = {
   "YouTube 没有给出可直接播放的地址": "YouTube gave no directly playable stream",
   "下载 YouTube 音频失败（{}）": "Couldn't download the YouTube audio ({})",
   "YouTube 音频是空的": "The YouTube audio is empty",
+  "缓存音频": "Cache audio",
+  "取消缓存": "Cancel caching",
+  "管理离线音频": "Manage offline audio",
+  "已缓存，可离线收听": "Cached for offline listening",
+  "缓存未完成：{error}": "Couldn’t cache audio: {error}",
+  "离线音频": "Offline Audio",
+  "还没有离线音频": "No offline audio yet",
+  "单集「更多」里可以缓存音频": "Cache audio from the episode’s More menu",
+  "缓存音频后即可离线收听": "Cache audio to listen offline",
+  "清理全部离线音频？": "Clear all offline audio?",
+  "缓存中": "Caching",
+  "缓存中 {pct}%": "Caching {pct}%",
+  "已缓存": "Cached",
+  "新缓存连续 30 天未使用，会在下次启动时清理": "New caches unused for 30 days are cleared on the next launch.",
+  "清理这一集的离线音频？": "Clear this episode’s offline audio?",
+  "清理缓存": "Clear cache",
 };
 
 export default dict;

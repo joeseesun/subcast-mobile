@@ -9,9 +9,9 @@ import { useReadingSettings } from "./lib/reading";
 import { useRevealOnExpand } from "./lib/reveal";
 import { startJobListeners } from "./lib/jobs";
 import { useStore } from "./store";
-import { AddDialog, MiniPlayer, Toast, TopBar } from "./components/Chrome";
+import { AddDialog, Toast, TopBar } from "./components/Chrome";
 import { MobileBack } from "./components/MobileBack";
-import { LibraryView, MobileNav } from "./components/MobileNav";
+import { LibraryView } from "./components/MobileNav";
 import { DiscoverView, DownloadsView, LatestView, RecentView, ShowView, ChannelView, firstRunSetup } from "./components/Lists";
 import { startOffline } from "./lib/offline";
 import { startNowPlaying } from "./lib/nowplaying";
@@ -25,7 +25,8 @@ import { useJobs } from "./lib/jobs";
 import { activeIndex } from "./components/TranscriptPanel";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { t, useLang } from "./lib/i18n";
-import { EqBars } from "./components/Illustrations";
+import { MobileDock } from "./components/MobileDock";
+import logo from "../assets/logo.png";
 
 export default function App() {
   useReadingSettings();
@@ -95,7 +96,7 @@ export default function App() {
   }, []);
 
   useLang(); // re-render the tree when the interface language changes
-  if (!ready) return <div className="boot" role="status" aria-label={t("正在启动")}><EqBars /></div>;
+  if (!ready) return <div className="boot" role="status" aria-label={t("正在启动")}><img src={logo} width={58} height={58} alt="" /></div>;
   return (
     <div className={`app m-app ${view.kind === "episode" ? "m-full" : ""}`}>
       <main className="main">
@@ -110,8 +111,7 @@ export default function App() {
         {view.kind === "channel" && <ChannelView key={view.input} input={view.input} />}
         {view.kind === "episode" && <EpisodeView key={view.id} id={view.id} />}
       </main>
-      <MiniPlayer />
-      <MobileNav />
+      <MobileDock />
       <AudioEngine />
       <VideoDock />
       {settingsOpen && <SettingsDialog />}

@@ -117,20 +117,26 @@ function AudioSubtitles({ ep }: { ep: Episode }) {
 function SubtitleOverlay({ ep }: { ep: Episode }) {
   const transcript = useJobs((s) => s.transcripts[ep.id]);
   const items = useJobs((s) => s.translations[ep.id]?.items);
-  const time = useStore((s) => s.time);
   const mode = useStore((s) => s.settings.subtitleMode);
-  if (!transcript) return null;
-  const i = activeIndex(transcript.segments, time);
-  const seg = transcript.segments[i];
-  if (!seg || time > seg.end + 1.5) return null;
-  const zh = items?.[i];
-  const progress = Math.min(1, Math.max(0, (time - seg.start) / Math.max(0.5, seg.end - seg.start)));
-  const cjk = /[\u4e00-\u9fff]/.test(seg.text);
+  // Render only when the words change. The video clock also updates while a cue is on screen.
+  const cue = useStore(useShallow(({ time }) => {
+    if (!transcript) return null;
+    const i = activeIndex(transcript.segments, time);
+    const segment = transcript.segments[i];
+    if (!segment || time > segment.end + 1.5) return null;
+    const progress = Math.min(1, Math.max(0, (time - segment.start) / Math.max(0.5, segment.end - segment.start)));
+    const zh = items?.[i];
+    return {
+      original: mode !== "translation" || !zh ? pieceAt(segment.text, /[\u4e00-\u9fff]/.test(segment.text), progress) : null,
+      translated: zh && mode !== "original" ? pieceAt(zh, true, progress) : null,
+    };
+  }));
+  if (!cue) return null;
   return (
     <div className="subtitle-overlay">
       <div className="sub-box">
-        {zh && mode !== "original" && <p className="sub-zh">{pieceAt(zh, true, progress)}</p>}
-        {(mode !== "translation" || !zh) && <p className="sub-orig">{pieceAt(seg.text, cjk, progress)}</p>}
+        {cue.translated && <p className="sub-zh">{cue.translated}</p>}
+        {cue.original && <p className="sub-orig">{cue.original}</p>}
       </div>
     </div>
   );
@@ -232,10 +238,10 @@ function EpisodeActions({ ep, close }: { ep: Episode; close: () => void }) {
   return <MobileSheet title={t("本集操作")} onClose={close}>
     <button onClick={() => { toggleFavorite(ep, false); selectionFeedback(); }}><Bookmark fill={fav ? "currentColor" : "none"} />{fav ? t("取消收藏") : t("收藏这一集")}{fav && <Check className="row-check" />}</button>
     {saved ? <>
-      <button onClick={() => { close(); useStore.getState().go({ kind: "downloads" }); }}><ArrowDownToLine />{t("管理全部下载")}<small>{bytes(saved.bytes)}</small></button>
-      <button className="destructive" onClick={async () => { close(); if (await ask({ title: t("删除这一集已下载的音频？"), ok: t("删除"), danger: true })) void removeDownload(ep.id); }}><Trash2 />{t("删除下载")}</button>
+      <button onClick={() => { close(); useStore.getState().go({ kind: "downloads" }); }}><ArrowDownToLine />{t("管理离线音频")}<small>{bytes(saved.bytes)}</small></button>
+      <button className="destructive" onClick={async () => { close(); if (await ask({ title: t("清理这一集的离线音频？"), ok: t("清理"), danger: true })) void removeDownload(ep.id); }}><Trash2 />{saved.cached ? t("清理缓存") : t("删除下载")}</button>
     </> : (ep.audioUrl || ep.videoId) && <button onClick={() => { if (progress !== undefined) cancelDownload(ep.id); else void downloadEpisode(ep); close(); }}>
-      <ArrowDownToLine />{progress !== undefined ? t("取消下载") : t("下载音频")}{typeof progress === "number" && <small>{Math.round(progress * 100)}%</small>}
+      <ArrowDownToLine />{progress !== undefined ? t("取消缓存") : t("缓存音频")}{typeof progress === "number" && <small>{Math.round(progress * 100)}%</small>}
     </button>}
   </MobileSheet>;
 }

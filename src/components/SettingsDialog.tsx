@@ -255,7 +255,7 @@ function Storage() {
   const n = Object.keys(saved).length;
   const size = (b?: number) => (info ? (b ? bytes(b) : "0 MB") : "…");
   const clearAll = async () => {
-    if (!(await ask({ title: t("删除全部已下载的音频？"), message: t("字幕、精读和收听进度都会保留。"), ok: t("全部删除"), danger: true }))) return;
+    if (!(await ask({ title: t("清理全部离线音频？"), message: t("字幕、精读和收听进度都会保留。"), ok: t("全部删除"), danger: true }))) return;
     await clearDownloads(); load();
   };
   return (
@@ -263,8 +263,8 @@ function Storage() {
       <div className="storage-list">
         <div className="storage-row">
           <div className="storage-row-text">
-            <p className="storage-row-name">{t("离线下载")}</p>
-            <p className="muted small">{n ? t("{n} 集音频，没有网络也能听", { n }) : t("在单集页点下载按钮，就能离线收听")}</p>
+            <p className="storage-row-name">{t("离线音频")}</p>
+            <p className="muted small">{n ? t("{n} 集音频，没有网络也能听", { n }) : t("缓存音频后即可离线收听")}</p>
           </div>
           <span className="storage-size">{size(info?.downloads)}</span>
           {n > 0 && <button className="btn ghost sm" onClick={() => { set({ settingsOpen: false }); go({ kind: "downloads" }); }}>{t("查看")}</button>}

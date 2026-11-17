@@ -10,6 +10,7 @@ Share sheet and now-playing controls
 - `allow-insets`
 - `allow-selection-feedback`
 - `allow-podcast-audio`
+- `allow-update-glass-dock`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -226,6 +227,32 @@ Enables the share command without any pre-configured scope.
 <td>
 
 Denies the share command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:allow-update-glass-dock`
+
+</td>
+<td>
+
+Enables the update_glass_dock command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:deny-update-glass-dock`
+
+</td>
+<td>
+
+Denies the update_glass_dock command without any pre-configured scope.
 
 </td>
 </tr>

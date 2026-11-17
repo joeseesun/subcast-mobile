@@ -301,7 +301,11 @@ fn get_episode(state: State<'_, AppState>, id: String) -> Res<Option<Episode>> {
 fn remove_show(state: State<'_, AppState>, id: String) -> Res<()> { db::delete_show(&state.db.lock().unwrap(), &id).map_err(e) }
 
 #[tauri::command]
-fn set_progress(state: State<'_, AppState>, id: String, seconds: f64) -> Res<()> { db::set_progress(&state.db.lock().unwrap(), &id, seconds).map_err(e) }
+fn set_progress(state: State<'_, AppState>, id: String, seconds: f64) -> Res<()> {
+    db::set_progress(&state.db.lock().unwrap(), &id, seconds).map_err(e)?;
+    if seconds > 0.0 { offline::renew_cache(&state.data, &id); }
+    Ok(())
+}
 
 #[tauri::command]
 async fn search_podcasts(term: String, country: Option<String>) -> Res<Vec<feeds::SearchResult>> {
@@ -983,6 +987,7 @@ pub fn run() {
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data)?;
+            offline::prune_cache(&data, std::time::SystemTime::now());
             let conn = db::open(&data.join("subcast.db"))?;
             conn.execute("INSERT OR IGNORE INTO shows(id,kind,title,feed_url,updated_at) VALUES('single','single','单独打开','',0)", [])?;
             if let Some(s) = db::get_setting(&conn, "app")?.and_then(|r| serde_json::from_str::<Value>(&r).ok()) {
