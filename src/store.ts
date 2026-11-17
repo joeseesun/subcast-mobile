@@ -3,6 +3,13 @@ import { api, type Episode, type Show } from "./lib/api";
 import { DEFAULTS, loadSettings, type Settings } from "./lib/settings";
 import { setLang, t } from "./lib/i18n";
 
+export interface ShowFinder {
+  searchOpen: boolean;
+  query: string;
+  filter: "all" | "unplayed" | "subs";
+  month: string | null;
+}
+
 export type View =
   | { kind: "latest" }
   | { kind: "recent"; saved?: boolean }
@@ -10,7 +17,7 @@ export type View =
   | { kind: "discover" }
   | { kind: "downloads" }
   | { kind: "library" }
-  | { kind: "show"; id: string }
+  | { kind: "show"; id: string; finder?: ShowFinder }
   | { kind: "channel"; input: string }
   | { kind: "episode"; id: string };
 

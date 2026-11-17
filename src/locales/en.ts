@@ -1,5 +1,7 @@
 // English interface text, keyed by the Simplified Chinese source. Run `npm run i18n` to find missing entries.
 const dict: Record<string, string> = {
+  "清除筛选": "Clear filters",
+  "搜索失败": "Search failed",
   "筛选单集": "Filter episodes",
   "展开播放器": "Expand player",
   "收起播放器": "Collapse player",

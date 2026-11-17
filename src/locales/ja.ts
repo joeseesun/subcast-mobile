@@ -1,5 +1,7 @@
 // Japanese interface text, keyed by the Simplified Chinese source. Run `npm run i18n` to find missing entries.
 const dict: Record<string, string> = {
+  "清除筛选": "絞り込みを解除",
+  "搜索失败": "検索できませんでした",
   "筛选单集": "エピソードを絞り込む",
   "展开播放器": "プレーヤーを展開",
   "收起播放器": "プレーヤーを折りたたむ",

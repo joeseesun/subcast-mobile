@@ -1,5 +1,7 @@
 // 繁體中文 interface text, keyed by the Simplified Chinese source. Generated with OpenCC (cn → twp) and hand-checked.
 const dict: Record<string, string> = {
+  "清除筛选": "清除篩選",
+  "搜索失败": "搜尋失敗",
   "筛选单集": "篩選單集",
   "展开播放器": "展開播放器",
   "收起播放器": "收合播放器",

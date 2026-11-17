@@ -1,12 +1,12 @@
 import { MobileBack } from "./MobileBack";
-import { MobileSheet } from "./MobileSheet";
+import { MobileSheet, presentNativeChoices } from "./MobileSheet";
 import { selectionFeedback } from "../lib/feedback";
-import { playSoon } from "./Players";
+import { playSoon, seekEpisode } from "./Players";
 import { ask } from "../lib/confirm";
 import { create } from "zustand";
 import { flushSync } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, BookOpen, Check, ChevronDown, ChevronRight, Loader2, Play, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { bytes, clearDownloads, useOffline } from "../lib/offline";
 import { api, errorText, type Episode, type Show, type ShowHit } from "../lib/api";
@@ -14,10 +14,10 @@ import { date, duration, monthLabel } from "../lib/format";
 import { PICKS, TOPICS, deepPickFor, isSubscribed, pickName, pickSub, sameFeed, showName, type Pick, type Topic } from "../lib/picks";
 import { isChineseUi, t } from "../lib/i18n";
 import { useShowName, useZh } from "../lib/zh";
-import { useStore } from "../store";
+import { useStore, type ShowFinder } from "../store";
 import { SkeletonFeed } from "./Skeleton";
 import { BookmarkArt, EmptyState, QuietArt, SearchArt, TrayArt } from "./Illustrations";
-import { MonthFilter, useMonthFilter } from "./MonthFilter";
+import { availableEpisodeMonths, episodeMonth, episodeMonthLabel, MonthFilter, useMonthFilter } from "./MonthFilter";
 import { clearQueue, playAll, useLibrary } from "../lib/library";
 import { recommend, type Recommendation } from "../lib/recommend";
 import { BrandGlyph } from "./BrandGlyph";
@@ -45,12 +45,8 @@ function Marked({ text, query }: { text: string; query: string }) {
 
 /** Opens an episode and plays it from a subtitle match. */
 function openAt(ep: Episode, time: number) {
-  const s = useStore.getState();
-  const at = { ...ep, progress: Math.max(0, time - 1) };
-  void api.setProgress(ep.id, at.progress);
-  s.load(at);
-  s.openEpisode(at);
-  playSoon(ep.id);
+  useStore.getState().openEpisode(ep);
+  seekEpisode(ep, Math.max(0, time - 1));
 }
 
 function EpisodeRow({ ep, showShow, hit, query }: { ep: Episode; showShow: boolean; hit?: ShowHit; query?: string }) {
@@ -374,49 +370,98 @@ export function DownloadsView() {
 
 // ---- show page ----------------------------------------------------------------------------------
 
-type Filter = "all" | "unplayed" | "subs";
+type Filter = ShowFinder["filter"];
+const SHOW_FILTERS = ["all", "unplayed", "subs"] as const;
+const showFilterLabel = (value: Filter) => value === "all" ? t("全部") : value === "unplayed" ? t("未听") : t("有字幕");
+type ShowSearch = { term: string; hits: ShowHit[] | null };
 
-export function ShowView({ id }: { id: string }) {
+export function ShowView({ id, finder }: { id: string; finder?: ShowFinder }) {
   const { shows, reloadShows, notify, go } = useStore(useShallow((s) => ({ shows: s.shows, reloadShows: s.reloadShows, notify: s.notify, go: s.go })));
   const show = shows.find((s) => s.id === id);
   const [eps, setEps] = useState<Episode[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [filter, setFilter] = useState<Filter>("all");
+  const [filter, setFilter] = useState<Filter>(finder?.filter ?? "all");
   const [expanded, setExpanded] = useState(false);
   const [showOrig, setShowOrig] = useState(false);
   const [menu, setMenu] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(finder?.searchOpen ?? false);
   const names = useShowName(show?.title ?? "");
   const desc = (show?.description ?? "").replace(/<[^>]+>/g, "").trim().slice(0, 1500);
   const descZh = useZh(desc);
-  useEffect(() => { setEps(null); api.listEpisodes(id).then(setEps); }, [id]);
-  // Search inside this show: titles (with their Chinese), show notes and subtitles, done by the backend.
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<ShowHit[] | null>(null);
-  const searchBox = useRef<HTMLInputElement>(null);
-  useEffect(() => { setQuery(""); setHits(null); }, [id]);
   useEffect(() => {
-    const q = query.trim();
-    if (!q) { setHits(null); return; }
     let active = true;
-    const timer = window.setTimeout(() => void api.searchShow(id, q).then((rows) => { if (active) setHits(rows); }).catch(() => { if (active) setHits([]); }), 180);
+    void api.listEpisodes(id).then((episodes) => { if (active) setEps(episodes); })
+      .catch((error) => { if (active) { setEps([]); notify(errorText(error)); } });
+    return () => { active = false; };
+  }, [id, notify]);
+  // Search inside this show: titles (with their Chinese), show notes and subtitles, done by the backend.
+  const [query, setQuery] = useState(finder?.query ?? "");
+  const [search, setSearch] = useState<ShowSearch | null>(null);
+  const [searchAttempt, setSearchAttempt] = useState(0);
+  const term = query.trim();
+  const searchBox = useRef<HTMLInputElement>(null);
+  const searchButton = useRef<HTMLButtonElement>(null);
+  const beginSearch = () => {
+    flushSync(() => setSearchOpen(true));
+    searchBox.current?.focus();
+  };
+  const closeSearch = () => {
+    flushSync(() => { setQuery(""); setSearch(null); setSearchOpen(false); });
+    searchButton.current?.focus({ preventScroll: true });
+  };
+  useEffect(() => {
+    if (!term) return;
+    let active = true;
+    const timer = window.setTimeout(() => void api.searchShow(id, term)
+      .then((hits) => { if (active) setSearch({ term, hits }); })
+      .catch(() => { if (active) setSearch({ term, hits: null }); }), 180);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [query, id]);
+  }, [term, id, searchAttempt]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
         event.preventDefault();
-        flushSync(() => setSearchOpen(true));
-        searchBox.current?.focus();
+        beginSearch();
         searchBox.current?.select();
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
   }, []);
-  const byFilter = useMemo(() => eps?.filter((e) => filter === "all" || (filter === "unplayed" ? e.progress < 5 : e.hasTranscript || e.transcriptUrl)) ?? null, [eps, filter]);
-  const { month, setMonth, filtered: shown } = useMonthFilter(byFilter);
+  const [month, setMonth] = useState<string | null>(finder?.month ?? null);
+  useLayoutEffect(() => {
+    const { view } = useStore.getState();
+    if (view.kind !== "show" || view.id !== id) return;
+    const finding = searchOpen || filter !== "all" || month ? { searchOpen, query, filter, month } : undefined;
+    if (!finding && !view.finder) return;
+    useStore.setState({ view: { ...view, finder: finding } });
+  }, [id, searchOpen, query, filter, month]);
+  const matchesFilters = (e: Episode) =>
+    (filter === "all" || (filter === "unplayed" ? e.progress < 5 : e.hasTranscript || e.transcriptUrl)) &&
+    (!month || (!!e.published && episodeMonth(e.published) === month));
+  const shown = eps?.filter(matchesFilters) ?? null;
+  const result = search?.term === term ? search : null;
+  const hits = result?.hits?.filter(({ episode }) => matchesFilters(episode));
+  const clearFilters = () => { setFilter("all"); setMonth(null); };
+  const openFilters = async (trigger: HTMLButtonElement) => {
+    // Leave keyboard focus before presenting a native sheet.
+    searchBox.current?.blur();
+    const status = SHOW_FILTERS.map((id) => ({ id, title: showFilterLabel(id), selected: filter === id }));
+    const months = availableEpisodeMonths(eps);
+    const dateChoices = months.length < 2 && !month ? [] : [
+      { id: "any-month", title: t("全部月份"), selected: !month, symbol: "calendar" },
+      ...months.map(([id, n]) => ({ id, title: t("{month} · {n} 期", { month: episodeMonthLabel(id), n }), selected: month === id })),
+    ];
+    const choice = await presentNativeChoices(t("筛选单集"), status, trigger, dateChoices);
+    if (choice === null) setFilterOpen(true);
+    else if (choice === "any-month") setMonth(null);
+    else {
+      const selectedStatus = SHOW_FILTERS.find((id) => id === choice);
+      if (selectedStatus) setFilter(selectedStatus);
+      else if (choice && months.some(([id]) => id === choice)) setMonth(choice);
+    }
+  };
   // "Play all" follows the list as filtered, newest first, skipping finished and unplayable episodes.
   const playable = (shown ?? []).filter((e) => (e.audioUrl || e.videoId) && !(e.duration && e.progress >= e.duration * 0.97));
   if (!show) return <><MobileBack /><div className="page" /></>;
@@ -453,34 +498,36 @@ export function ShowView({ id }: { id: string }) {
         <BookOpen size={19} aria-hidden /> <span>{t("乔木精读")}</span><ChevronRight size={16} aria-hidden />
       </button>}
       <div className="episode-list-tools">
-        <h2>{hits ? t("搜索结果") : t("全部单集")}</h2>
-        {!query && playable.length > 0 && <button className="queue-play" onClick={() => playAll(playable)}><Play size={16} fill="currentColor" />{t("播放全部")}</button>}
-        <button className="icon-btn" aria-label={t("搜索本节目")} aria-expanded={searchOpen} onClick={() => {
-          if (searchOpen) { setQuery(""); setSearchOpen(false); } else {
-            flushSync(() => setSearchOpen(true));
-            searchBox.current?.focus();
-          }
-        }}><BrandGlyph name="search" /></button>
-        {!query && <button className={`icon-btn ${activeFilter ? "filter-active" : ""}`} aria-label={t("筛选单集")} aria-haspopup="dialog" onClick={() => setFilterOpen(true)}><BrandGlyph name="filter" /></button>}
+        <h2>{term ? t("搜索结果") : t("全部单集")}</h2>
+        {!searchOpen && playable.length > 0 && <button className="queue-play" onClick={() => playAll(playable)}><Play size={16} fill="currentColor" />{t("播放全部")}</button>}
+        {!searchOpen && <button ref={searchButton} className="icon-btn" aria-label={t("搜索本节目")} onClick={beginSearch}><BrandGlyph name="search" /></button>}
+        <button className={`icon-btn ${activeFilter ? "filter-active" : ""}`} aria-label={t("筛选单集")} aria-haspopup="dialog" onClick={(event) => void openFilters(event.currentTarget)}><BrandGlyph name="filter" /></button>
       </div>
-      {searchOpen && <div className="show-query"><input type="search" ref={searchBox} enterKeyHint="search" value={query} placeholder={t("搜索本节目的单集、简介和字幕")} onChange={(e) => setQuery(e.target.value)} /></div>}
-      {activeFilter && !query && <button className="filter-summary" onClick={() => { setFilter("all"); setMonth(null); }}>{[filter === "unplayed" ? t("未听") : filter === "subs" ? t("有字幕") : "", month].filter(Boolean).join(" · ")}<X size={16} /></button>}
+      {searchOpen && <form className="show-query" role="search" onSubmit={(event) => { event.preventDefault(); searchBox.current?.blur(); }}>
+        <label><BrandGlyph name="search" size={18} /><input type="search" ref={searchBox} enterKeyHint="search"
+          aria-label={t("搜索本节目")} value={query} placeholder={t("搜索本节目")}
+          onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") closeSearch(); }} /></label>
+        <button type="button" className="link-btn" onClick={closeSearch}>{t("取消")}</button>
+      </form>}
+      {activeFilter && <button className="filter-summary" aria-label={t("清除筛选")} onClick={clearFilters}>
+        {[filter === "all" ? "" : showFilterLabel(filter), month ? episodeMonthLabel(month) : ""].filter(Boolean).join(" · ")}<X size={16} aria-hidden />
+      </button>}
       {filterOpen && <MobileSheet title={t("筛选单集")} doneLabel={t("完成")} onClose={() => setFilterOpen(false)}>
-        {([["all", t("全部")], ["unplayed", t("未听")], ["subs", t("有字幕")]] as [Filter, string][]).map(([key, label]) => <button key={key} aria-pressed={filter === key} onClick={() => { setFilter(key); selectionFeedback(); }}>{label}{filter === key && <Check className="row-check" />}</button>)}
+        {SHOW_FILTERS.map((key) => <button key={key} aria-pressed={filter === key} onClick={() => { setFilter(key); selectionFeedback(); }}>{showFilterLabel(key)}{filter === key && <Check className="row-check" />}</button>)}
         <MonthFilter episodes={eps} month={month} onChange={setMonth} />
       </MobileSheet>}
-      {hits ? (
+      {term ? (
+        !result ? <p className="muted small search-count" role="status">{t("正在加载…")}</p> :
+        !hits ? <EmptyState art={<SearchArt />} title={t("搜索失败")}>
+          <button className="btn" onClick={() => { setSearch(null); setSearchAttempt((n) => n + 1); }}>{t("重试")}</button>
+        </EmptyState> :
         hits.length ? (
           <>
-            <p className="muted small search-count">{t("找到 {n} 集", { n: hits.length })}{hits.some((h) => h.field === "transcript") ? ` · ${t("点字幕匹配会从那一句开始播放")}` : ""}</p>
-            <div className="ep-feed">{hits.map((h) => <EpisodeRow key={h.episode.id} ep={h.episode} showShow={false} hit={h} query={query.trim()} />)}</div>
+            <p className="muted small search-count" role="status">{t("找到 {n} 集", { n: hits.length })}</p>
+            <div className="ep-feed">{hits.map((h) => <EpisodeRow key={h.episode.id} ep={h.episode} showShow={false} hit={h} query={term} />)}</div>
           </>
-        ) : <EmptyState art={<SearchArt />} title={t("没有找到「{q}」", { q: query.trim() })} />
-      ) : (
-        <>
-          <EpisodeList episodes={shown} showShow={false} />
-        </>
-      )}
+        ) : <EmptyState art={<SearchArt />} title={t("没有找到「{q}」", { q: term })} />
+      ) : <EpisodeList episodes={shown} showShow={false} />}
     </div></>
   );
 }

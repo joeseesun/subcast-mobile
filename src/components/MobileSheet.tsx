@@ -8,13 +8,13 @@ type Choice = { id: string; title: string; selected: boolean; symbol?: string };
 let presentingChoice = false;
 
 /** Returns null for the web fallback, or an empty string if the user dismisses the native sheet. */
-export async function presentNativeChoices(title: string, rows: Choice[], trigger: HTMLButtonElement) {
+export async function presentNativeChoices(title: string, rows: Choice[], trigger: HTMLButtonElement, moreRows: Choice[] = []) {
   if (!IS_MAC) return null;
   if (presentingChoice) return "";
   presentingChoice = true;
   try {
     const choice = await invoke<string | null>("plugin:mobile|present_settings_index", {
-      state: { title, done: t("取消"), choiceSheet: true, groups: [rows] },
+      state: { title, done: t("取消"), choiceSheet: true, groups: moreRows.length ? [rows, moreRows] : [rows] },
     });
     if (choice !== null) trigger.focus({ preventScroll: true });
     return choice;

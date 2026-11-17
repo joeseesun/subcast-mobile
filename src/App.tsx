@@ -107,7 +107,7 @@ export default function App() {
         {view.kind === "discover" && <DiscoverView />}
         {view.kind === "downloads" && <DownloadsView />}
         {view.kind === "library" && <LibraryView />}
-        {view.kind === "show" && <ShowView key={view.id} id={view.id} />}
+        {view.kind === "show" && <ShowView key={view.id} id={view.id} finder={view.finder} />}
         {view.kind === "channel" && <ChannelView key={view.input} input={view.input} />}
         {view.kind === "episode" && <EpisodeView key={view.id} id={view.id} />}
       </main>
