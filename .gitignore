@@ -8,3 +8,4 @@ plugins/mobile/android/.tauri/
 plugins/mobile/ios/.tauri/
 plugins/mobile/ios/.build/
 plugins/mobile/target/
+plugins/mobile/.tauri/
