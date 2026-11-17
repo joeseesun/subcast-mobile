@@ -11,6 +11,8 @@ struct PodcastCommand: Decodable {
   let video: Bool?
   let revision: Int?
   let layout: PodcastVideoLayout?
+  let youtubeID: String?
+  let youtubeLabels: PodcastYouTubeLabels?
 }
 
 /// One selected episode. Preparing an item may fetch and decode audio, but never starts the clock.

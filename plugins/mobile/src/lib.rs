@@ -51,8 +51,14 @@ async fn now_playing<R: Runtime>(app: tauri::AppHandle<R>, info: NowPlaying) -> 
 async fn clear_now_playing<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> { run(&app, "clearNowPlaying", Value::Null) }
 
 #[tauri::command]
-async fn podcast_audio<R: Runtime>(app: tauri::AppHandle<R>, command: Value) -> Result<(), String> {
-    run(&app, "podcastAudio", command)
+async fn podcast_audio<R: Runtime>(app: tauri::AppHandle<R>, command: Value) -> Result<Value, String> {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    {
+        let Some(handle) = app.state::<Mobile<R>>().0.clone() else { return Err("no native plugin".into()) };
+        handle.run_mobile_plugin_async("podcastAudio", command).await.map_err(|error| error.to_string())
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    { let _ = (app, command); Err("only on phones".into()) }
 }
 
 #[tauri::command]

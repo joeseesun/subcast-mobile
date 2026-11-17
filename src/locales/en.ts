@@ -194,6 +194,8 @@ const dict: Record<string, string> = {
   "{reason}，正在改用直连播放…": "{reason}. Switching to direct playback…",
   "首次使用，正在下载 YouTube 播放组件 {pct}%": "Downloading the YouTube playback component for first use… {pct}%",
   "{reason}，正在获取视频地址…": "{reason}. Getting the video address…",
+  "换一种方式播放": "Choose how to play",
+  "在应用内观看": "Watch in the app",
   "在 YouTube 打开": "Open on YouTube",
   "作者限制了嵌入播放": "The creator doesn't allow embedded playback",
   "YouTube 播放器加载失败（错误 {code}）": "The YouTube player failed to load (error {code})",

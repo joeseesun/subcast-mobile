@@ -261,8 +261,10 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const isCurrent = current?.id === ep.id;
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const [videoRecovery, setVideoRecovery] = useState(false);
   const reading = tab === "summary" || tab === "chat";
-  const compact = reading && !expanded && isCurrent;
+  const showingRecovery = isCurrent && !!current.videoId && videoRecovery;
+  const compact = reading && !expanded && isCurrent && !showingRecovery;
   useEffect(() => {
     const askSelection = (event: Event) => {
       const quote = (event as CustomEvent<string>).detail;
@@ -339,7 +341,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
           </div>
         </div>
         {showVideo ? (
-          isCurrent ? <VideoSlot ep={ep} overlay={videoOverlay} onUnplayable={both ? onUnplayable : undefined} /> :
+          isCurrent ? <VideoSlot ep={ep} overlay={videoOverlay} onUnplayable={both ? onUnplayable : undefined} onRecoveryChange={setVideoRecovery} /> :
           <button className="video-slot video-preview" onClick={startPlayback} aria-label={t("播放这一集")}>
             <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" /><BrandGlyph name="play" size={28} />
           </button>
@@ -349,7 +351,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
         {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton} /></div> : (
           <div className="m-start-row">{modeButton}<button className="btn primary m-play" onClick={startPlayback}><BrandGlyph name="play" size={22} /> {t("播放这一集")}</button></div>
         )}
-        {reading && isCurrent && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
+        {reading && isCurrent && !showingRecovery && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
       </section>
       <section className="ep-right m-ep-tabs">
         <div className="reading-segments" role="tablist" style={{ "--count": tabs.length, "--index": Math.max(0, tabs.findIndex(([k]) => k === tab)) } as React.CSSProperties}>

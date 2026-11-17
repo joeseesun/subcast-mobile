@@ -9,23 +9,23 @@ import { YouTubePlayer } from "./Players";
 import { useStore } from "../store";
 import { t } from "../lib/i18n";
 
-interface Slot { ep: Episode; el: HTMLElement; overlay?: React.ReactNode; onUnplayable?: () => void }
+interface Slot { ep: Episode; el: HTMLElement; overlay?: React.ReactNode; onUnplayable?: () => void; onRecoveryChange?: (showing: boolean) => void }
 interface Dock { slot: Slot | null; /** The episode playing in the floating window after its page closed. */ floating: { ep: Episode; overlay?: React.ReactNode } | null }
 export const useVideoDock = create<Dock>(() => ({ slot: null, floating: null }));
 
 /** The episode page's place for its video. Leaving the page while it plays keeps it playing, floating. */
-export function VideoSlot({ ep, overlay, onUnplayable }: Omit<Slot, "el">) {
+export function VideoSlot({ ep, overlay, onUnplayable, onRecoveryChange }: Omit<Slot, "el">) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current!;
-    useVideoDock.setState({ slot: { ep, el, overlay, onUnplayable }, floating: null });
+    useVideoDock.setState({ slot: { ep, el, overlay, onUnplayable, onRecoveryChange }, floating: null });
     return () => {
       const s = useStore.getState();
       const keep = s.current?.id === ep.id && (s.playing || s.playWhenReady === ep.id || s.player?.systemVideo);
       useVideoDock.setState((d) => (d.slot?.el === el ? { slot: null, floating: keep ? { ep, overlay } : null } : d));
     };
   }, [ep.id]);
-  useEffect(() => { useVideoDock.setState((d) => (d.slot?.el === ref.current ? { slot: { ...d.slot!, overlay, onUnplayable } } : d)); }, [overlay, onUnplayable]);
+  useEffect(() => { useVideoDock.setState((d) => (d.slot?.el === ref.current ? { slot: { ...d.slot!, overlay, onUnplayable, onRecoveryChange } } : d)); }, [overlay, onUnplayable, onRecoveryChange]);
   return <div className="video-slot" ref={ref} />;
 }
 
@@ -84,7 +84,7 @@ export function VideoDock() {
   const close = () => { if (useStore.getState().playing) useStore.getState().player?.toggle(); useVideoDock.setState({ floating: null }); };
   return (
     <div ref={box} className={`video-dock ${slot ? "docked" : "floating"} ${theater ? "theater-host" : ""}`}>
-      <YouTubePlayer key={ep.id} ep={ep} overlay={slot?.overlay ?? floating?.overlay} onUnplayable={slot?.onUnplayable} />
+      <YouTubePlayer key={ep.id} ep={ep} overlay={slot?.overlay ?? floating?.overlay} onUnplayable={slot?.onUnplayable} onRecoveryChange={slot?.onRecoveryChange} />
       {!slot && (
         <div className="video-float-bar">
           <button className="icon-btn sm" title={t("回到这一集")} aria-label={t("回到这一集")} onClick={() => useStore.getState().openEpisode(ep)}><ExternalLink size={14} /></button>

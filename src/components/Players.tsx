@@ -302,13 +302,18 @@ export const RATES = [0.8, 1, 1.15, 1.25, 1.5, 1.75, 2];
 
 /** On iOS, direct video uses AVPlayer with the system full-screen controls.
  * Android tries the embed first. Each failed source advances at most once. */
-export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; overlay?: React.ReactNode; onUnplayable?: () => void }) {
+export function YouTubePlayer({ ep, overlay, onUnplayable, onRecoveryChange }: {
+  ep: Episode; overlay?: React.ReactNode; onUnplayable?: () => void; onRecoveryChange?: (showing: boolean) => void;
+}) {
   const routes = IS_MAC ? ["native-hls", "relay-hls", "relay-mp4", "embed"] as const : ["embed", "proxy-hls", "mp4"] as const;
   const [attempt, setAttempt] = useState(0);
   const [webAttempt, setWebAttempt] = useState(-1);
   const [media, setMedia] = useState<{ url: string; kind: "hls" | "mp4"; attempt: number } | null>(null);
   const [reason, setReason] = useState("");
+  const [openingBackup, setOpeningBackup] = useState(false);
   const route = routes[attempt];
+  const nativeBackup = IS_MAC && route === "embed";
+  const showingRecovery = !route || nativeBackup;
   const theater = useStore((s) => s.theater);
   const pending = useStore((s) => s.playWhenReady === ep.id);
   const fail = (message: string) => {
@@ -318,9 +323,13 @@ export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; over
     setReason(message);
     setAttempt((n) => n === attempt ? n + 1 : n);
   };
+  useEffect(() => { onRecoveryChange?.(showingRecovery); }, [showingRecovery, onRecoveryChange]);
   useEffect(() => {
     useStore.setState({ bufferedUntil: 0 });
-    if (!route) { useStore.setState({ playing: false, loadingSince: null, playWhenReady: null }); return; }
+    if (showingRecovery) {
+      useStore.setState({ playing: false, loadingSince: null, playWhenReady: null });
+      return;
+    }
     if (route === "embed") return;
     let active = true;
     void api.youtubeStream(ep.videoId!, route, route !== "native-hls").then((result) => {
@@ -329,17 +338,38 @@ export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; over
     return () => { active = false; };
   }, [ep.id, attempt]);
   useEffect(() => () => { if (useStore.getState().theater) toggleTheater(false); }, []);
+  const openBackup = async () => {
+    if (openingBackup) return;
+    setOpeningBackup(true);
+    try {
+      const time = await invoke<number>("plugin:mobile|podcast_audio", {
+        command: {
+          action: "present-embed", session: ep.id, youtubeID: ep.videoId, value: useStore.getState().time,
+          youtubeLabels: { title: t("视频"), close: t("关闭"), unavailable: t("暂时无法播放视频") },
+        },
+      });
+      if (useStore.getState().current?.id === ep.id && Number.isFinite(time)) {
+        useStore.setState({ time });
+        void api.setProgress(ep.id, time).catch(() => {});
+      }
+    } catch {
+      useStore.getState().notify(t("暂时无法播放视频"));
+    } finally {
+      setOpeningBackup(false);
+    }
+  };
   const openVideo = () => {
     const time = Math.floor(useStore.getState().time);
     void openUrl(`https://www.youtube.com/watch?v=${ep.videoId}&t=${time}s`);
   };
   return (
     <div className={`video ${theater ? "theater" : ""}`}>
-      {!route ? <div className="video-error" role="status">
-        <p title={reason}>{t("暂时无法播放视频")}</p><div className="row-actions">
+      {showingRecovery ? <div className="video-error" role="status">
+        <p title={reason}>{nativeBackup ? t("换一种方式播放") : t("暂时无法播放视频")}</p><div className="row-actions">
+          {nativeBackup && <button className="btn primary sm" disabled={openingBackup} onClick={() => void openBackup()}><BrandGlyph name="play" size={17} />{t("在应用内观看")}</button>}
           <button className="btn sm" onClick={() => { playSoon(ep.id); setMedia(null); setWebAttempt(-1); setAttempt(0); }}>{t("重试")}</button>
           {onUnplayable && <button className="btn sm" onClick={onUnplayable}>{t("仅音频")}</button>}
-          {!onUnplayable && <button className="btn sm" onClick={openVideo}>{t("在 YouTube 打开")}</button>}
+          {!IS_MAC && !onUnplayable && <button className="btn sm" onClick={openVideo}>{t("在 YouTube 打开")}</button>}
         </div>
       </div> : route === "embed" ? <EmbedVideo ep={ep} onBlocked={fail} onError={fail} /> :
         media?.attempt === attempt ? (

@@ -80,6 +80,19 @@ class MobilePlugin: Plugin {
     let command = try invoke.parseArgs(PodcastCommand.self)
     DispatchQueue.main.async {
       switch command.action {
+      case "present-embed":
+        guard let host = self.manager.viewController, host.presentedViewController == nil,
+              host.viewIfLoaded?.window != nil, let id = command.youtubeID, let labels = command.youtubeLabels,
+              let player = PodcastYouTubePlayer(videoID: id, time: command.value ?? 0, labels: labels,
+                                                finish: { invoke.resolve($0) }) else {
+          invoke.reject("The YouTube player is unavailable")
+          return
+        }
+        let navigation = UINavigationController(rootViewController: player)
+        navigation.overrideUserInterfaceStyle = .dark
+        navigation.modalPresentationStyle = .fullScreen
+        host.present(navigation, animated: true)
+        return
       case "video-layout":
         if self.podcast.session == command.session, let layout = command.layout {
           self.podcastVideo.update(layout)
