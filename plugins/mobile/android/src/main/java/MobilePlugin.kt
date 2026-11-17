@@ -9,6 +9,8 @@ import android.webkit.WebView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -51,6 +53,29 @@ class MobilePlugin(private val activity: Activity) : Plugin(activity) {
         }
         // A web view keeps playing in the background only if its timers and media are not paused with the activity.
         webView.settings.mediaPlaybackRequiresUserGesture = false
+        // Edge-to-edge: Android's web view reports no env(safe-area-inset-*), so the page gets the status bar and
+        // gesture bar heights as CSS variables (in CSS pixels).
+        ViewCompat.setOnApplyWindowInsetsListener(webView) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val d = v.resources.displayMetrics.density
+            safeTop = bars.top / d
+            safeBottom = bars.bottom / d
+            v.post { webView.evaluateJavascript("document.documentElement.style.setProperty('--safe-top','${safeTop}px');document.documentElement.style.setProperty('--safe-bottom','${safeBottom}px');", null) }
+            insets
+        }
+        webView.requestApplyInsets()
+    }
+
+    private var safeTop = 0f
+    private var safeBottom = 0f
+
+    /** The bar heights, for a page that loaded after the insets arrived. */
+    @Command
+    fun insets(invoke: Invoke) {
+        val r = JSObject()
+        r.put("top", safeTop.toDouble())
+        r.put("bottom", safeBottom.toDouble())
+        invoke.resolve(r)
     }
 
     @Command

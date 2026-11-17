@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the clear_now_playing command without any pre-configured scope."
         },
         {
+          "description": "Enables the insets command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-insets",
+          "markdownDescription": "Enables the insets command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the insets command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-insets",
+          "markdownDescription": "Denies the insets command without any pre-configured scope."
+        },
+        {
           "description": "Enables the now_playing command without any pre-configured scope.",
           "type": "string",
           "const": "allow-now-playing",
@@ -317,6 +329,30 @@
           "type": "string",
           "const": "deny-now-playing",
           "markdownDescription": "Denies the now_playing command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-register-listener",
+          "markdownDescription": "Enables the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the register_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-register-listener",
+          "markdownDescription": "Denies the register_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-remove-listener",
+          "markdownDescription": "Enables the remove_listener command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the remove_listener command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-remove-listener",
+          "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
         },
         {
           "description": "Enables the share command without any pre-configured scope.",
@@ -331,10 +367,10 @@
           "markdownDescription": "Denies the share command without any pre-configured scope."
         },
         {
-          "description": "Share sheet and now-playing controls\n#### This default permission set includes:\n\n- `allow-share`\n- `allow-now-playing`\n- `allow-clear-now-playing`",
+          "description": "Share sheet and now-playing controls\n#### This default permission set includes:\n\n- `allow-share`\n- `allow-now-playing`\n- `allow-clear-now-playing`\n- `allow-insets`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Share sheet and now-playing controls\n#### This default permission set includes:\n\n- `allow-share`\n- `allow-now-playing`\n- `allow-clear-now-playing`"
+          "markdownDescription": "Share sheet and now-playing controls\n#### This default permission set includes:\n\n- `allow-share`\n- `allow-now-playing`\n- `allow-clear-now-playing`\n- `allow-insets`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

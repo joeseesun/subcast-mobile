@@ -7,6 +7,12 @@ import { showName } from "./picks";
 const send = (info: unknown) => invoke("plugin:mobile|now_playing", { info }).catch(() => {});
 
 export function startNowPlaying() {
+  // Android draws edge to edge without env(safe-area-inset-*): take the bar heights from the native side.
+  void invoke<{ top: number; bottom: number } | null>("plugin:mobile|insets").then((r) => {
+    if (!r || (!r.top && !r.bottom)) return;
+    document.documentElement.style.setProperty("--safe-top", `${r.top}px`);
+    document.documentElement.style.setProperty("--safe-bottom", `${r.bottom}px`);
+  }).catch(() => {});
   let lastKey = "";
   let lastPush = 0;
   const push = (force = false) => {

@@ -50,9 +50,21 @@ async fn now_playing<R: Runtime>(app: tauri::AppHandle<R>, info: NowPlaying) -> 
 #[tauri::command]
 async fn clear_now_playing<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> { run(&app, "clearNowPlaying", Value::Null) }
 
+/// Android only: the status / gesture bar heights in CSS pixels (iOS uses env(safe-area-inset-*)).
+#[tauri::command]
+async fn insets<R: Runtime>(app: tauri::AppHandle<R>) -> Result<Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let Some(handle) = app.state::<Mobile<R>>().0.clone() else { return Err("no native plugin".into()) };
+        return handle.run_mobile_plugin::<Value>("insets", Value::Null).map_err(|e| e.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
+    { let _ = app; Ok(Value::Null) }
+}
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("mobile")
-        .invoke_handler(tauri::generate_handler![share, now_playing, clear_now_playing])
+        .invoke_handler(tauri::generate_handler![share, now_playing, clear_now_playing, insets])
         .setup(|app, api| {
             #[cfg(target_os = "android")]
             let handle = Some(api.register_android_plugin("ai.qiaomu.subcast.mobileplugin", "MobilePlugin")?);
