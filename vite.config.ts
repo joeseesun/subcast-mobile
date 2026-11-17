@@ -6,7 +6,18 @@ const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  plugins: [react()],
+  plugins: [react(), {
+    // Development only: the WebView's console lines arrive here (src/lib/devnav.ts) and go to /tmp/subcast-webview.log.
+    name: "webview-log",
+    apply: "serve",
+    configureServer(server: any) {
+      server.middlewares.use("/__log", (req: any, res: any) => {
+        let body = "";
+        req.on("data", (c: any) => (body += c));
+        req.on("end", async () => { const fs = await import("node:fs"); fs.appendFileSync("/tmp/subcast-webview.log", body + "\n"); res.end("ok"); });
+      });
+    },
+  }],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

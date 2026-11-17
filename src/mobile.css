@@ -117,3 +117,6 @@ button { touch-action: manipulation; }
 .splitter, [role="separator"].splitter, .kbd-hint, kbd, .tabs-close { display: none !important; }
 .selection-tools, .sel-tools { max-width: calc(100vw - 16px); }
 .toast { bottom: calc(var(--nav-h) + var(--safe-bottom) + 76px) !important; left: 16px; right: 16px; transform: none !important; text-align: center; }
+.m-ep-tabs .tabs button .tab-label { display: inline !important; font-size: 13px; }
+.m-ep-tabs .tabs button { gap: 4px; }
+.m-ep-top .video-slot { width: calc(100% + var(--gutter) * 2); margin: 0 calc(var(--gutter) * -1); border-radius: 0; }

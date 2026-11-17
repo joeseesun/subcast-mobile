@@ -62,6 +62,8 @@ export function AudioEngine() {
   const rate = useStore((s) => s.settings.playbackRate);
   const ref = useRef<HTMLAudioElement>(null);
   const audio = current && !current.videoId ? current : null;
+  // Re-registers when something else cleared the handle (a video that failed over to audio clears it after we set it).
+  const noPlayer = useStore((s) => s.player == null);
   const saved = useOffline((s) => (audio ? s.saved[audio.id]?.path : undefined));
   // The address is fixed per episode so a download finishing mid-episode does not cut in; it takes over at the next pause.
   const [chosen, setChosen] = useState<{ id: string; src?: string } | null>(null);
@@ -83,7 +85,7 @@ export function AudioEngine() {
     };
     useStore.getState().set({ player: handle });
     return () => { if (useStore.getState().player === handle) useStore.getState().set({ player: null }); };
-  }, [audio?.id]);
+  }, [audio?.id, !!src, noPlayer]);
 
   useEffect(() => { if (ref.current) ref.current.playbackRate = rate; }, [rate, audio?.id]);
 
