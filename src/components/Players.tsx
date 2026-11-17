@@ -1,10 +1,9 @@
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { ExternalLink, Loader2, Minimize2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
+import { Loader2, Minimize2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { api, isBotCheck, type Episode } from "../lib/api";
+import { api, type Episode } from "../lib/api";
 import { clock } from "../lib/format";
 import { loadYouTube } from "../lib/youtube";
 import { useStore } from "../store";
@@ -18,14 +17,14 @@ const SAVE_EVERY = 10;
 export function playSoon(id: string) {
   const s = useStore.getState();
   waiting(true);
-  if (s.current?.id === id && s.player) { s.player.play(); return; }
+  if (s.current?.id === id && s.player?.episodeId === id) { s.player.play(); return; }
   s.set({ playWhenReady: id });
 }
 useStore.subscribe((s, prev) => {
-  if (s.player && s.player !== prev.player && s.playWhenReady && s.current?.id === s.playWhenReady) {
+  if (s.player && s.player !== prev.player && s.playWhenReady === s.player.episodeId && s.current?.id === s.playWhenReady) {
     const p = s.player;
     useStore.setState({ playWhenReady: null });
-    window.setTimeout(() => p.play(), 0);
+    if (useStore.getState().player === p) p.play();
   }
 });
 
@@ -56,40 +55,51 @@ function track(ep: Episode, time: number, length?: number) {
   if (Math.abs(time - lastSaved) > SAVE_EVERY) { lastSaved = time; void api.setProgress(ep.id, time); }
 }
 
+function mediaHandle(el: HTMLMediaElement, episodeId: string) {
+  const play = () => {
+    if (el.error) el.load();
+    void el.play().catch((error: Error) => {
+      if (error.name === "AbortError" || useStore.getState().player?.episodeId !== episodeId) return;
+      useStore.setState({ playing: false, loadingSince: null });
+      if (!el.error) useStore.getState().notify(t("播放失败，请再点一次播放"));
+    });
+  };
+  return {
+    episodeId, play,
+    seek: (time: number) => { el.currentTime = time; play(); },
+    toggle: () => el.paused ? play() : el.pause(),
+    setRate: (rate: number) => { el.playbackRate = rate; },
+    toggleMute: () => { el.muted = !el.muted; return el.muted; },
+  };
+}
+
 /** The audio element lives at the app root so playback continues while browsing. */
 export function AudioEngine() {
   const current = useStore((s) => s.current);
+  return current && !current.videoId ? <EpisodeAudio key={current.id} audio={current} /> : null;
+}
+
+function EpisodeAudio({ audio }: { audio: Episode }) {
   const rate = useStore((s) => s.settings.playbackRate);
   const ref = useRef<HTMLAudioElement>(null);
-  const audio = current && !current.videoId ? current : null;
-  // Re-registers when something else cleared the handle (a video that failed over to audio clears it after we set it).
-  const noPlayer = useStore((s) => s.player == null);
-  const saved = useOffline((s) => (audio ? s.saved[audio.id]?.path : undefined));
-  // The address is fixed per episode so a download finishing mid-episode does not cut in; it takes over at the next pause.
-  const [chosen, setChosen] = useState<{ id: string; src?: string } | null>(null);
-  const src = audio ? (chosen?.id === audio.id ? chosen.src : audioSrc(audio)) : undefined;
-  const setSrc = (s?: string) => audio && setChosen({ id: audio.id, src: s });
-  useEffect(() => { if (audio && chosen?.id !== audio.id) setSrc(src); }, [audio?.id]);
-  useEffect(() => { if (audio && saved && ref.current?.paused !== false) setSrc(audioSrc(audio)); }, [saved]);
+  const saved = useOffline((s) => s.saved[audio.id]?.path);
+  // A completed download takes over at the next pause. Also notice audio URLs hydrated after a queue starts.
+  const [src, setSrc] = useState(() => audioSrc(audio));
+  useEffect(() => {
+    if (!ref.current || ref.current.paused) setSrc(audioSrc(audio));
+  }, [audio.audioUrl, saved]);
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || !audio) return;
-    const handle = {
-      seek: (t: number) => { el.currentTime = t; el.play().catch(() => {}); },
-      toggle: () => (el.paused ? void el.play().catch(() => {}) : el.pause()),
-      play: () => void el.play().catch(() => {}),
-      setRate: (r: number) => { el.playbackRate = r; },
-      toggleMute: () => { el.muted = !el.muted; return el.muted; },
-      episodeId: audio.id,
-    };
+    if (!el) return;
+    const handle = mediaHandle(el, audio.id);
     useStore.getState().set({ player: handle });
     return () => { if (useStore.getState().player === handle) useStore.getState().set({ player: null }); };
-  }, [audio?.id, !!src, noPlayer]);
+  }, [audio.id, !!src]);
 
-  useEffect(() => { if (ref.current) ref.current.playbackRate = rate; }, [rate, audio?.id]);
+  useEffect(() => { if (ref.current) ref.current.playbackRate = rate; }, [rate, src]);
 
-  if (!audio || !src) return null;
+  if (!src) return null;
   return (
     <audio
       ref={ref}
@@ -111,10 +121,10 @@ export function AudioEngine() {
         waiting(false);
         useStore.getState().set({ playing: false });
         void api.setProgress(audio.id, e.currentTarget.currentTime);
-        if (saved && src !== audioSrc(audio)) setSrc(audioSrc(audio));
+        setSrc(audioSrc(audio));
       }}
       onEnded={(e) => { void api.setProgress(audio.id, e.currentTarget.duration || e.currentTarget.currentTime); playNext(); }}
-      onError={() => { waiting(false); useStore.getState().notify(t("音频加载失败，可能是网络问题或地址已失效")); }}
+      onError={() => { useStore.setState({ playing: false, loadingSince: null }); useStore.getState().notify(t("音频加载失败，可能是网络问题或地址已失效")); }}
     />
   );
 }
@@ -127,99 +137,54 @@ function hideYouTubeCaptions(player: any) {
 
 export const RATES = [0.8, 1, 1.15, 1.25, 1.5, 1.75, 2];
 
-/** YouTube without YouTube's chrome: the embed runs with its controls off, cropped so the title bar and logo fall
- *  outside the frame, under a shield that keeps hover UI from appearing. Our own controls and subtitles drive it.
- *  Videos whose owners forbid embedding fall back to the HLS stream yt-dlp finds, played in a plain <video>. */
+/** On iOS let WebKit play HLS or MP4 inline, with the system full-screen controls.
+ * Android tries the embed first. Each failed source advances at most once. */
 export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; overlay?: React.ReactNode; onUnplayable?: () => void }) {
-  const [native, setNative] = useState<{ url: string; kind: "hls" | "mp4" } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  /** What the switch to the direct stream is waiting for; null when not switching. */
-  const [fallingBack, setFallingBack] = useState<string | null>(null);
-  const box = useRef<HTMLDivElement>(null);
-  const fallback = async (why: string) => {
-    setFallingBack(t("{reason}，正在改用直连播放…", { reason: why }));
-    const off = listen<{ videoId: string; stage: string; progress: number }>("yt-stream", ({ payload: p }) => {
-      if (p.videoId !== ep.videoId) return;
-      setFallingBack(p.stage === "tool"
-        ? t("首次使用，正在下载 YouTube 播放组件 {pct}%", { pct: Math.round(p.progress * 100) })
-        : t("{reason}，正在获取视频地址…", { reason: why }));
-    });
-    // HLS where the WebView plays it (macOS); elsewhere HLS through the app's loopback proxy (hls.js), for HD.
-    const nativeHls = document.createElement("video").canPlayType("application/vnd.apple.mpegurl") !== "";
-    try { setNative(await api.youtubeStream(ep.videoId!, nativeHls ? "native-hls" : "proxy-hls")); setError(null); }
-    catch (e) {
-      const msg = typeof e === "string" ? e : String((e as any)?.message ?? e);
-      // YouTube wants a signed-in browser: ask once, here, instead of failing or silently falling back to audio.
-      if (isBotCheck(msg)) { setBotCheck(why); return; }
-      if (onUnplayable) onUnplayable(); else setError(t("{reason}。{detail}", { reason: why, detail: tr(msg) }));
-    }
-    finally { setFallingBack(null); void off.then((f) => f()); }
-  };
-  // A saved address can go stale (network changed, YouTube expired it early): ask for a new one once, then try the MP4.
-  const retried = useRef(false);
-  const failed = () => {
-    const mode = native?.kind === "hls" && !retried.current ? (document.createElement("video").canPlayType("application/vnd.apple.mpegurl") !== "" ? "native-hls" : "proxy-hls") : "mp4";
-    if (retried.current && native?.kind === "mp4") return setError(t("视频地址失效，请稍后再试"));
-    retried.current = true;
-    void api.youtubeStream(ep.videoId!, mode, true).then(setNative).catch((e) => setError(tr(String(e?.message ?? e))));
-  };
-  const [botCheck, setBotCheck] = useState<string | null>(null);
-  const [browser, setBrowser] = useState(useStore.getState().settings.ytCookiesBrowser || "chrome");
-  const retryWithBrowser = async () => {
-    const why = botCheck ?? "";
-    setBotCheck(null);
-    await useStore.getState().saveSettings({ ytCookiesBrowser: browser });
-    void fallback(why);
-  };
-  useEffect(() => { setNative(null); setError(null); retried.current = false; }, [ep.id]);
-  // Have yt-dlp ready before it is needed: a first fallback would otherwise start with a 35 MB download.
-  useEffect(() => { void api.prepareYoutube().catch(() => {}); }, []);
-  const watchOnYouTube = () => {
-    const s = Math.floor(useStore.getState().current?.id === ep.id ? useStore.getState().time : ep.progress ?? 0);
-    void openUrl(`https://www.youtube.com/watch?v=${ep.videoId}${s > 5 ? `&t=${s}s` : ""}`);
-  };
-  const openBtn = <button className="link-btn video-open" onClick={watchOnYouTube}><ExternalLink size={13} /> {t("在 YouTube 打开")}</button>;
-  const fullscreen = () => toggleTheater();
+  const routes = IS_MAC ? ["direct", "mp4", "embed"] : ["embed", "direct", "mp4"];
+  const [attempt, setAttempt] = useState(0);
+  const [media, setMedia] = useState<{ url: string; kind: "hls" | "mp4"; attempt: number } | null>(null);
+  const [reason, setReason] = useState("");
+  const route = routes[attempt];
   const theater = useStore((s) => s.theater);
-  // Leaving the episode leaves full screen too.
-  useEffect(() => () => { if (useStore.getState().theater) toggleTheater(false); }, []);
-  // In full screen the controls show while the mouse moves and fade after 2.5 s of stillness.
-  const [idle, setIdle] = useState(false);
+  const pending = useStore((s) => s.playWhenReady === ep.id);
+  const fail = (message: string) => {
+    const s = useStore.getState();
+    if (s.current?.id !== ep.id || !s.current.videoId) return;
+    if (s.playing || s.loadingSince) s.set({ playWhenReady: ep.id });
+    setReason(message);
+    setAttempt((n) => n === attempt ? n + 1 : n);
+  };
   useEffect(() => {
-    if (!theater) return;
-    let timer = window.setTimeout(() => setIdle(true), 2500);
-    const wake = () => { setIdle(false); window.clearTimeout(timer); timer = window.setTimeout(() => setIdle(true), 2500); };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); toggleTheater(false); } };
-    window.addEventListener("mousemove", wake);
-    window.addEventListener("keydown", esc);
-    return () => { window.clearTimeout(timer); window.removeEventListener("mousemove", wake); window.removeEventListener("keydown", esc); };
-  }, [theater]);
+    if (!route) { useStore.setState({ playing: false, loadingSince: null, playWhenReady: null }); return; }
+    if (route === "embed") return;
+    let active = true;
+    const mode = route === "mp4" ? "mp4" : IS_MAC ? "native-hls" : "proxy-hls";
+    void api.youtubeStream(ep.videoId!, mode, route === "mp4").then((result) => {
+      if (active) setMedia({ ...result, attempt });
+    }).catch((err) => { if (active) fail(tr(String(err?.message ?? err))); });
+    return () => { active = false; };
+  }, [ep.id, attempt]);
+  useEffect(() => () => { if (useStore.getState().theater) toggleTheater(false); }, []);
+  const openVideo = () => {
+    const time = Math.floor(useStore.getState().time);
+    void openUrl(`https://www.youtube.com/watch?v=${ep.videoId}&t=${time}s`);
+  };
   return (
-    <div className={`video ${theater ? "theater" : ""} ${theater && idle ? "idle" : ""}`} ref={box}>
-      {native ? <NativeVideo ep={ep} src={native.url} kind={native.kind} onFullscreen={fullscreen} onFail={failed} /> : <EmbedVideo ep={ep} onFullscreen={fullscreen} onBlocked={fallback} onError={setError} />}
-      {fallingBack && <div className="video-note"><span className="spin-dot" /> {fallingBack} {openBtn}</div>}
-      {botCheck && (
-        <div className="video-error bot-check">
-          <p>{t("YouTube 要求验证「不是机器人」才能播放这个视频。")}</p>
-          <p className="small">{t("选一个已经登录 YouTube 的浏览器，SubCast 借用它的登录再试一次（只在本机读取，不保存）。")}</p>
-          <div className="row-actions">
-            <select value={browser} onChange={(e) => setBrowser(e.target.value)} aria-label={t("浏览器")}>
-              {(IS_MAC ? ["chrome", "safari", "edge", "firefox", "brave"] : ["chrome", "edge", "firefox", "brave"]).map((b) => <option key={b} value={b}>{b[0].toUpperCase() + b.slice(1)}</option>)}
-            </select>
-            <button className="btn primary sm" onClick={() => void retryWithBrowser()}>{t("借用登录再试")}</button>
-            {openBtn}
-          </div>
+    <div className={`video ${theater ? "theater" : ""}`}>
+      {!route ? <div className="video-error" role="status">
+        <p>{reason}</p><div className="row-actions">
+          <button className="btn sm" onClick={() => { playSoon(ep.id); setMedia(null); setAttempt(0); }}>{t("重试")}</button>
+          {onUnplayable && <button className="btn sm" onClick={onUnplayable}>{t("仅音频")}</button>}
+          <button className="btn sm" onClick={openVideo}>{t("在 YouTube 打开")}</button>
         </div>
-      )}
-      {error && <div className="video-error">{error} {openBtn}</div>}
+      </div> : route === "embed" ? <EmbedVideo ep={ep} onBlocked={fail} onError={fail} /> :
+        media?.attempt === attempt ? <NativeVideo key={attempt} ep={ep} src={media.url} kind={media.kind} onFail={() => fail(t("视频地址失效，请稍后再试"))} /> :
+        <button className="video-loading" onClick={() => playSoon(ep.id)} aria-label={t("播放")}>
+          <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" />
+          <span className="big-play">{pending ? <Loader2 className="spin" /> : <Play fill="currentColor" />}</span>
+        </button>}
       {overlay}
-      {theater && (
-        <div className="theater-bar" onClick={(e) => e.stopPropagation()}>
-          <p className="theater-title clamp1">{ep.title}</p>
-          <Controls compact />
-          <button className="icon-btn theater-exit" title={t("退出全屏（Esc）")} aria-label={t("退出全屏")} onClick={() => toggleTheater(false)}><Minimize2 size={16} /></button>
-        </div>
-      )}
+      {theater && <button className="icon-btn theater-exit" aria-label={t("退出全屏")} onClick={() => toggleTheater(false)}><Minimize2 /></button>}
     </div>
   );
 }
@@ -234,23 +199,14 @@ export function toggleTheater(on?: boolean) {
   void getCurrentWindow().setFullscreen(next).catch(() => {});
 }
 
-function PlayHint({ ep, show, onClick }: { ep: Episode; show: boolean; onClick: () => void }) {
-  return (
-    <div className={`video-poster ${show ? "on" : ""}`} onClick={onClick}>
-      <img src={`https://i.ytimg.com/vi/${ep.videoId}/maxresdefault.jpg`} onError={(e) => { const i = e.currentTarget; if (!i.dataset.f) { i.dataset.f = "1"; i.src = `https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`; } }} alt="" />
-      <span className="big-play"><Play size={28} fill="currentColor" /></span>
-    </div>
-  );
-}
-
-function EmbedVideo({ ep, onFullscreen, onBlocked, onError }: { ep: Episode; onFullscreen: () => void; onBlocked: (why: string) => void; onError: (m: string) => void }) {
+function EmbedVideo({ ep, onBlocked, onError }: { ep: Episode; onBlocked: (why: string) => void; onError: (m: string) => void }) {
   const host = useRef<HTMLDivElement>(null);
   const rate = useStore((s) => s.settings.playbackRate);
   const playerRef = useRef<any>(null);
-  const [state, setState] = useState(-1);
 
   useEffect(() => {
     let player: any, timer: number | undefined, disposed = false;
+    const timeout = window.setTimeout(() => onBlocked(t("无法加载 YouTube 播放器，请检查网络或代理")), 15000);
     loadYouTube().then((YT) => {
       if (disposed || !host.current) return;
       const mount = document.createElement("div");
@@ -260,9 +216,11 @@ function EmbedVideo({ ep, onFullscreen, onBlocked, onError }: { ep: Episode; onF
         width: "100%",
         height: "100%",
         host: "https://www.youtube.com",
-        playerVars: { controls: 0, disablekb: 1, fs: 0, playsinline: 1, rel: 0, modestbranding: 1, cc_load_policy: 0, iv_load_policy: 3, start: Math.floor(ep.progress > 5 ? ep.progress : 0), origin: window.location.origin },
+        playerVars: { controls: 1, fs: 1, playsinline: 1, rel: 0, modestbranding: 1, cc_load_policy: 0, iv_load_policy: 3, start: Math.floor(ep.progress > 5 ? ep.progress : 0), origin: window.location.origin },
         events: {
           onReady: () => {
+            if (disposed) return;
+            window.clearTimeout(timeout);
             playerRef.current = player;
             hideYouTubeCaptions(player);
             player.setPlaybackRate?.(useStore.getState().settings.playbackRate);
@@ -283,7 +241,7 @@ function EmbedVideo({ ep, onFullscreen, onBlocked, onError }: { ep: Episode; onF
             }, 250);
           },
           onStateChange: (e: any) => {
-            setState(e.data);
+            if (disposed) return;
             // 3 = buffering; -1/5 after a play request = still starting. 1 = playing.
             if (e.data === 3) waiting(true); else if (e.data === 1 || e.data === 2 || e.data === 0) waiting(false);
             useStore.getState().set({ playing: e.data === 1 });
@@ -293,6 +251,7 @@ function EmbedVideo({ ep, onFullscreen, onBlocked, onError }: { ep: Episode; onF
           },
           onError: (e: any) => {
             // 101/150: the owner disallows embedding. 152/153 are player/referrer problems on this side, not the owner's choice.
+            if (disposed) return;
             console.warn("YouTube player error", e.data, ep.videoId);
             if ([100, 101, 150, 152, 153].includes(e.data)) onBlocked(e.data === 100 ? t("视频不存在或已设为私享")
               : e.data === 101 || e.data === 150 ? t("作者限制了嵌入播放")
@@ -301,57 +260,46 @@ function EmbedVideo({ ep, onFullscreen, onBlocked, onError }: { ep: Episode; onF
           },
         },
       });
-    }).catch((e) => onError(tr(String(e.message ?? e))));
+    }).catch((e) => { if (!disposed) onError(tr(String(e.message ?? e))); });
     return () => {
       disposed = true;
+      window.clearTimeout(timeout);
       window.clearInterval(timer);
-      try { void api.setProgress(ep.id, player?.getCurrentTime?.() ?? 0); player?.destroy?.(); } catch { /* already gone */ }
+      try { if (player?.getCurrentTime?.() > 0) void api.setProgress(ep.id, player.getCurrentTime()); player?.destroy?.(); } catch { /* already gone */ }
       const s = useStore.getState();
-      if (s.current?.id === ep.id) s.set({ player: null, playing: false });
+      if (s.current?.id === ep.id && s.current.videoId && s.player?.episodeId === ep.id) s.set({ player: null, playing: false });
     };
   }, [ep.id]);
 
   useEffect(() => { playerRef.current?.setPlaybackRate?.(rate); }, [rate]);
-  const toggle = () => useStore.getState().player?.toggle();
-  return (
-    <>
-      <div className="video-host crop" ref={host} />
-      <div className="video-shield" onClick={toggle} onDoubleClick={onFullscreen} />
-      <PlayHint ep={ep} show={state === -1 || state === 5 || state === 0} onClick={toggle} />
-      {state === 2 && <span className="paused-mark" onClick={toggle}><Play size={22} fill="currentColor" /></span>}
-    </>
-  );
+  return <div className="video-host" ref={host} />;
 }
 
 /** `onFail`: the stream can't be played (stale address, or HLS unsupported here); the caller gets another. */
-function NativeVideo({ ep, src, kind, onFullscreen, onFail }: { ep: Episode; src: string; kind: "hls" | "mp4"; onFullscreen: () => void; onFail?: () => void }) {
+function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind: "hls" | "mp4"; onFail?: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const rate = useStore((s) => s.settings.playbackRate);
-  const [started, setStarted] = useState(false);
+
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     let hls: any;
+    let active = true;
     if (kind === "mp4" || el.canPlayType("application/vnd.apple.mpegurl")) el.src = src;
     else void import("hls.js").then(({ default: Hls }) => {
+      if (!active) return;
       if (!Hls.isSupported()) { onFail?.(); return; }
       hls = new Hls();
       hls.on(Hls.Events.ERROR, (_: unknown, d: { fatal?: boolean }) => { if (d.fatal) { hls.destroy(); hls = null; onFail?.(); } });
       hls.loadSource(src);
       hls.attachMedia(el);
-    });
-    const handle = {
-      seek: (t: number) => { el.currentTime = t; void el.play().catch(() => {}); },
-      toggle: () => (el.paused ? void el.play().catch(() => {}) : el.pause()),
-      play: () => void el.play().catch(() => {}),
-      setRate: (r: number) => { el.playbackRate = r; },
-      toggleMute: () => { el.muted = !el.muted; return el.muted; },
-      episodeId: ep.id,
-    };
+    }).catch(() => { if (active) onFail?.(); });
+    const handle = mediaHandle(el, ep.id);
     useStore.getState().set({ player: handle });
     return () => {
+      active = false;
       hls?.destroy?.();
-      void api.setProgress(ep.id, el.currentTime);
+      if (el.currentTime > 0) void api.setProgress(ep.id, el.currentTime);
       const s = useStore.getState();
       if (s.player === handle) s.set({ player: null, playing: false });
     };
@@ -359,22 +307,21 @@ function NativeVideo({ ep, src, kind, onFullscreen, onFail }: { ep: Episode; src
   useEffect(() => { if (ref.current) ref.current.playbackRate = rate; }, [rate]);
   return (
     <>
-      <video ref={ref} className="video-native" playsInline preload="auto"
-        onError={() => { if (!started) onFail?.(); }}
-        onLoadedMetadata={(e) => { const el = e.currentTarget; el.playbackRate = rate; if (ep.progress > 5 && ep.progress < el.duration - 10) el.currentTime = ep.progress; track(ep, el.currentTime, el.duration); }}
+      <video ref={ref} className="video-native" playsInline controls poster={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} preload="metadata"
+        onError={onFail}
+        onLoadedMetadata={(e) => { const el = e.currentTarget; el.playbackRate = rate; const start = useStore.getState().time; if (start > 5 && start < el.duration - 10) el.currentTime = start; track(ep, el.currentTime, el.duration); }}
         onTimeUpdate={(e) => track(ep, e.currentTarget.currentTime)}
-        onPlay={(e) => { setStarted(true); useStore.getState().set({ playing: true }); if (e.currentTarget.readyState < 3) waiting(true); }}
+        onPlay={(e) => { useStore.getState().set({ playing: true }); if (e.currentTarget.readyState < 3) waiting(true); }}
         onWaiting={() => waiting(true)}
         onPlaying={() => waiting(false)}
         onPause={(e) => { waiting(false); useStore.getState().set({ playing: false }); void api.setProgress(ep.id, e.currentTarget.currentTime); }}
         onEnded={(e) => { void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }} />
-      <div className="video-shield" onClick={() => useStore.getState().player?.toggle()} onDoubleClick={onFullscreen} />
-      <PlayHint ep={ep} show={!started} onClick={() => useStore.getState().player?.toggle()} />
     </>
   );
 }
 
 export function Controls({ compact = false }: { compact?: boolean }) {
+  const current = useStore((s) => s.current);
   const { time, length, playing, player, settings, loadingSince } = useStore(useShallow((s) => ({ time: s.time, length: s.length, playing: s.playing, player: s.player, settings: s.settings, loadingSince: s.loadingSince })));
   const [drag, setDrag] = useState<number | null>(null);
 
@@ -383,7 +330,7 @@ export function Controls({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`controls ${compact ? "compact" : ""}`}>
       <button className="icon-btn" title={t("后退 {n} 秒（←）", { n: settings.skipBack ?? 15 })} onClick={() => player?.seek(Math.max(0, time - (settings.skipBack ?? 15)))} disabled={!player}><RotateCcw size={18} /></button>
-      <button className={`play-btn ${loadingSince ? "loading" : ""}`} title={loadingSince ? t("正在加载…") : playing ? t("暂停（空格）") : t("播放（空格）")} onClick={() => player?.toggle()} disabled={!player} aria-busy={!!loadingSince}>
+      <button className={`play-btn ${loadingSince ? "loading" : ""}`} title={loadingSince ? t("正在加载…") : playing ? t("暂停（空格）") : t("播放（空格）")} aria-label={playing ? t("暂停") : t("播放")} onClick={() => { if (player) player.toggle(); else if (current) playSoon(current.id); }} disabled={!player && !current?.videoId} aria-busy={!!loadingSince}>
         {loadingSince ? <Loader2 size={20} className="spin" /> : playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
       </button>
       <button className="icon-btn" title={t("前进 {n} 秒（→）", { n: settings.skipForward ?? 30 })} onClick={() => player?.seek(time + (settings.skipForward ?? 30))} disabled={!player}><RotateCw size={18} /></button>

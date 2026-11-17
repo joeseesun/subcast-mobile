@@ -536,9 +536,10 @@ async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: St
     let url = match cached {
         Some(u) => u,
         None => {
-            let s = tokio::time::timeout(std::time::Duration::from_secs(40), youtube::streams(&video_id)).await
+            let purpose = if mode == "mp4" { youtube::StreamUse::Mp4 } else { youtube::StreamUse::Video };
+            let s = tokio::time::timeout(std::time::Duration::from_secs(40), youtube::streams(&video_id, purpose)).await
                 .map_err(|_| "获取视频地址超时，请检查网络或代理".to_string())?.map_err(e)?;
-            let u = if mode == "mp4" { s.mp4.or(s.hls) } else { s.hls.or(s.mp4) }.ok_or("这个视频没有可直接播放的地址")?;
+            let u = if mode == "mp4" { s.mp4 } else { s.hls.or(s.mp4) }.ok_or("这个视频没有可直接播放的地址")?;
             asr::streams::put(&key, &u);
             u
         }
@@ -686,7 +687,7 @@ async fn transcribe(app: AppHandle, state: State<'_, AppState>, episode_id: Stri
         let audio = if let Some(saved) = offline::find(&state.data, &episode_id) {
             PathBuf::from(saved.path)
         } else if let Some(vid) = &ep.video_id {
-            let s = youtube::streams(vid).await.map_err(e)?;
+            let s = youtube::streams(vid, youtube::StreamUse::Audio).await.map_err(e)?;
             let url = s.audio.ok_or("YouTube 没有给出这个视频的音频地址")?;
             let dest = work.join("audio.m4a");
             let (app2, id2) = (app.clone(), episode_id.clone());
@@ -1147,10 +1148,11 @@ mod live {
     #[tokio::test]
     #[ignore]
     async fn innertube_streams() {
-        let s = youtube::streams("dQw4w9WgXcQ").await.unwrap();
+        let s = youtube::streams("dQw4w9WgXcQ", youtube::StreamUse::Video).await.unwrap();
         println!("hls={:?}\nmp4={:?}\naudio={:?}", s.hls.as_deref().map(|u| &u[..u.len().min(90)]), s.mp4.as_deref().map(|u| &u[..u.len().min(90)]), s.audio.as_deref().map(|u| &u[..u.len().min(90)]));
         assert!(s.hls.is_some() || s.mp4.is_some());
         let dest = std::env::temp_dir().join("subcast-yt-audio.m4a");
+        let s = youtube::streams("dQw4w9WgXcQ", youtube::StreamUse::Audio).await.unwrap();
         youtube::download_stream(s.audio.as_deref().unwrap(), &s.ua, &dest, &AtomicBool::new(false), |_, _| {}).await.unwrap();
         let samples = asr::decode_16k_mono(&dest).unwrap();
         println!("decoded {:.1} s", samples.len() as f64 / 16000.0);

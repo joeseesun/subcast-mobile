@@ -112,6 +112,7 @@ const dict: Record<string, string> = {
   "节目网页": "Episode page",
   "播放方式": "Playback",
   "视频": "Video",
+  "播放失败，请再点一次播放": "Playback failed. Tap play to try again.",
   "仅音频": "Audio only",
   "这个视频无法在应用内播放，已切换为音频": "This video can't play in the app, so it switched to audio",
   "播放这一集": "Play this episode",

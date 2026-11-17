@@ -116,7 +116,20 @@ fn ua_for(name: &str, version: &str, sdk: Option<u32>) -> String {
     }
 }
 
-pub async fn streams(video_id: &str) -> Result<Streams> {
+#[derive(Clone, Copy)]
+pub enum StreamUse { Audio, Video, Mp4 }
+
+impl StreamUse {
+    fn accepts(self, streams: &Streams) -> bool {
+        match self {
+            Self::Audio => streams.audio.is_some(),
+            Self::Video => streams.hls.is_some() || streams.mp4.is_some(),
+            Self::Mp4 => streams.mp4.is_some(),
+        }
+    }
+}
+
+pub async fn streams(video_id: &str, purpose: StreamUse) -> Result<Streams> {
     let mut last_err = anyhow!("YouTube 没有返回可播放的地址");
     // The iOS client is the one that hands out HLS; try it first.
     let mut list = clients();
@@ -141,7 +154,7 @@ pub async fn streams(video_id: &str) -> Result<Streams> {
         let sd = &player["streamingData"];
         let url_of = |f: &Value| f["url"].as_str().map(str::to_string);
         let mp4 = sd["formats"].as_array().into_iter().flatten()
-            .filter(|f| f["mimeType"].as_str().is_some_and(|m| m.starts_with("video/mp4")))
+            .filter(|f| f["mimeType"].as_str().is_some_and(|m| m.starts_with("video/mp4")) && f["url"].is_string())
             .max_by_key(|f| f["height"].as_u64().unwrap_or(0)).and_then(url_of);
         let audios: Vec<&Value> = sd["adaptiveFormats"].as_array().into_iter().flatten()
             .filter(|f| f["mimeType"].as_str().is_some_and(|m| m.starts_with("audio/mp4")) && f["url"].is_string()).collect();
@@ -150,7 +163,7 @@ pub async fn streams(video_id: &str) -> Result<Streams> {
         let audio = original.or_else(|| audios.iter().filter(|f| f["audioTrack"].is_null() || f["audioTrack"]["audioIsDefault"].as_bool() == Some(true)).max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)))
             .or_else(|| audios.iter().max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0))).and_then(|f| url_of(f));
         let out = Streams { hls: sd["hlsManifestUrl"].as_str().map(str::to_string), mp4, audio, ua };
-        if out.hls.is_some() || out.mp4.is_some() || out.audio.is_some() { return Ok(out); }
+        if purpose.accepts(&out) { return Ok(out); }
         last_err = anyhow!("YouTube 没有给出可直接播放的地址");
     }
     Err(last_err)
@@ -276,5 +289,21 @@ mod tests {
         let orig = vec![seg(0.0, 4.0, "Hello there."), seg(4.0, 9.0, "How are you?"), seg(9.0, 12.0, "Fine.")];
         let zh = vec![seg(0.2, 2.0, "你好"), seg(2.0, 3.8, "呀。"), seg(4.5, 8.0, "你好吗？")];
         assert_eq!(align(&orig, &zh), vec![Some("你好呀。".into()), Some("你好吗？".into()), None]);
+    }
+}
+
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+
+    #[test]
+    fn audio_only_response_does_not_end_video_lookup() {
+        let audio = Streams { audio: Some("audio".into()), ..Default::default() };
+        assert!(StreamUse::Audio.accepts(&audio));
+        assert!(!StreamUse::Video.accepts(&audio));
+        let hls = Streams { hls: Some("hls".into()), ..Default::default() };
+        assert!(StreamUse::Video.accepts(&hls));
+        assert!(!StreamUse::Mp4.accepts(&hls));
     }
 }

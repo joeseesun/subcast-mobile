@@ -7,13 +7,13 @@ import { Sidebar } from "./Chrome";
 
 /** The phone's bottom tab bar: 首页, 发现, 订阅 (the desktop sidebar's list), 统计 and 设置. */
 export function MobileNav() {
-  const { view, go, openSettings } = useStore(useShallow((s) => ({ view: s.view, go: s.go, openSettings: s.openSettings })));
+  const { view, set, openSettings } = useStore(useShallow((s) => ({ view: s.view, set: s.set, openSettings: s.openSettings })));
   useLang((s) => s.lang);
   if (view.kind === "episode") return null;
   // Show and channel pages are reached from the subscription list, so they keep its tab lit.
   const on = (k: View["kind"]) => view.kind === k || (k === "library" && (view.kind === "show" || view.kind === "channel" || view.kind === "downloads"));
   const tab = (v: View, icon: React.ReactNode, label: string) => (
-    <button key={v.kind} className={`m-tab ${on(v.kind) ? "on" : ""}`} aria-current={on(v.kind) ? "page" : undefined} onClick={() => go(v)}>{icon}<span>{label}</span></button>
+    <button key={v.kind} className={`m-tab ${on(v.kind) ? "on" : ""}`} aria-current={on(v.kind) ? "page" : undefined} onClick={() => set({ view: v, history: [] })}>{icon}<span>{label}</span></button>
   );
   return (
     <nav className="m-nav" aria-label={t("主导航")}>

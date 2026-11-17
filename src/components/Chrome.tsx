@@ -175,7 +175,7 @@ export function MiniPlayer() {
   const right = view.kind === "episode" && panelOpen ? panel + 24 : 24;
   return (
     <div className="mini" style={{ "--mini-right": `${right}px` } as React.CSSProperties}>
-      <button className="play-btn sm" onClick={() => player?.toggle()} disabled={!player} aria-busy={!!loading}>{loading ? <Loader2 size={16} className="spin" /> : playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}</button>
+      <button className="play-btn sm" aria-label={playing ? t("暂停") : t("播放")} onClick={() => player?.toggle()} disabled={!player} aria-busy={!!loading}>{loading ? <Loader2 size={16} className="spin" /> : playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}</button>
       {current.cover && <img className="mini-cover" src={current.cover} alt="" />}
       <div className="mini-meta" role="button" tabIndex={0} onClick={() => openEpisode(current)}>
         <p className="ep-name"><ZhText text={current.title} /></p>

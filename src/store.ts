@@ -132,8 +132,14 @@ export const useStore = create<State>((set, get) => ({
     get().go({ kind: "episode", id: ep.id });
   },
   load(ep) {
-    // Keep a player that already belongs to this episode (a video ready before "play" was pressed).
-    if (get().current?.id !== ep.id) { const p = get().player; set({ current: ep, time: ep.progress || 0, length: ep.duration || 0, playing: false, player: p?.episodeId === ep.id ? p : null }); }
+    const s = get();
+    if (s.current?.id === ep.id) return;
+    const requested = s.playWhenReady === ep.id;
+    set({
+      current: ep, time: ep.progress || 0, length: ep.duration || 0, playing: false,
+      player: s.player?.episodeId === ep.id ? s.player : null,
+      playWhenReady: requested ? ep.id : null, loadingSince: requested ? s.loadingSince : null,
+    });
   },
   notify(text) {
     set({ toast: text });

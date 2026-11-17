@@ -49,7 +49,7 @@ pub fn upsert_episodes(conn: &mut Connection, eps: &[Episode]) -> Result<()> {
             "INSERT INTO episodes(id,show_id,guid,title,published,duration,audio_url,video_id,link,cover,notes,transcript_url,transcript_type,deep)
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
              ON CONFLICT(id) DO UPDATE SET title=excluded.title, published=excluded.published, duration=COALESCE(excluded.duration, episodes.duration),
-             audio_url=COALESCE(excluded.audio_url, episodes.audio_url), link=excluded.link, cover=COALESCE(excluded.cover, episodes.cover),
+             audio_url=COALESCE(excluded.audio_url, episodes.audio_url), video_id=COALESCE(excluded.video_id, episodes.video_id), link=excluded.link, cover=COALESCE(excluded.cover, episodes.cover),
              notes=COALESCE(excluded.notes, episodes.notes), transcript_url=excluded.transcript_url, transcript_type=excluded.transcript_type, deep=excluded.deep",
         )?;
         for e in eps {
@@ -91,7 +91,7 @@ pub fn delete_show(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
-const EPISODE_COLS: &str = "e.id,e.show_id,e.guid,e.title,e.published,e.duration,e.audio_url,e.video_id,e.link,e.cover,e.notes,e.transcript_url,e.transcript_type,e.progress,
+const EPISODE_COLS: &str = "e.id,e.show_id,e.guid,e.title,e.published,e.duration,e.audio_url,e.video_id,e.link,COALESCE(NULLIF(e.cover,''),s.cover),e.notes,e.transcript_url,e.transcript_type,e.progress,
     EXISTS(SELECT 1 FROM transcripts t WHERE t.episode_id=e.id), s.title, e.deep";
 
 fn episode_from(r: &rusqlite::Row) -> rusqlite::Result<Episode> {
@@ -243,8 +243,10 @@ mod tests {
         conn = open(&path).unwrap();
         let mut ep = get_episode(&conn, "b").unwrap().unwrap();
         ep.deep = true;
+        ep.video_id = Some("video-from-refresh".into());
         upsert_episodes(&mut conn, std::slice::from_ref(&ep)).unwrap();
         assert!(get_episode(&conn, "b").unwrap().unwrap().deep);
+        assert_eq!(get_episode(&conn, "b").unwrap().unwrap().video_id, ep.video_id);
         ep.deep = false;
         upsert_episodes(&mut conn, std::slice::from_ref(&ep)).unwrap();
         assert!(!get_episode(&conn, "b").unwrap().unwrap().deep);

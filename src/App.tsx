@@ -33,7 +33,7 @@ export default function App() {
 
   useEffect(() => {
     startJobListeners();
-    startNowPlaying();
+    const stopNowPlaying = startNowPlaying();
     void startOffline();
     void loadFavorites();
     // Listening time is flushed when playback stops, not only every 20 s.
@@ -99,7 +99,7 @@ export default function App() {
       localStorage.setItem("sharedNoticeShown", "1");
       useStore.getState().notify(t("你的字幕已匿名分享给其他听友（设置 › 通用 可关闭）"));
     });
-    return () => { offPlaying(); window.removeEventListener("keydown", onKey); document.removeEventListener("scroll", onScroll, { capture: true }); void offMenu.then((f) => f()); void offShared.then((f) => f()); };
+    return () => { stopNowPlaying(); offPlaying(); window.removeEventListener("keydown", onKey); document.removeEventListener("scroll", onScroll, { capture: true }); void offMenu.then((f) => f()); void offShared.then((f) => f()); };
   }, []);
 
   useLang(); // re-render the tree when the interface language changes

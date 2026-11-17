@@ -120,3 +120,73 @@ button { touch-action: manipulation; }
 .m-ep-tabs .tabs button .tab-label { display: inline !important; font-size: 13px; }
 .m-ep-tabs .tabs button { gap: 4px; }
 .m-ep-top .video-slot { width: calc(100% + var(--gutter) * 2); margin: 0 calc(var(--gutter) * -1); border-radius: 0; }
+
+/* Phone navigation and Now Playing use system type and the same accent as the library. */
+.m-app { --gutter: 18px; --nav-h: 51px; }
+.m-app .page-title, .m-app .page-head .page-title { font-size: clamp(28px, 7.8vw, 34px); line-height: 1.15; letter-spacing: -.035em; font-weight: 750; }
+.m-app .topbar { height: 54px; padding-inline: var(--gutter); }
+.topbar > .round-btn:disabled { display: none; }
+.m-app .top-search { height: 38px; border-radius: 11px; background: var(--soft); border-color: transparent; }
+.m-app .top-search:focus-within { border-color: var(--accent); }
+.m-nav { background: var(--panel); border-color: var(--line); }
+.m-tab.on { font-weight: 650; }
+.m-app button:active:not(:disabled) { opacity: .72; }
+.m-app .mini { width: auto; align-items: center; }
+.m-app .mini .play-btn { margin-inline-start: auto; order: 3; }
+.m-app .mini-meta { min-width: 0; }
+.m-app .hero { flex-direction: row; align-items: center; padding: 14px; gap: 14px; }
+.m-app .hero-cover, .m-app .hero-cover.wide { width: clamp(76px, 23vw, 110px); height: auto; aspect-ratio: 1; }
+.m-app .hero-meta { min-height: 0; }
+.m-app .hero-meta .hero-title { font-size: 17px; }
+.m-app .hero-foot { padding: 0; flex-wrap: wrap; gap: 6px; }
+.m-app .hero-play { height: 34px; }
+
+.m-episode-nav { flex: none; display: grid; grid-template-columns: 44px minmax(0,1fr) 44px; align-items: center; padding-inline: 6px; height: 44px; text-align: center; font-size: 15px; font-weight: 600; }
+.m-back { display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; color: var(--accent-text); }
+.m-ep-top { gap: 6px; padding-bottom: 6px; border: 0; }
+.m-ep-top .ep-title-block { gap: 2px; }
+.m-ep-top .ep-title h1 { font-size: clamp(19px, 5vw, 23px); line-height: 1.22; letter-spacing: -.022em; }
+.m-ep-actions { gap: 2px; }
+.m-ep-actions .round-btn, .m-ep-actions .media-switch button { min-width: 44px; height: 44px; }
+.m-ep-actions .round-btn { background: transparent; color: var(--accent-text); }
+.m-ep-actions .media-switch { align-self: center; margin-bottom: 0; padding: 0 2px; background: var(--soft); border: 0; }
+.m-ep-actions .media-switch button { height: 36px; padding: 0 12px; font-weight: 600; }
+.m-ep-top .video-slot { border-radius: 0; }
+.video-dock.docked { border-radius: 0; }
+.video-loading, .video-preview { display: grid; place-items: center; position: relative; padding: 0; border: 0; overflow: hidden; background: #000; color: white; }
+.video-loading { position: absolute; inset: 0; width: 100%; height: 100%; }
+.video-loading img, .video-preview img { position: absolute; inset: 0; object-fit: cover; width: 100%; height: 100%; }
+.video-preview svg { z-index: 1; }
+.video-native { object-fit: contain; }
+.video-dock.floating { right: max(12px, env(safe-area-inset-right)); bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px); width: min(46vw, 270px); height: auto; aspect-ratio: 16/9; }
+.video-dock.floating .video-float-bar { opacity: 1; }
+.m-ep-top .controls { display: grid; grid-template-columns: auto 1fr 52px 1fr auto; grid-template-areas: "elapsed seek seek seek duration" ". back play forward rate"; align-items: center; gap: 0 6px; border: 0; background: none; padding: 0; }
+.m-ep-top .controls > .time { grid-area: elapsed; text-align: start; }
+.m-ep-top .controls > .seek ~ .time { grid-area: duration; text-align: end; }
+.m-ep-top .controls > .seek { grid-area: seek; width: 100%; height: 24px; margin: 0; background-size: 100% 4px; background-repeat: no-repeat; background-position: center; }
+.m-ep-top .controls > .play-btn { grid-area: play; justify-self: center; width: 44px; height: 44px; }
+.m-ep-top .controls > .icon-btn { grid-area: back; justify-self: end; width: 44px; height: 44px; }
+.m-ep-top .controls > .play-btn + .icon-btn { grid-area: forward; justify-self: start; }
+.m-ep-top .controls .rate-btn { grid-area: rate; height: 36px; }
+.m-ep-tabs .tabs { box-sizing: border-box; align-items: center; height: 50px; margin: 0; padding: 0 8px; border-top: 1px solid var(--line); }
+.m-ep-tabs .tabs button { padding-inline: 6px; font-weight: 550; }
+.m-ep-tabs .tabs button.on { color: var(--accent-text); }
+@media (max-height: 560px) and (orientation: landscape) {
+  .m-episode { overflow: auto; }
+  .m-episode-nav, .m-ep-top { padding-inline: max(var(--gutter), env(safe-area-inset-left)); }
+  .m-ep-top .video-slot { width: min(100%, 62vh); margin: 0 auto; }
+  .m-ep-tabs { flex: none; height: 78dvh; }
+}
+
+.home > .page-title { margin: 4px 0 16px; }
+.home .module-title { font-size: 21px; letter-spacing: -.025em; }
+.home .card-grid { display: flex; flex-direction: column; gap: 0; }
+.home .card-grid .ep-card.wide { display: grid; grid-template-columns: 70px minmax(0, 1fr) 44px; grid-template-areas: "art info play" "art title play"; align-content: center; gap: 3px 12px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.home .card-grid .ep-thumb { grid-area: art; width: 70px; height: 70px; margin: 0; border-radius: 10px; }
+.home .card-grid .ep-kicker { grid-area: info; align-self: end; }
+.home .card-grid .card-title { grid-area: title; font-size: 16px; line-height: 1.3; align-self: start; }
+.home .card-grid .card-play { grid-area: play; position: static; width: 44px; height: 44px; align-self: center; opacity: 1; transform: none; background: var(--soft); color: var(--accent-text); box-shadow: none; }
+.home .card-grid .thumb-subs { top: auto; bottom: 3px; left: 3px; padding: 1px 4px; font-size: 9px; }
+@media (prefers-reduced-motion: reduce) {
+  .m-app .card-play, .m-app .ep-thumb { transition: none; }
+}

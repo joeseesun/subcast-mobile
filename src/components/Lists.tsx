@@ -197,6 +197,7 @@ function EpisodeCard({ ep, wide }: { ep: Episode; wide?: boolean }) {
   const shared = useSharedHits((s) => !!s.ids[ep.id]);
   const left = ep.duration && pct > 0 ? Math.max(1, Math.round((ep.duration - ep.progress) / 60)) : 0;
   const play = (e: React.MouseEvent) => { e.stopPropagation(); playAll([ep]); };
+  const playButton = <button type="button" className="card-play" title={t("播放")} aria-label={t("播放")} onClick={play}><Play size={16} fill="currentColor" /></button>;
   return (
     <div className={`ep-card ${wide ? "wide" : ""}`} role="button" tabIndex={0} onClick={() => openEpisode(ep)} onKeyDown={(e) => e.key === "Enter" && openEpisode(ep)}>
       <div className={`ep-thumb ${ep.videoId ? "video" : "square"}`}>
@@ -204,10 +205,11 @@ function EpisodeCard({ ep, wide }: { ep: Episode; wide?: boolean }) {
         {ep.cover ? <img className="thumb-img" src={ep.cover} alt="" loading="lazy" /> : <div className="cover-fallback" />}
         {pct > 0 && <span className="thumb-bar"><span style={{ width: `${pct}%` }} /></span>}
         {(ownSubs(ep) || shared) && <span className="thumb-subs">{t("有字幕")}</span>}
-        <button type="button" className="card-play" title={t("播放")} aria-label={t("播放")} onClick={play}><Play size={16} fill="currentColor" /></button>
+        {!wide && playButton}
       </div>
       <p className="ep-kicker">{ep.showId !== "single" && <ShowName title={ep.showTitle} />}<span>{left ? t("剩 {n} 分钟", { n: left }) : date(ep.published)}</span></p>
       <p className="card-title">{zh ?? ep.title}</p>
+      {wide && playButton}
     </div>
   );
 }
@@ -265,6 +267,7 @@ export function LatestView() {
   const settingUp = useStore((s) => s.settingUp);
   return (
     <div className="page home">
+      <h1 className="page-title">{t("首页")}</h1>
       {welcome && <WelcomeCard />}
       {hero && <ContinueHero ep={hero} />}
       {(upNext.length > 0 || hero || favorites.length > 0) && (

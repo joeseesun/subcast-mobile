@@ -58,10 +58,10 @@ export function VideoDock() {
 
   // A floating video that is paused for good (ended, or another episode took over) goes away.
   const current = useStore((s) => s.current);
-  useEffect(() => { if (floating && current?.id !== floating.ep.id) useVideoDock.setState({ floating: null }); }, [current?.id]);
+  useEffect(() => { if (floating && (current?.id !== floating.ep.id || !current.videoId)) useVideoDock.setState({ floating: null }); }, [current?.id, current?.videoId, floating]);
 
   if (!ep) return null;
-  const close = () => { useStore.getState().player?.toggle(); useVideoDock.setState({ floating: null }); };
+  const close = () => { if (useStore.getState().playing) useStore.getState().player?.toggle(); useVideoDock.setState({ floating: null }); };
   return (
     <div ref={box} className={`video-dock ${slot ? "docked" : "floating"} ${theater ? "theater-host" : ""}`}>
       <YouTubePlayer key={ep.id} ep={ep} overlay={slot?.overlay ?? floating?.overlay} onUnplayable={slot?.onUnplayable} />

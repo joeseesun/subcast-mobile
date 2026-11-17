@@ -62,7 +62,7 @@ pub async fn download(data: &Path, ep: &Episode, cancel: Arc<AtomicBool>, mut pr
         asr::download(url, &dest, &cancel, |got, total| progress(total.map(|t| got as f64 / t.max(1) as f64))).await?;
         dest
     } else if let Some(vid) = &ep.video_id {
-        let s = crate::youtube::streams(vid).await?;
+        let s = crate::youtube::streams(vid, crate::youtube::StreamUse::Audio).await?;
         let url = s.audio.ok_or_else(|| anyhow!("YouTube 没有给出这个视频的音频地址"))?;
         let dest = d.join(format!("{}.m4a", ep.id));
         let part = d.join(format!(".tmp-{}.m4a", ep.id));
