@@ -29,6 +29,14 @@ pub fn open(path: &Path) -> Result<Connection> {
     if !has_deep {
         conn.execute_batch("ALTER TABLE episodes ADD COLUMN deep INTEGER NOT NULL DEFAULT 0; UPDATE episodes SET deep=1 WHERE transcript_type='qiaomu';")?;
     }
+    // Repair pre-existing episodes immediately, including before the first network refresh.
+    let show = short_hash(&crate::qiaomu::rss_feed_url("nexttoken"), 16);
+    let tx = conn.unchecked_transaction()?;
+    for &(guid, video) in crate::qiaomu::NEXT_TOKEN_VIDEOS {
+        let id = short_hash(&format!("{show}:{guid}"), 20);
+        tx.execute("UPDATE episodes SET video_id=?1 WHERE id=?2 AND video_id IS NULL", params![video, id])?;
+    }
+    tx.commit()?;
     Ok(conn)
 }
 
@@ -220,6 +228,27 @@ pub fn listens_since(conn: &Connection, since: &str) -> Result<Vec<serde_json::V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restores_missing_curated_video_without_overwriting_progress_or_newer_links() {
+        let temp = std::env::temp_dir().join(format!("subcast-old-media-{}.sqlite", uuid::Uuid::new_v4()));
+        let mut db = open(&temp).unwrap();
+        let id = "413bc7dcf46f46b2b14b";
+        let ep = Episode { id: id.into(), ..Default::default() };
+        upsert_episodes(&mut db, &[ep]).unwrap();
+        set_progress(&db, id, 123.0).unwrap();
+        drop(db);
+        let db = open(&temp).unwrap();
+        let ep = get_episode(&db, id).unwrap().unwrap();
+        assert_eq!(ep.video_id.as_deref(), Some("tBMlXQIrYK4"));
+        assert_eq!(ep.progress, 123.0);
+        db.execute("UPDATE episodes SET video_id='newer' WHERE id=?1", [id]).unwrap();
+        drop(db);
+        let db = open(&temp).unwrap();
+        assert_eq!(get_episode(&db, id).unwrap().unwrap().video_id.as_deref(), Some("newer"));
+        drop(db);
+        std::fs::remove_file(temp).unwrap();
+    }
 
     #[test]
     fn deep_column_migrates_and_round_trips() {
