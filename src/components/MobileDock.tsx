@@ -111,6 +111,6 @@ export function MobileDock() {
     return () => { active = false; };
   }, [ready, state]);
 
-  if (native) return <span hidden data-native-dock={mini ? "player" : "tabs"} />;
+  if (native) return <span hidden data-native-dock={mini ? "player" : view.kind === "episode" ? "none" : "tabs"} />;
   return <><MiniPlayer /><MobileNav /></>;
 }

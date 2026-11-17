@@ -281,7 +281,7 @@ export function LatestView() {
         <section className="home-main">
           {(latest.length > 0 || all || eps == null) && <div className="module-head">
             <h2 className="module-title">{t("最新单集")}</h2>
-            {(all || latest.length > 9) && <button className="link-btn" onClick={() => setAll(!all)}>{all ? t("收起") : t("查看全部")}</button>}
+            {(all || latest.length > 9) && <button className="link-btn" onClick={() => setAll(!all)}>{all ? t("收起") : <>{t("全部")} <ChevronRight size={13} /></>}</button>}
           </div>}
           {!shows.length && settingUp ? <SkeletonFeed /> : !shows.length ? <EmptyState art={<img className="listening-shell" src={listeningShell} alt="" />} title={t("还没有订阅节目")}><button className="btn primary" onClick={() => go({ kind: "discover" })}>{t("去发现节目")}</button></EmptyState>
             : eps == null ? <SkeletonFeed />
@@ -296,7 +296,7 @@ export function LatestView() {
             <section>
               <div className="module-head">
                 <h2 className="module-title">{t("为你推荐")}</h2>
-                <button className="link-btn" onClick={() => go({ kind: "discover" })}>{t("更多")}</button>
+                <button className="link-btn" onClick={() => go({ kind: "discover" })}>{t("全部")} <ChevronRight size={13} /></button>
               </div>
               <div className="rec-list">{recs.map((r) => <RecRow key={r.pick.id} r={r} adding={adding === r.pick.input} done={isSubscribed(r.pick, shows)} onAdd={() => void subscribe(r.pick.input, pickName(r.pick))} />)}</div>
             </section>
@@ -549,7 +549,7 @@ function CreatorRow({ pick, subscribed, busy, onOpen, onSubscribe, onHide }: {
     <button className="creator-open" onClick={onOpen}>
       <img src={pick.cover} alt="" /><span><small>{t("主创的播客")}</small><strong>{pickName(pick)}</strong></span>
     </button>
-    {subscribed ? <Check size={19} aria-label={t("已订阅")} />
+    {subscribed ? <span className="creator-state">{t("已订阅")}</span>
       : <button className="round-btn" onClick={onSubscribe} aria-label={t("订阅")} disabled={busy}>
         {busy ? <Loader2 className="spin" /> : <BrandGlyph name="plus" />}
       </button>}
@@ -604,8 +604,8 @@ export function DiscoverView() {
     } catch (err) { notify(errorText(err)); } finally { setAdding(null); }
   };
   const subBtn = (input: string, title: string, done: boolean) => done
-    ? <span className="tile-done" title={t("已订阅")}><Check size={16} /></span>
-    : <button className="tile-add" title={t("订阅")} onClick={(e) => { e.stopPropagation(); void add(input, title); }} disabled={adding != null}>{adding === input ? <Loader2 size={16} className="spin" /> : <Plus size={18} />}</button>;
+    ? <span className="tile-done" title={t("已订阅")} aria-label={t("已订阅")}><Check size={18} /></span>
+    : <button className="tile-add" title={t("订阅")} aria-label={t("订阅")} onClick={(e) => { e.stopPropagation(); void add(input, title); }} disabled={adding != null}>{adding === input ? <Loader2 size={16} className="spin" /> : <Plus size={18} />}</button>;
   return (
     <div className="page discover-page">
       {showBanner && home && !topics.length && <CreatorRow pick={home} subscribed={subscribed(home)} busy={adding === home.input}

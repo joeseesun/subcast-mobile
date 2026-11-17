@@ -1111,6 +1111,8 @@ const dict: Record<string, string> = {
   "声渡": "SubCast",
   "已为你添加 {n} 档节目": "We added {n} shows to get you started.",
   "全屏播放": "Play Full Screen",
+  "共享字幕": "Shared subtitles",
+  "{n} 集未听": "{n} unplayed",
 };
 
 export default dict;

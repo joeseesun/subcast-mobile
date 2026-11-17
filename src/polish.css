@@ -1,0 +1,59 @@
+/* ---- Phone polish (loaded last) ----
+   Each rule answers one review finding; keep them here rather than editing the layered rules above. */
+
+/* Content fades into the page before it reaches the glass dock, so text never reads through the tabs or mini player. */
+.m-app:has(> [data-native-dock]:not([data-native-dock="none"]))::after {
+  content: "";
+  position: fixed;
+  inset: auto 0 0;
+  height: calc(var(--safe-bottom) + 78px);
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--bg) 0%, transparent), color-mix(in srgb, var(--bg) 82%, transparent) 42%, var(--bg));
+  pointer-events: none;
+  z-index: 20;
+}
+.m-app:has(> [data-native-dock="player"])::after { height: calc(var(--safe-bottom) + 142px); }
+
+/* Discover: the subscribe button is always visible on touch (the desktop rule only showed it on hover).
+   Subscribed reads as a quiet state, subscribe as the one filled action. */
+.discover-row .tile-add { opacity: 1; transform: none; box-shadow: none; background: var(--accent-soft); color: var(--accent-text); border-radius: 50%; }
+.discover-row .tile-done { background: transparent; color: var(--muted); }
+.creator-state { flex: none; padding-inline: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.discover-page .creator-row > .icon-btn { color: var(--muted); }
+
+/* Home: one filled play button per row was noisy; the latest list keeps a quiet glyph, the queue keeps the disc. */
+.home .home-main .card-grid .card-play { background: transparent; color: var(--accent-text); }
+.home .module-head .link-btn { display: inline-flex; align-items: center; gap: 2px; }
+
+/* Library: the four collections become a 2 × 2 set of cards with the count on the trailing edge. */
+.library-collections { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; border: 0; background: none; border-radius: 0; overflow: visible; }
+.library-collections button {
+  min-height: 58px; padding: 0 14px; border: 1px solid var(--line); border-radius: 16px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; font-size: 15px; text-align: start;
+}
+.library-collections button > svg:first-child { flex: none; }
+.library-collections button > span { flex: 1; min-width: 0; }
+.library-collections button > small { margin-inline-start: auto; font-size: 13px; color: var(--muted); }
+.m-library .library-group .unplayed { min-width: 22px; padding: 1px 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 600; text-align: center; }
+
+/* Episode: the subtitle mode switch is a light text toggle, not a second segmented bar under the tabs. */
+.m-episode .status-line { border-bottom: 0; padding-inline: var(--gutter) 8px; }
+.m-episode .status-line .seg-control { background: none; padding: 0; gap: 2px; }
+.m-episode .status-line .seg-control button { height: 36px; min-height: 36px; padding: 0 8px; border-radius: 9px; font-size: 14px; color: var(--muted); box-shadow: none; background: none; }
+.m-episode .status-line .seg-control button.on { color: var(--accent-text); background: var(--accent-soft); font-weight: 650; }
+.m-episode .source-tag { font-size: 13px; color: var(--muted); }
+
+/* The transcript fades in under the toolbar instead of being cut mid-line. */
+.m-episode .transcript .lines { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px); mask-image: linear-gradient(to bottom, transparent, #000 18px); }
+
+/* Transport: speed is a plain label; the skip buttons carry more weight than it. */
+.m-episode .controls .rate-btn { background: transparent; font-size: 15px; font-weight: 650; color: var(--text-2); }
+.m-episode .controls .rate-btn.fast { background: transparent; color: var(--accent-text); }
+.m-ep-top .controls > .icon-btn > svg { width: 28px; height: 28px; }
+@media (prefers-color-scheme: dark) {
+  .m-ep-top .seek::-webkit-slider-thumb { background: var(--text); }
+}
+
+/* Settings: popup rows show they open a menu; actions show where they lead. */
+.ios-setting-row .select-hint { flex: none; margin-inline-start: -8px; color: var(--muted); pointer-events: none; }
+.settings-modal .ios-setting-action > svg:last-child { color: var(--muted); }
+.settings-modal #settings-proxy:disabled { opacity: .6; }

@@ -21,6 +21,17 @@ import { lang, t, tk, tr, useLang } from "../lib/i18n";
 
 const SOURCE_LABEL: Record<string, string> = { youtube: tk("YouTube 字幕"), "youtube-auto": tk("YouTube 自动字幕"), rss: tk("节目方文字稿"), whisper: tk("本机识别"), cloud: tk("云端识别"), qiaomu: tk("精读站原文 · 时间为估算"), podscribe: tk("Podscribe 文字稿") };
 
+/** "shared:qwen3" → "共享字幕 · Qwen3"; unknown sources read as plain "字幕" rather than an internal id. */
+function sourceLabel(source: string) {
+  if (SOURCE_LABEL[source]) return t(SOURCE_LABEL[source]);
+  if (source.startsWith("shared:")) {
+    const model = source.slice(7);
+    const name = /^qwen/i.test(model) ? "Qwen3-ASR" : /whisper/i.test(model) ? "Whisper" : model ? model[0].toUpperCase() + model.slice(1) : "";
+    return name ? `${t("共享字幕")} · ${name}` : t("共享字幕");
+  }
+  return t("字幕");
+}
+
 export function activeIndex(segments: Segment[], time: number): number {
   let lo = 0, hi = segments.length - 1, found = -1;
   while (lo <= hi) {
@@ -188,7 +199,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
     <button className="icon-btn" title={t("搜索文稿（⌘F）")} onClick={startSearch}><Search size={15} /></button>
     {wantsZh && canUpgrade && <PanelMenu ep={ep} onRetranslate={() => start("llm")} />}
   </>;
-  const source = SOURCE_LABEL[transcript.source] ? t(SOURCE_LABEL[transcript.source]) : transcript.source;
+  const source = sourceLabel(transcript.source);
 
   let status: React.ReactNode;
   if (!wantsZh) status = <StatusLine left={<span className="source-tag">{source}</span>} text="" right={searchBtn} />;

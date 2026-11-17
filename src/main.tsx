@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles.css";
 import "./mobile.css";
 import "./editorial.css";
+import "./polish.css";
 
 import { startDevNav } from "./lib/devnav";
 if (import.meta.env.DEV) startDevNav();

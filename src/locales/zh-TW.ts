@@ -1171,6 +1171,8 @@ const dict: Record<string, string> = {
   "声渡": "聲渡",
   "已为你添加 {n} 档节目": "已為你新增 {n} 檔節目",
   "全屏播放": "全螢幕播放",
+  "共享字幕": "共享字幕",
+  "{n} 集未听": "{n} 集未聽",
 };
 
 export default dict;

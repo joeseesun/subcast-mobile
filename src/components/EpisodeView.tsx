@@ -264,7 +264,11 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const [videoRecovery, setVideoRecovery] = useState(false);
   const reading = tab === "summary" || tab === "chat";
   const showingRecovery = isCurrent && !!current.videoId && videoRecovery;
-  const compact = reading && !expanded && isCurrent && !showingRecovery;
+  // Reading the transcript of an audio episode: once the list scrolls, the player folds into one row.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => { setScrolled(false); }, [ep.id, tab]);
+  const collapsible = reading || (tab === "transcript" && scrolled);
+  const compact = collapsible && !expanded && isCurrent && !showingRecovery;
   useEffect(() => {
     const askSelection = (event: Event) => {
       const quote = (event as CustomEvent<string>).detail;
@@ -292,6 +296,15 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const saved = useOffline((s) => !!s.saved[ep.id]);
   const both = !!ep.videoId && (!!ep.audioUrl || saved);
   const showVideo = !!ep.videoId && !audioMode;
+  // Only the reader's own drag folds the player; the transcript following playback scrolls by itself and must not.
+  const onListDrag = (e: React.TouchEvent<HTMLElement>) => {
+    if (tab !== "transcript" || showVideo || !isCurrent || scrolled) return;
+    const list = (e.target as HTMLElement).closest(".lines");
+    if (list && list.scrollTop > 80) { setScrolled(true); setExpanded(false); }
+  };
+  const onListScroll = (e: React.UIEvent<HTMLElement>) => {
+    if (scrolled && (e.target as HTMLElement).scrollTop < 8) setScrolled(false);
+  };
   const startPlayback = () => {
     if (!isCurrent) load(audioMode ? { ...ep, videoId: undefined } : ep);
     playSoon(ep.id);
@@ -355,13 +368,13 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
           <button className="video-slot video-preview" onClick={startPlayback} aria-label={t("播放这一集")}>
             <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" /><BrandGlyph name="play" size={28} />
           </button>
-        ) : (
+        ) : tab !== "transcript" && (
           <div className="audio-sub mobile-caption"><AudioSubtitles ep={ep} /></div>
         )}
         {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton} /></div> : (
           <div className="m-start-row">{modeButton}<button className="btn primary m-play" onClick={startPlayback}><BrandGlyph name="play" size={22} /> {t("播放这一集")}</button></div>
         )}
-        {reading && isCurrent && !showingRecovery && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
+        {collapsible && isCurrent && !showingRecovery && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
       </section>
       <section className="ep-right m-ep-tabs">
         <div className="reading-segments" role="tablist" style={{ "--count": tabs.length, "--index": Math.max(0, tabs.findIndex(([k]) => k === tab)) } as React.CSSProperties}>
@@ -370,7 +383,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
             if (tab !== k) { selectionFeedback(); setExpanded(false); setTab(k); }
           }}>{label}</button>)}
         </div>
-        <div className="tab-body">
+        <div className="tab-body" onScrollCapture={onListScroll} onTouchMoveCapture={onListDrag}>
           <PanelBoundary key={tab}>
             {tab === "transcript" && <TranscriptPanel ep={ep} />}
             {tab === "chat" && <ChatPanel ep={ep} input={draft} setInput={setDraft} onSubtitles={() => setTab("transcript")} />}

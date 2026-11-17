@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import { Check, Trash2 } from "lucide-react";
+import { Check, ChevronsUpDown, Trash2 } from "lucide-react";
 import { api, errorText } from "../lib/api";
 import { ask } from "../lib/confirm";
 import { t } from "../lib/i18n";
@@ -27,6 +27,7 @@ export function SettingSelect<T extends string | number>({ label, value, options
     }}>
       {options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
     </select>
+    <ChevronsUpDown className="select-hint" size={15} aria-hidden />
   </label>;
 }
 

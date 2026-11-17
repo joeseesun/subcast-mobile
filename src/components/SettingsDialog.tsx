@@ -2,7 +2,7 @@ import { ask } from "../lib/confirm";
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { BookOpen, Check, ChevronLeft, ChevronRight, ChevronDown, ExternalLink, Github, Loader2, MessageCircle, RefreshCw, Trash2, Captions, HardDrive, Info, PlayCircle, Mic, Volume2, SlidersHorizontal, Sparkles } from "lucide-react";
+import { BookOpen, Check, ChevronLeft, ChevronRight, ChevronDown, ExternalLink, Github, Loader2, MessageCircle, RefreshCw, Trash2, Captions, HardDrive, Info, PlayCircle, Mic, Volume2, SlidersHorizontal, Sparkles, Share } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { ASR_SERVICES } from "../lib/settings";
 import { stopSpeaking } from "../lib/tts";
@@ -211,6 +211,7 @@ function GeneralSettings() {
   const [proxyFeedback, setProxyFeedback] = useState<{ error: boolean; text: string } | null>(null);
   const saveProxy = async () => {
     const previous = settings.proxy;
+    if (proxy.trim() === previous) return;
     setSaving(true);
     try {
       await saveSettings({ proxy: proxy.trim() });
@@ -234,14 +235,13 @@ function GeneralSettings() {
       <button className="ios-setting-action" onClick={async () => {
         try { await shareText(await api.exportOpml(), `SubCast-${new Date().toISOString().slice(0, 10)}.opml`); }
         catch (error) { notify(errorText(error)); }
-      }}>{t("导出 OPML")}</button>
+      }}>{t("导出 OPML")}<Share size={17} aria-hidden /></button>
     </SettingGroup>
     <SettingGroup title={t("网络")}>
-      <form className="ios-setting-field" onSubmit={(e) => { e.preventDefault(); void saveProxy(); }}>
+      <form className="ios-setting-field" onSubmit={(e) => { e.preventDefault(); (document.activeElement as HTMLElement | null)?.blur(); void saveProxy(); }}>
         <label htmlFor="settings-proxy">{t("代理")}</label>
         <div className="key-row">
-          <input id="settings-proxy" {...NO_AUTO} type="url" value={proxy} onChange={(e) => { setProxy(e.target.value); setProxyFeedback(null); }} placeholder={t("留空就用系统代理")} />
-          <button className="btn" disabled={saving || proxy.trim() === settings.proxy}>{t("保存")}</button>
+          <input id="settings-proxy" {...NO_AUTO} type="url" enterKeyHint="done" value={proxy} disabled={saving} onChange={(e) => { setProxy(e.target.value); setProxyFeedback(null); }} onBlur={() => void saveProxy()} placeholder={t("留空就用系统代理")} />
         </div>
         {proxyFeedback && <p className={proxyFeedback.error ? "error-text small" : "muted small"} role="status">{proxyFeedback.text}</p>}
       </form>
