@@ -64,6 +64,20 @@ class MobilePlugin: Plugin {
     }
   }
 
+  @objc public func presentSettingsIndex(_ invoke: Invoke) throws {
+    let state = try invoke.parseArgs(SettingsIndexState.self)
+    DispatchQueue.main.async {
+      guard let parent = self.manager.viewController, parent.presentedViewController == nil,
+            parent.viewIfLoaded?.window != nil else { invoke.resolve(); return }
+      let settings = SettingsIndex(state: state) { choice in invoke.resolve(choice) }
+      let navigation = UINavigationController(rootViewController: settings)
+      navigation.navigationBar.prefersLargeTitles = true
+      navigation.view.tintColor = UIColor(red: 0.72, green: 0.21, blue: 0.03, alpha: 1)
+      navigation.modalPresentationStyle = .fullScreen
+      parent.present(navigation, animated: true)
+    }
+  }
+
   private lazy var selectionGenerator = UISelectionFeedbackGenerator()
 
   @objc public func selectionFeedback(_ invoke: Invoke) {

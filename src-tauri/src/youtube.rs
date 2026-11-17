@@ -168,7 +168,7 @@ async fn resolve_stream(video_id: &str, purpose: StreamUse, name: String, versio
     let body = json!({ "context": { "client": client }, "videoId": video_id, "contentCheckOk": true, "racyCheckOk": true });
     let response = net::client().post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
         .header("User-Agent", &ua).json(&body).send().await
-        .map_err(|e| anyhow!("连不上 YouTube（国内需要设置代理）：{e}"))?.error_for_status()?;
+        .map_err(net::describe)?.error_for_status()?;
     let player: Value = response.json().await?;
     let status = player["playabilityStatus"]["status"].as_str().unwrap_or("");
     if status != "OK" {

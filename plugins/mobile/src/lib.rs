@@ -74,6 +74,17 @@ async fn update_glass_dock<R: Runtime>(app: tauri::AppHandle<R>, state: Value) -
     { let _ = (app, state); Ok(false) }
 }
 
+#[tauri::command]
+async fn present_settings_index<R: Runtime>(app: tauri::AppHandle<R>, state: Value) -> Result<Option<String>, String> {
+    #[cfg(target_os = "ios")]
+    {
+        let Some(handle) = app.state::<Mobile<R>>().0.clone() else { return Ok(None) };
+        handle.run_mobile_plugin("presentSettingsIndex", state).map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "ios"))]
+    { let _ = (app, state); Ok(None) }
+}
+
 /// Android only: the status / gesture bar heights in CSS pixels (iOS uses env(safe-area-inset-*)).
 #[tauri::command]
 async fn insets<R: Runtime>(app: tauri::AppHandle<R>) -> Result<Value, String> {
@@ -88,7 +99,7 @@ async fn insets<R: Runtime>(app: tauri::AppHandle<R>) -> Result<Value, String> {
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("mobile")
-        .invoke_handler(tauri::generate_handler![share, now_playing, clear_now_playing, insets, selection_feedback, podcast_audio, update_glass_dock])
+        .invoke_handler(tauri::generate_handler![share, now_playing, clear_now_playing, insets, selection_feedback, podcast_audio, update_glass_dock, present_settings_index])
         .setup(|app, api| {
             #[cfg(target_os = "android")]
             let handle = Some(api.register_android_plugin("ai.qiaomu.subcast.mobileplugin", "MobilePlugin")?);

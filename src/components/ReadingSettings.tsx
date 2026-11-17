@@ -5,6 +5,7 @@ import { useJobs } from "../lib/jobs";
 import { t, useLang } from "../lib/i18n";
 import { SUB_FONTS } from "../lib/reading";
 import { POSTER_FONTS } from "../lib/poster";
+import { SettingGroup, SettingSelect, SettingsSwitch } from "./SettingRows";
 import type { Settings } from "../lib/settings";
 
 export function Seg<T extends string | number>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
@@ -38,31 +39,16 @@ export function ReadingSettings() {
         </div>
       </div>
 
-      <section className="setup-block">
-        <p className="setup-title">{t("字幕")}</p>
-        <div className="reading-row"><span>{t("字号")}</span>
-          <Seg value={settings.subtitleSize ?? "m"} options={[["s", t("小")], ["m", t("标准")], ["l", t("大")], ["xl", t("特大")]]} onChange={(v) => save({ subtitleSize: v })} />
-        </div>
-        <div className="reading-row"><span>{t("字体")}</span>
-          <Seg value={settings.subtitleFont ?? "sans"} options={(Object.keys(SUB_FONTS) as (keyof typeof SUB_FONTS)[]).map((id) => [id, fontName(id)])} onChange={(v) => save({ subtitleFont: v })} />
-        </div>
-        <div className="reading-row"><span>{t("视频上的字幕")}</span>
-          <Seg value={settings.subtitleLook ?? "outline"} options={[["box", t("半透明底")], ["outline", t("描边，无底")]]} onChange={(v) => save({ subtitleLook: v })} />
-        </div>
-        <label className="check"><input type="checkbox" checked={settings.audioNextLine === true} onChange={(e) => save({ audioNextLine: e.target.checked })} /> {t("音频节目提前显示下一句")}</label>
-      </section>
-
-      <section className="setup-block">
-        <p className="setup-title">{t("AI 问答与导读")}</p>
-        <div className="reading-row"><span>{t("字号")}</span>
-          <Seg value={settings.chatSize ?? "m"} options={[["m", t("标准")], ["l", t("大")]]} onChange={(v) => save({ chatSize: v })} />
-        </div>
-      </section>
-
-      <section className="setup-block">
-        <p className="setup-title">{t("播放")}</p>
-        <label className="check"><input type="checkbox" checked={!!settings.autoNext} onChange={(e) => save({ autoNext: e.target.checked })} /> {t("播完一集，自动接着播同一节目的下一集")}</label>
-      </section>
+      <SettingGroup title={t("字幕")}>
+        <SettingSelect label={t("字幕显示")} value={settings.subtitleMode} options={[["bilingual", t("双语")], ["translation", t("中文")], ["original", t("原文")]]} onChange={(subtitleMode) => save({ subtitleMode })} />
+        <SettingSelect label={t("字号")} value={settings.subtitleSize ?? "m"} options={[["s", t("小")], ["m", t("标准")], ["l", t("大")], ["xl", t("特大")]]} onChange={(subtitleSize) => save({ subtitleSize })} />
+        <SettingSelect label={t("字体")} value={settings.subtitleFont ?? "sans"} options={(Object.keys(SUB_FONTS) as (keyof typeof SUB_FONTS)[]).map((id) => [id, fontName(id)])} onChange={(subtitleFont) => save({ subtitleFont })} />
+        <SettingSelect label={t("视频字幕背景")} value={settings.subtitleLook ?? "outline"} options={[["box", t("半透明底")], ["outline", t("描边，无底")]]} onChange={(subtitleLook) => save({ subtitleLook })} />
+        <SettingsSwitch label={t("音频节目提前显示下一句")} value={settings.audioNextLine === true} onChange={(audioNextLine) => save({ audioNextLine })} />
+      </SettingGroup>
+      <SettingGroup title={t("AI 问答与导读")}>
+        <SettingSelect label={t("字号")} value={settings.chatSize ?? "m"} options={[["m", t("标准")], ["l", t("大")]]} onChange={(chatSize) => save({ chatSize })} />
+      </SettingGroup>
     </div>
   );
 }

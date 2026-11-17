@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-present-settings-index"
+description = "Enables the present_settings_index command without any pre-configured scope."
+commands.allow = ["present_settings_index"]
+
+[[permission]]
+identifier = "deny-present-settings-index"
+description = "Denies the present_settings_index command without any pre-configured scope."
+commands.deny = ["present_settings_index"]

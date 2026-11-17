@@ -13,7 +13,7 @@ import { date, duration, monthLabel } from "../lib/format";
 import { PICKS, TOPICS, deepPickFor, isSubscribed, pickName, pickSub, sameFeed, showName, type Pick, type Topic } from "../lib/picks";
 import { isChineseUi, t } from "../lib/i18n";
 import { HOME_SHOW_FEED, showLinks } from "../lib/showLinks";
-import { AlsoOn, HomeShowBanner, YtButton, usePromo } from "./YtPromo";
+import { AlsoOn, HomeShowBanner, YtButton } from "./YtPromo";
 import { useShowName, useZh } from "../lib/zh";
 import { useStore } from "../store";
 import { SkeletonFeed } from "./Skeleton";
@@ -559,9 +559,8 @@ export function DiscoverView() {
   const { shows, reloadShows, notify, go } = useStore(useShallow((s) => ({ shows: s.shows, reloadShows: s.reloadShows, notify: s.notify, go: s.go })));
   const [adding, setAdding] = useState<string | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
-  const promo = usePromo();
   const bannerHidden = useStore((s) => s.settings.homeBannerHidden);
-  const showBanner = promo && !bannerHidden;
+  const showBanner = !bannerHidden;
   const subscribed = (p: Pick) => isSubscribed(p, shows);
   const home = PICKS.find((p) => p.input === HOME_SHOW_FEED);
   const add = async (input: string, title: string) => {
@@ -594,7 +593,7 @@ export function ChannelView({ input }: { input: string }) {
   const pick = PICKS.find((p) => sameFeed(p.input, input));
   const sub = shows.find((s) => sameFeed(s.feedUrl, input) || (pick?.deep && sameFeed(s.feedUrl, pick.input)));
   const [data, setData] = useState<{ show: Show; episodes: Episode[] } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<"trust" | "network" | null>(null);
   const [busy, setBusy] = useState(false);
   const names = useShowName(data?.show.title ?? pick?.title ?? "");
   const { month, setMonth, filtered: shownCh } = useMonthFilter(data?.episodes ?? null);
@@ -609,7 +608,7 @@ export function ChannelView({ input }: { input: string }) {
       if (cached) setData(cached);
       if (cached && Date.now() - cached.fetchedAt < 30 * 60_000) return;
       setRefreshing(true);
-      api.previewShow(input).then((d) => live && setData(d)).catch((e) => live && !cached && setError(errorText(e))).finally(() => live && setRefreshing(false));
+      api.previewShow(input).then((d) => live && setData(d)).catch((e) => live && !cached && setError(/连接证书无法验证|unknownissuer/i.test(String(e)) ? "trust" : "network")).finally(() => live && setRefreshing(false));
     });
     return () => { live = false; };
   }, [input, attempt]);
@@ -641,7 +640,14 @@ export function ChannelView({ input }: { input: string }) {
           </div>
         </div>
       </div>
-      {error ? <div className="panel-empty"><p className="error-text">{error}</p><button className="btn sm" onClick={() => setAttempt((n) => n + 1)}><RefreshCw size={13} /> {t("重试")}</button></div> : <>
+      {error ? <div className="channel-unavailable" role="status">
+        <EmptyState art={<FlatLineArt />} title={t("暂时无法加载单集")}
+          note={error === "trust" ? t("连接证书无法验证，可检查代理设置") : t("请稍后重试")} />
+        <div className="row-actions">
+          <button className="btn" onClick={() => setAttempt((n) => n + 1)}><RefreshCw size={16} />{t("重试")}</button>
+          {error === "trust" && <button className="link-btn" onClick={() => useStore.getState().openSettings("general")}>{t("网络设置")}</button>}
+        </div>
+      </div> : <>
         <MonthFilter episodes={data?.episodes ?? null} month={month} onChange={setMonth} />
         <EpisodeList episodes={shownCh} showShow={false} />
       </>}

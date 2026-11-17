@@ -11,6 +11,7 @@ Share sheet and now-playing controls
 - `allow-selection-feedback`
 - `allow-podcast-audio`
 - `allow-update-glass-dock`
+- `allow-present-settings-index`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -123,6 +124,32 @@ Enables the podcast_audio command without any pre-configured scope.
 <td>
 
 Denies the podcast_audio command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:allow-present-settings-index`
+
+</td>
+<td>
+
+Enables the present_settings_index command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:deny-present-settings-index`
+
+</td>
+<td>
+
+Denies the present_settings_index command without any pre-configured scope.
 
 </td>
 </tr>

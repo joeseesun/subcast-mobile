@@ -148,7 +148,7 @@ export function MiniPlayer() {
   );
 }
 
-export function Modal({ title, onClose, children, wide, head }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean; head?: React.ReactNode }) {
+export function Modal({ title, onClose, children, wide, head, className, done }: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean; head?: React.ReactNode; className?: string; done?: boolean }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", k);
@@ -156,8 +156,8 @@ export function Modal({ title, onClose, children, wide, head }: { title: string;
   }, [onClose]);
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`modal ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title}>
-        <div className="modal-head">{head ?? <h3>{title}</h3>}<button className="sheet-close" onClick={onClose} aria-label={t("关闭")}><X aria-hidden size={14} /></button></div>
+      <div className={`modal ${wide ? "wide" : ""} ${className ?? ""}`} role="dialog" aria-modal="true" aria-label={title}>
+        <div className="modal-head">{head ?? <h3>{title}</h3>}{done ? <button className="sheet-done" onClick={onClose}>{t("完成")}</button> : <button className="sheet-close" onClick={onClose} aria-label={t("关闭")}><X aria-hidden size={14} /></button>}</div>
         <div className="modal-body">{children}</div>
       </div>
     </div>

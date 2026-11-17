@@ -86,6 +86,7 @@ function AudioSubtitles({ ep }: { ep: Episode }) {
   const items = useJobs((s) => s.translations[ep.id]?.items);
   const time = useStore((s) => s.time);
   const mode = useStore((s) => s.settings.subtitleMode);
+  const showNext = useStore((s) => s.settings.audioNextLine === true);
   if (!transcript) return null;
   const segs = transcript.segments;
   const i = Math.max(0, activeIndex(segs, time));
@@ -111,7 +112,7 @@ function AudioSubtitles({ ep }: { ep: Episode }) {
       {(mode !== "translation" || !l.zh) && <p className="sub-orig">{l.orig}</p>}
     </div>
   );
-  return <div className="asub" aria-live="off">{line(nowLine, "now", `${i}-${k}`)}{nextLine && line(nextLine, "next", `${i}-${k}-n`)}</div>;
+  return <div className="asub" aria-live="off">{line(nowLine, "now", `${i}-${k}`)}{showNext && nextLine && line(nextLine, "next", `${i}-${k}-n`)}</div>;
 }
 
 function SubtitleOverlay({ ep }: { ep: Episode }) {
