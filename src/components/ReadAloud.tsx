@@ -1,6 +1,8 @@
 // 朗读: one button for reading Chinese text aloud (精读, 导读) with its voice and key in a small popover next to it,
 // instead of a settings page. The key is the same keychain entry as Doubao speech recognition.
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { createPortal } from "react-dom";
+import { Modal } from "./Chrome";
 import { useShallow } from "zustand/react/shallow";
 import { ChevronDown, ExternalLink, Square, Volume2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -13,21 +15,14 @@ import { KeyField, NO_AUTO } from "./SettingsDialog";
 export function ReadAloud({ text, title }: { text: () => string; title?: string }) {
   const speaking = useStore((s) => s.speaking);
   const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("pointerdown", h);
-    return () => document.removeEventListener("pointerdown", h);
-  }, [open]);
   const read = () => void speak(text(), (m) => { useStore.getState().notify(tr(m)); if (m.includes("Key")) setOpen(true); });
   return (
-    <div className="read-aloud" ref={box}>
+    <div className="read-aloud">
       {speaking
         ? <button className="btn sm" onClick={stopSpeaking}><Square size={11} /> {t("停止朗读")}</button>
         : <button className="btn sm" title={title ?? t("朗读")} onClick={read}><Volume2 size={13} /> {t("朗读")}</button>}
       <button className="icon-btn sm" aria-label={t("朗读设置")} title={t("朗读设置")} aria-expanded={open} onClick={() => setOpen(!open)}><ChevronDown size={13} /></button>
-      {open && <ReadAloudSettings />}
+      {open && createPortal(<Modal title={t("朗读设置")} onClose={() => setOpen(false)}><ReadAloudSettings /></Modal>, document.body)}
     </div>
   );
 }
@@ -36,7 +31,7 @@ function ReadAloudSettings() {
   const { settings, saveSettings } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings })));
   const [custom, setCustom] = useState(!VOICES.some(([id]) => id === settings.ttsVoice));
   return (
-    <div className="read-aloud-pop" role="dialog" aria-label={t("朗读设置")}>
+    <div className="voice-settings">
       <p className="setup-title">{t("音色")}</p>
       <div className="model-chips">
         {VOICES.map(([id, name]) => <button key={id} className={`chip sm ${settings.ttsVoice === id ? "on" : ""}`} onClick={() => saveSettings({ ttsVoice: id, ttsResource: "seed-tts-2.0" })}>{t(name)}</button>)}

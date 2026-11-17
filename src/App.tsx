@@ -10,6 +10,7 @@ import { useRevealOnExpand } from "./lib/reveal";
 import { startJobListeners } from "./lib/jobs";
 import { useStore } from "./store";
 import { AddDialog, MiniPlayer, Toast, TopBar } from "./components/Chrome";
+import { MobileBack } from "./components/MobileBack";
 import { LibraryView, MobileNav } from "./components/MobileNav";
 import { DiscoverView, DownloadsView, LatestView, RecentView, ShowView, ChannelView, firstRunSetup } from "./components/Lists";
 import { startOffline } from "./lib/offline";
@@ -83,15 +84,6 @@ export default function App() {
       if (run[action]() !== false) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
-    const scrollTimers = new WeakMap<Element, number>();
-    const onScroll = (e: Event) => {
-      const el = e.target;
-      if (!(el instanceof HTMLElement)) return;
-      el.classList.add("is-scrolling");
-      window.clearTimeout(scrollTimers.get(el));
-      scrollTimers.set(el, window.setTimeout(() => el.classList.remove("is-scrolling"), 900));
-    };
-    document.addEventListener("scroll", onScroll, { capture: true, passive: true });
     const offMenu = listen("open-settings", () => useStore.getState().openSettings());
     // The first time our subtitles help someone else, say so once (and where to turn it off).
     const offShared = listen("shared-upload", () => {
@@ -99,7 +91,7 @@ export default function App() {
       localStorage.setItem("sharedNoticeShown", "1");
       useStore.getState().notify(t("你的字幕已匿名分享给其他听友（设置 › 通用 可关闭）"));
     });
-    return () => { stopNowPlaying(); offPlaying(); window.removeEventListener("keydown", onKey); document.removeEventListener("scroll", onScroll, { capture: true }); void offMenu.then((f) => f()); void offShared.then((f) => f()); };
+    return () => { stopNowPlaying(); offPlaying(); window.removeEventListener("keydown", onKey); void offMenu.then((f) => f()); void offShared.then((f) => f()); };
   }, []);
 
   useLang(); // re-render the tree when the interface language changes
@@ -107,9 +99,9 @@ export default function App() {
   return (
     <div className={`app m-app ${view.kind === "episode" ? "m-full" : ""}`}>
       <main className="main">
-        {view.kind !== "episode" && <TopBar />}
+        {view.kind === "discover" ? <TopBar /> : !["latest", "episode", "library", "show"].includes(view.kind) && <MobileBack />}
         {view.kind === "latest" && <LatestView />}
-        {view.kind === "recent" && <RecentView />}
+        {view.kind === "recent" && <RecentView savedFirst={view.saved} />}
         {view.kind === "stats" && <StatsView />}
         {view.kind === "discover" && <DiscoverView />}
         {view.kind === "downloads" && <DownloadsView />}

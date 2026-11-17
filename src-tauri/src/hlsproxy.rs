@@ -31,7 +31,10 @@ async fn base() -> Result<String> {
 }
 
 /// The proxied address of a YouTube HLS playlist.
-pub async fn proxied(url: &str) -> Result<String> { Ok(wrap(&base().await?, url)) }
+pub async fn proxied(url: &str, agent: &str) -> Result<String> {
+    let root = format!("{}/{}", base().await?, urlencoding::encode(agent));
+    Ok(wrap(&root, url))
+}
 
 fn wrap(base: &str, url: &str) -> String { format!("{base}/p?u={}", urlencoding::encode(url)) }
 
@@ -69,15 +72,21 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
         sock.write_all(format!("HTTP/1.1 204 No Content\r\n{CORS}Connection: close\r\n\r\n").as_bytes()).await?;
         return Ok(());
     }
-    let target = path.strip_prefix(&format!("/{token}/p?u="))
-        .and_then(|u| urlencoding::decode(u).ok())
+    let Some((agent_path, raw_url)) = path.strip_prefix(&format!("/{token}/")).and_then(|p| p.split_once("/p?u=")) else { return Ok(()) };
+    let agent = urlencoding::decode(agent_path)?;
+    let target = urlencoding::decode(raw_url).ok()
         .and_then(|u| Url::parse(&u).ok())
         .filter(allowed);
     let Some(target) = target else {
         sock.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
         return Ok(());
     };
-    let mut req = net::client().get(target.clone());
+    let client = net::client();
+    let mut req = match method {
+        "HEAD" => client.head(target.clone()),
+        "GET" => client.get(target.clone()),
+        _ => return Ok(()),
+    }.header("User-Agent", agent.as_ref()).header("Accept-Encoding", "identity");
     if let Some(r) = &range { req = req.header("Range", r); }
     let res = match req.send().await {
         Ok(r) => r,
@@ -85,8 +94,9 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
     };
     let status = res.status();
     let kind = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("application/octet-stream").to_string();
-    if kind.contains("mpegurl") || target.path().ends_with(".m3u8") || target.path().contains("/manifest/hls") {
-        let body = rewrite(&res.text().await?, &target, base);
+    if method == "GET" && (kind.contains("mpegurl") || target.path().ends_with(".m3u8") || target.path().contains("/manifest/hls")) {
+        let from = res.url().clone();
+        let body = rewrite(&res.text().await?, &from, &format!("{base}/{agent_path}"));
         sock.write_all(format!("HTTP/1.1 {} {}\r\nContent-Type: {kind}\r\n{CORS}Content-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", status.as_u16(), status.canonical_reason().unwrap_or(""), body.len()).as_bytes()).await?;
         sock.write_all(body.as_bytes()).await?;
         return Ok(());
@@ -96,6 +106,7 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
         if let Some(v) = res.headers().get(h).and_then(|v| v.to_str().ok()) { extra.push_str(&format!("{h}: {v}\r\n")); }
     }
     sock.write_all(format!("HTTP/1.1 {} {}\r\nContent-Type: {kind}\r\n{CORS}{extra}Connection: close\r\n\r\n", status.as_u16(), status.canonical_reason().unwrap_or("")).as_bytes()).await?;
+    if method == "HEAD" { return Ok(()); }
     let mut body = res.bytes_stream();
     while let Some(part) = body.next().await {
         sock.write_all(&part.map_err(|e| anyhow!(e))?).await?;
@@ -132,7 +143,7 @@ mod live {
     #[tokio::test]
     #[ignore]
     async fn serve_for_a_browser() {
-        let url = super::proxied(&std::env::var("HLS_URL").unwrap()).await.unwrap();
+        let url = super::proxied(&std::env::var("HLS_URL").unwrap(), crate::net::UA).await.unwrap();
         std::fs::write("/tmp/proxied-hls.txt", &url).unwrap();
         println!("{url}");
         tokio::time::sleep(std::time::Duration::from_secs(50)).await;

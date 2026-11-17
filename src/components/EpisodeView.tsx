@@ -1,3 +1,5 @@
+import { MobileSheet } from "./MobileSheet";
+import { selectionFeedback } from "../lib/feedback";
 import { ask } from "../lib/confirm";
 import { useShallow } from "zustand/react/shallow";
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -13,8 +15,8 @@ class PanelBoundary extends Component<{ children: ReactNode }, { error: string |
     ) : this.props.children;
   }
 }
-import { ArrowDownToLine, BookOpen, Captions, ChevronLeft, ChevronDown, ScrollText, ExternalLink, MessageCircle, Info, Play, Trash2, Youtube, Bookmark, Pause } from "lucide-react";
-import { BookArt, DoneCheck, EmptyState } from "./Illustrations";
+import { ArrowDownToLine, ChevronLeft, ChevronDown, Play, Trash2, Headphones, Film, MoreHorizontal, Check, Bookmark } from "lucide-react";
+import { BookArt, EmptyState } from "./Illustrations";
 import { DeepRead } from "./DeepRead";
 import { SkeletonEpisode } from "./Skeleton";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -28,9 +30,7 @@ import { ChatPanel, SummaryPanel } from "./AiPanels";
 import { Controls, playSoon } from "./Players";
 import { VideoSlot } from "./VideoDock";
 import { bytes, cancelDownload, downloadEpisode, isSaved, removeDownload, useOffline } from "../lib/offline";
-import { showLinks } from "../lib/showLinks";
 import { toggleFavorite, useLibrary } from "../lib/library";
-import { YtVideoStrip } from "./YtPromo";
 import { activeIndex, TranscriptPanel } from "./TranscriptPanel";
 
 type Tab = "transcript" | "deep" | "chat" | "summary" | "notes";
@@ -145,24 +145,28 @@ export function EpisodeView({ id }: { id: string }) {
   useEffect(() => {
     let active = true;
     api.getEpisode(id).then(async (e) => {
-      if (!e) return;
-      // 乔木精读 episodes learn their audio address from their page the first time they are opened.
-      if (e.transcriptType === "qiaomu" && !e.audioUrl) {
-        try { await api.qiaomuDetail(e.id); e = (await api.getEpisode(id)) ?? e; } catch { /* plays video, or shows the error later */ }
-      }
-      // Offline with the audio saved: a YouTube episode starts in audio mode instead of a player that cannot load.
+      if (!active || !e) return;
       const offline = !!e.videoId && !navigator.onLine && isSaved(e.id);
-      if (!active) return;
       setStartAudio(offline);
       setEp(e);
       if (e.deep) setTab((t) => (t === "transcript" ? "deep" : t));
-      void loadTranscript(e);
-      // Opening an episode loads it into the player, unless something else is playing.
       const s = useStore.getState();
-      if (s.current?.id !== e.id && (!s.playing || s.playWhenReady === e.id)) load(offline ? { ...e, videoId: undefined } : e);
-      else if (s.current?.id === e.id && !s.current.audioUrl && e.audioUrl) {
-        s.set({ current: { ...s.current, audioUrl: e.audioUrl } });
+      if (s.current?.id !== e.id && ((!s.playing && !s.loadingSince) || s.playWhenReady === e.id)) load(offline ? { ...e, videoId: undefined } : e);
+      // A known video can start buffering immediately while the publisher's detail page supplies its audio.
+      if (e.transcriptType === "qiaomu" && !e.audioUrl) {
+        try {
+          await api.qiaomuDetail(e.id);
+          e = (await api.getEpisode(id)) ?? e;
+          if (!active) return;
+          setEp(e);
+        } catch { /* keep the episode supplied by the feed */ }
       }
+      if (!active) return;
+      const current = useStore.getState().current;
+      if (current?.id === e.id && !current.audioUrl && e.audioUrl) {
+        useStore.setState({ current: { ...current, audioUrl: e.audioUrl } });
+      }
+      void loadTranscript(e);
     });
     return () => { active = false; };
   }, [id]);
@@ -221,41 +225,19 @@ function Notes({ ep, text, defaultOpen = false }: { ep: Episode; text: string; d
   );
 }
 /** Save for offline listening; shows progress while saving and the saved state after. */
-function DownloadButton({ ep }: { ep: Episode }) {
-  const [menu, setMenu] = useState(false);
-  const go = useStore((s) => s.go);
+function EpisodeActions({ ep, close }: { ep: Episode; close: () => void }) {
+  const fav = useLibrary((s) => s.favorites.some((f) => f.id === ep.id));
   const saved = useOffline((s) => s.saved[ep.id]);
   const progress = useOffline((s) => s.active[ep.id]);
-  if (!ep.audioUrl && !ep.videoId) return null;
-  if (progress !== undefined) {
-    const r = 7, c = 2 * Math.PI * r;
-    return (
-      <button className="round-btn dl-busy" title={progress == null ? t("正在下载，点一下取消") : t("已下载 {pct}%，点一下取消", { pct: Math.round(progress * 100) })} onClick={() => cancelDownload(ep.id)}>
-        <svg viewBox="0 0 20 20" width="18" height="18" className={progress == null ? "dl-ring spin" : "dl-ring"} aria-hidden>
-          <circle cx="10" cy="10" r={r} className="dl-track" />
-          <circle cx="10" cy="10" r={r} className="dl-fill" strokeDasharray={c} strokeDashoffset={c * (1 - (progress ?? 0.25))} />
-        </svg>
-      </button>
-    );
-  }
-  if (saved) {
-    // A download that just finished draws its tick once; older saves show it already drawn.
-    const fresh = Date.now() - saved.savedAt < 5000;
-    const close = () => setMenu(false);
-    return (
-      <div className="menu-wrap">
-        <button className="round-btn dl-done" title={t("已下载 · {size}", { size: bytes(saved.bytes) })} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}><DoneCheck fresh={fresh} /></button>
-        {menu && (
-          <div className="menu right" role="menu" onMouseLeave={close}>
-            <p className="menu-note">{t("已下载 · {size}", { size: bytes(saved.bytes) })}</p>
-            <button role="menuitem" onClick={() => { close(); go({ kind: "downloads" }); }}><ArrowDownToLine size={14} /> {t("管理全部下载")}</button>
-            <button role="menuitem" className="danger" onClick={() => { close(); void ask({ title: t("删除这一集已下载的音频？"), message: t("之后在线播放，字幕和进度都会保留。"), ok: t("删除"), danger: true }).then((yes) => { if (yes) void removeDownload(ep.id); }); }}><Trash2 size={14} /> {t("删除下载")}</button>
-          </div>
-        )}
-      </div>
-    );
-  }
-  return <button className="round-btn" title={ep.audioUrl ? t("下载，离线也能听") : t("下载音频，离线也能听")} onClick={() => void downloadEpisode(ep)}><ArrowDownToLine size={15} /></button>;
+  return <MobileSheet title={t("本集操作")} onClose={close}>
+    <button onClick={() => { toggleFavorite(ep, false); selectionFeedback(); }}><Bookmark fill={fav ? "currentColor" : "none"} />{fav ? t("取消收藏") : t("收藏这一集")}{fav && <Check className="row-check" />}</button>
+    {saved ? <>
+      <button onClick={() => { close(); useStore.getState().go({ kind: "downloads" }); }}><ArrowDownToLine />{t("管理全部下载")}<small>{bytes(saved.bytes)}</small></button>
+      <button className="destructive" onClick={async () => { close(); if (await ask({ title: t("删除这一集已下载的音频？"), ok: t("删除"), danger: true })) void removeDownload(ep.id); }}><Trash2 />{t("删除下载")}</button>
+    </> : (ep.audioUrl || ep.videoId) && <button onClick={() => { if (progress !== undefined) cancelDownload(ep.id); else void downloadEpisode(ep); close(); }}>
+      <ArrowDownToLine />{progress !== undefined ? t("取消下载") : t("下载音频")}{typeof progress === "number" && <small>{Math.round(progress * 100)}%</small>}
+    </button>}
+  </MobileSheet>;
 }
 
 function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; setTab: (t: Tab) => void; startAudio: boolean }) {
@@ -264,8 +246,20 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const { current, load } = useStore(useShallow((s) => ({ current: s.current, load: s.load })));
   const titleZh = useZh(ep.title);
   const isCurrent = current?.id === ep.id;
-  const playing = useStore((s) => s.playing);
-  const fav = useLibrary((s) => s.favorites.some((f) => f.id === ep.id));
+  const [draft, setDraft] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const reading = tab === "summary" || tab === "chat";
+  const compact = reading && !expanded && isCurrent;
+  useEffect(() => {
+    const askSelection = (event: Event) => {
+      const quote = (event as CustomEvent<string>).detail;
+      setDraft((previous) => previous ? previous + "\n\n“" + quote + "”" : "“" + quote + "”\n");
+      setExpanded(false); setTab("chat");
+    };
+    window.addEventListener("subcast-ask-selection", askSelection);
+    return () => window.removeEventListener("subcast-ask-selection", askSelection);
+  }, [ep.id, setTab]);
+  const [sheet, setSheet] = useState<"actions" | "media" | null>(null);
   // Translate foreign-language subtitles whichever tab is open: the video's subtitles need the Chinese too.
   const transcript = useJobs((s) => s.transcripts[ep.id]);
   const mode = useStore((s) => s.settings.subtitleMode);
@@ -283,24 +277,16 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const saved = useOffline((s) => !!s.saved[ep.id]);
   const both = !!ep.videoId && (!!ep.audioUrl || saved);
   const showVideo = !!ep.videoId && !audioMode;
-  const ytPromo = useStore((s) => s.settings.youtubePromo);
-  const epShow = useStore((s) => s.shows.find((x) => x.id === ep.showId));
-  const ytChannel = showLinks(epShow?.feedUrl).youtube;
   const startPlayback = () => {
     if (!isCurrent) load(audioMode ? { ...ep, videoId: undefined } : ep);
     playSoon(ep.id);
-  };
-  const coverToggle = () => {
-    const player = useStore.getState().player;
-    if (isCurrent && player?.episodeId === ep.id) player.toggle();
-    else startPlayback();
   };
   const switchTo = (audio: boolean) => {
     const s = useStore.getState();
     const time = isCurrent ? s.time : ep.progress;
     const resume = isCurrent && (s.playing || !!s.loadingSince || s.playWhenReady === ep.id);
     s.set({ current: { ...ep, videoId: audio ? undefined : ep.videoId, progress: time }, time,
-      length: isCurrent ? s.length : ep.duration || 0, player: null, playing: false,
+      bufferedUntil: 0, length: isCurrent ? s.length : ep.duration || 0, player: null, playing: false,
       playWhenReady: resume ? ep.id : null, loadingSince: resume ? Date.now() : null });
   };
 
@@ -309,36 +295,34 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   switchRef.current = switchTo;
   const onUnplayable = useMemo(() => () => { switchRef.current(true); playSoon(ep.id); }, [ep.id]);
 
-  const tabBtn = (k: Tab, icon: ReactNode, label: string) => (
-    <button role="tab" title={t(TAB_NAMES[k])} aria-label={t(TAB_NAMES[k])} aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{icon}<span className="tab-label">{label}</span></button>
-  );
-
+  const tabs: [Tab, string][] = [["transcript", t("字幕")]];
+  if (ep.deep && noDeep !== ep.id) tabs.push(["deep", t("精读")]);
+  tabs.push(["summary", t("导读")], ["chat", t("问答")]);
+  if (notes) tabs.push(["notes", t("简介")]);
+  const modeButton = both && <button className="media-mode" aria-label={t("切换播放方式")} aria-haspopup="dialog" onClick={() => setSheet("media")}>
+    {audioMode ? <Headphones size={18} /> : <Film size={18} />}<span>{audioMode ? t("音频") : t("视频")}</span><ChevronDown size={12} />
+  </button>;
   // Phone layout: the player stays on top (title, picture or cover, controls); the tabs fill the rest.
   return (
     <div className="episode m-episode">
       <header className="m-episode-nav">
         <button className="m-back" onClick={() => useStore.getState().back()} aria-label={t("返回")}><ChevronLeft size={24} /></button>
         <span className="clamp1">{ep.showTitle && ep.showId !== "single" ? showName(ep.showTitle) : "SubCast"}</span>
+        <button className="m-back" aria-label={t("本集操作")} aria-haspopup="dialog" onClick={() => setSheet("actions")}><MoreHorizontal size={24} /></button>
       </header>
-      <section className="m-ep-top">
-        <div className="ep-title-block">
+      {sheet === "actions" && <EpisodeActions ep={ep} close={() => setSheet(null)} />}
+      {sheet === "media" && <MobileSheet title={t("播放方式")} onClose={() => setSheet(null)}>
+        {[false, true].map((audio) => <button key={String(audio)} aria-pressed={audio === audioMode} onClick={() => {
+          setSheet(null); if (audio !== audioMode) { selectionFeedback(); switchTo(audio); }
+        }}>{audio ? <Headphones /> : <Film />}{audio ? t("仅音频") : t("视频")}{audio === audioMode && <Check className="row-check" />}</button>)}
+      </MobileSheet>}
+      <section className={`m-ep-top ${compact ? "reader-player" : ""} ${showVideo ? "with-video" : ""}`}>
+        <div className={`ep-title-block ${showVideo ? "" : "audio-heading"}`}>
+          {!showVideo && ep.cover && <img className="episode-artwork" src={ep.cover} alt="" />}
           <div className="ep-title">
             <p className="meta-line">{[date(ep.published), duration(ep.duration)].filter(Boolean).map((x, i) => <span key={i}>{i > 0 && " · "}{x}</span>)}</p>
             <h1>{titleZh ?? ep.title}</h1>
             {titleZh && titleZh !== ep.title && <p className="orig-line clamp1">{ep.title}</p>}
-          </div>
-          <div className="m-ep-actions">
-            <button className={`round-btn fav-btn ${fav ? "on" : ""}`} aria-pressed={fav} aria-label={fav ? t("取消收藏") : t("收藏这一集")} onClick={() => toggleFavorite(ep)}><Bookmark size={16} fill={fav ? "currentColor" : "none"} /></button>
-            <DownloadButton ep={ep} />
-            {ep.videoId
-              ? <button className="round-btn yt-open" aria-label={t("在 YouTube 打开（从当前位置继续）")} onClick={() => { const s = Math.floor(isCurrent ? useStore.getState().time : ep.progress ?? 0); void openUrl(`https://www.youtube.com/watch?v=${ep.videoId}${s > 5 ? `&t=${s}s` : ""}`); }}><Youtube size={17} /></button>
-              : ep.link && <button className="round-btn" aria-label={t("节目网页")} onClick={() => openUrl(ep.link!)}><ExternalLink size={16} /></button>}
-            {both && (
-              <div className="media-switch seg-control" role="radiogroup" aria-label={t("播放方式")}>
-                <button role="radio" aria-checked={!audioMode} className={!audioMode ? "on" : ""} onClick={() => audioMode && switchTo(false)}>{t("视频")}</button>
-                <button role="radio" aria-checked={audioMode} className={audioMode ? "on" : ""} onClick={() => !audioMode && switchTo(true)}>{t("仅音频")}</button>
-              </div>
-            )}
           </div>
         </div>
         {showVideo ? (
@@ -347,35 +331,28 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
             <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" /><Play fill="currentColor" />
           </button>
         ) : (
-          <div className="audio-stage m-audio-stage">
-            <button type="button" className="cover-play" disabled={!ep.audioUrl && !saved} onClick={coverToggle} aria-label={isCurrent && playing ? t("暂停") : t("播放")}>
-              {ep.cover ? <img src={ep.cover} alt="" /> : <span className="cover-fallback" />}
-              <span className={`cover-play-btn ${isCurrent && playing ? "playing" : ""}`}>{isCurrent && playing ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" />}</span>
-            </button>
-            <div className="audio-sub"><AudioSubtitles ep={ep} /></div>
-          </div>
+          <div className="audio-sub mobile-caption"><AudioSubtitles ep={ep} /></div>
         )}
-        {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls /></div> : (
-          <button className="btn primary m-play" onClick={startPlayback}><Play size={14} /> {t("播放这一集")}</button>
+        {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton} /></div> : (
+          <div className="m-start-row">{modeButton}<button className="btn primary m-play" onClick={startPlayback}><Play size={18} /> {t("播放这一集")}</button></div>
         )}
+        {reading && isCurrent && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
       </section>
       <section className="ep-right m-ep-tabs">
-        <div className="tabs" role="tablist">
-          {tabBtn("transcript", <Captions size={15} />, t("字幕"))}
-          {ep.deep && noDeep !== ep.id && tabBtn("deep", <BookOpen size={15} />, t("精读"))}
-          {tabBtn("summary", <ScrollText size={15} />, t("导读"))}
-          {tabBtn("chat", <MessageCircle size={15} />, t("问答"))}
-          {notes && tabBtn("notes", <Info size={15} />, t("简介"))}
+        <div className="reading-segments" role="tablist" style={{ "--count": tabs.length, "--index": Math.max(0, tabs.findIndex(([k]) => k === tab)) } as React.CSSProperties}>
+          <i aria-hidden />
+          {tabs.map(([k, label]) => <button key={k} role="tab" aria-label={t(TAB_NAMES[k])} aria-selected={tab === k} onClick={() => {
+            if (tab !== k) { selectionFeedback(); setExpanded(false); setTab(k); }
+          }}>{label}</button>)}
         </div>
         <div className="tab-body">
           <PanelBoundary key={tab}>
             {tab === "transcript" && <TranscriptPanel ep={ep} />}
-            {tab === "chat" && <ChatPanel ep={ep} />}
-            {tab === "summary" && <SummaryPanel ep={ep} />}
-            {tab === "deep" && <DeepRead ep={ep} onMissing={() => { setNoDeep(ep.id); setTab("transcript"); }}><EmptyState art={<BookArt />} title={t("这一集还没有精读")} note={t("这期没有精读长文，字幕和 AI 导读依然可以帮你")} /></DeepRead>}
+            {tab === "chat" && <ChatPanel ep={ep} input={draft} setInput={setDraft} onSubtitles={() => setTab("transcript")} />}
+            {tab === "summary" && <SummaryPanel ep={ep} onSubtitles={() => setTab("transcript")} />}
+            {tab === "deep" && <DeepRead ep={ep} onMissing={() => { setNoDeep(ep.id); setTab("transcript"); }}><EmptyState art={<BookArt />} title={t("这一集还没有精读")} /></DeepRead>}
             {tab === "notes" && notes && (
               <div className="m-notes">
-                {ytPromo && ytChannel && <YtVideoStrip channel={ytChannel} name={showName(epShow?.title ?? "")} cover={epShow?.cover} />}
                 <Notes ep={ep} text={notes} defaultOpen />
               </div>
             )}

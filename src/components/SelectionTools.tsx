@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Copy, Image as ImageIcon, Languages, Loader2, X } from "lucide-react";
+import { Copy, MessageCircle, Image as ImageIcon, Languages, Loader2 } from "lucide-react";
 import { shareFile } from "../lib/share";
 import { api, type Episode } from "../lib/api";
 import { CJK, POSTER_FONTS, POSTER_THEMES, drawPoster, loadPosterFont, type PosterInput } from "../lib/poster";
@@ -64,6 +64,7 @@ export function SelectionTools() {
       {sel && (
         <div className={`sel-bar ${sel.below ? "below" : ""}`} style={{ left: sel.x, top: sel.y }} role="toolbar" aria-label={t("选中文字操作")} onMouseDown={(e) => e.preventDefault()}>
           <div className="sel-actions">
+            <button onClick={() => { const text = sel.text; setSel(null); window.getSelection()?.removeAllRanges(); window.dispatchEvent(new CustomEvent("subcast-ask-selection", { detail: text })); }}><MessageCircle size={16} />{t("提问")}</button>
             <button onClick={copy}><Copy size={13} /> {t("复制")}</button>
             <button onClick={translate}><Languages size={13} /> {t("翻译")}</button>
             <button onClick={() => { setPoster({ text: sel.text, ts: sel.ts }); setSel(null); }}><ImageIcon size={13} /> {t("生成海报")}</button>
@@ -175,7 +176,6 @@ function PosterDialog({ text, ts, getEpisode, onClose }: { text: string; ts?: st
       </div>
       <div className="modal-foot">
         <span className="spacer" />
-        <button className="btn ghost" onClick={onClose}><X size={14} /> {t("关闭")}</button>
         <button className="btn" onClick={copyImg} disabled={!url}><Copy size={14} /> {t("复制图片")}</button>
         <button className="btn primary" onClick={save} disabled={!url}>{t("保存图片")}</button>
       </div>

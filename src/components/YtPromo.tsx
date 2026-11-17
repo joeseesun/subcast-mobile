@@ -28,38 +28,13 @@ export function AlsoOn({ feedUrl }: { feedUrl?: string }) {
 /** Discover's top banner: our own show, with subscribing in the app and on YouTube side by side. */
 export function HomeShowBanner({ subscribed, busy, onSubscribe, onOpen, onHide }: { subscribed: boolean; busy: boolean; onSubscribe: () => void; onOpen: () => void; onHide: () => void }) {
   const p = homeShow();
-  const yt = showLinks(p?.input).youtube;
-  if (!p || !yt) return null;
+  if (!p) return null;
   return (
-    <div className="home-show" role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), onOpen())}>
-      <button type="button" className="icon-btn sm home-show-close" title={t("不再显示")} aria-label={t("不再显示")} onClick={(e) => { e.stopPropagation(); onHide(); }}><X size={15} /></button>
-      <img src={p.cover} alt="" />
-      <div className="home-show-body">
-        <p className="home-show-kicker">{t("主创的播客")}</p>
-        <p className="home-show-name">{pickName(p)}</p>
-        <p className="home-show-desc">{t("SubCast 作者乔木和朋友们的 AI 播客，和一线从业者长聊。每期都有视频版，在 YouTube 首发。")}</p>
-        <div className="row-actions">
-          <YtButton channel={yt} />
-          {subscribed
-            ? <span className="muted small home-show-done"><Check size={13} /> {t("已在 App 里订阅")}</span>
-            : <button className="btn" onClick={(e) => { e.stopPropagation(); onSubscribe(); }} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Plus size={15} />} {t("在 App 里订阅")}</button>}
-          <AlsoOn feedUrl={p.input} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Under the video of an episode whose show has a YouTube channel. */
-export function YtVideoStrip({ channel, name, cover }: { channel: string; name: string; cover?: string }) {
-  return (
-    <div className="yt-strip">
-      {cover ? <img src={cover} alt="" /> : <span className="yt-strip-icon"><Youtube size={16} /></span>}
-      <div className="yt-strip-text">
-        <p className="yt-strip-name clamp1">{name}</p>
-        <p className="muted small clamp1">{t("视频版在 YouTube 首发，订阅后新一期第一时间看到")}</p>
-      </div>
-      <YtButton channel={channel} label={t("订阅")} small />
+    <div className="creator-row">
+      <button className="creator-open" onClick={onOpen}><img src={p.cover} alt="" /><span><small>{t("主创的播客")}</small><strong>{pickName(p)}</strong></span></button>
+      {subscribed ? <Check size={19} aria-label={t("已订阅")} /> :
+        <button className="round-btn" onClick={onSubscribe} aria-label={t("订阅")} disabled={busy}>{busy ? <Loader2 className="spin" /> : <Plus />}</button>}
+      <button className="icon-btn" aria-label={t("不再显示")} onClick={onHide}><X size={18} /></button>
     </div>
   );
 }

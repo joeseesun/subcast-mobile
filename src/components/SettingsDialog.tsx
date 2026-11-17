@@ -1,7 +1,7 @@
 import { ask } from "../lib/confirm";
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useState } from "react";
-import { BookOpen, Check, ChevronDown, ExternalLink, Github, Loader2, MessageCircle, RefreshCw, Trash2, Captions, HardDrive, Info, SlidersHorizontal, Sparkles, type LucideIcon } from "lucide-react";
+import { BookOpen, Check, ChevronLeft, ChevronRight, ChevronDown, ExternalLink, Github, Loader2, MessageCircle, RefreshCw, Trash2, Captions, HardDrive, Info, SlidersHorizontal, Sparkles, type LucideIcon } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { ASR_SERVICES, CLOUD_ASR_MAIN } from "../lib/settings";
 import { stopSpeaking } from "../lib/tts";
@@ -106,19 +106,24 @@ export function SettingsDialog() {
   type Section = "subtitles" | "ai" | "general" | "about";
   // Old section names (links from elsewhere in the app) land in their new home.
   const LEGACY: Record<string, Section> = { overview: "subtitles", reading: "subtitles", asr: "subtitles", model: "ai", tts: "general", shortcuts: "general", storage: "general", general: "general", about: "about", subtitles: "subtitles", ai: "ai" };
-  const [section, setSection] = useState<Section>(LEGACY[settingsSection ?? "subtitles"] ?? "subtitles");
+  const [section, setSection] = useState<Section | null>(settingsSection ? LEGACY[settingsSection] ?? null : null);
   const [proxy, setProxy] = useState(settings.proxy);
   const [moreCloud, setMoreCloud] = useState(false);
-  const [showStorage, setShowStorage] = useState(false);
+  const [showStorage, setShowStorage] = useState(settingsSection === "storage");
   const NAV: [Section, string, LucideIcon][] = [["subtitles", tk("字幕"), Captions], ["ai", tk("AI"), Sparkles], ["general", tk("通用"), SlidersHorizontal], ["about", tk("关于"), Info]];
 
+  const pageTitle = NAV.find(([key]) => key === section)?.[1];
+  const header = pageTitle ? <>
+    <button className="settings-back" onClick={() => setSection(null)}><ChevronLeft size={22} />{t("设置")}</button>
+    <h3>{t(pageTitle)}</h3>
+  </> : undefined;
   return (
-    <Modal title={t("设置")} onClose={() => { stopSpeaking(); set({ settingsOpen: false }); }} wide>
+    <Modal title={t("设置")} head={header} onClose={() => { stopSpeaking(); set({ settingsOpen: false }); }} wide>
       <div className="settings">
-        <nav className="settings-nav">
-          {NAV.map(([k, label, Icon]) => <button key={k} className={section === k ? "on" : ""} onClick={() => setSection(k)}><Icon size={15} aria-hidden />{t(label)}</button>)}
-        </nav>
-        <div className="settings-body">
+        {!section && <nav className="settings-list" aria-label={t("设置")}>
+          {NAV.map(([k, label, Icon]) => <button key={k} onClick={() => setSection(k)}><Icon size={22} aria-hidden /><span>{t(label)}</span><ChevronRight size={18} aria-hidden /></button>)}
+        </nav>}
+        {section && <div className="settings-body" key={section}>
           {section === "subtitles" && (
             <>
               <ReadingSettings />
@@ -145,8 +150,8 @@ export function SettingsDialog() {
                     {LANGS.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </label>
-                <label className="check"><input type="checkbox" checked={settings.youtubePromo} onChange={(e) => saveSettings({ youtubePromo: e.target.checked })} /> {t("显示节目的 YouTube 订阅按钮")}</label>
-                {settings.youtubePromo && <label className="check"><input type="checkbox" checked={!settings.homeBannerHidden} onChange={(e) => saveSettings({ homeBannerHidden: !e.target.checked })} /> {t("在发现页顶部推荐「词元之外」")}</label>}
+                <label className="check"><input type="checkbox" role="switch" checked={settings.youtubePromo} onChange={(e) => saveSettings({ youtubePromo: e.target.checked })} /> {t("显示节目的 YouTube 订阅按钮")}</label>
+                {settings.youtubePromo && <label className="check"><input type="checkbox" role="switch" checked={!settings.homeBannerHidden} onChange={(e) => saveSettings({ homeBannerHidden: !e.target.checked })} /> {t("在发现页顶部推荐「词元之外」")}</label>}
               </section>
               <section className="setup-block">
                 <p className="setup-title">{t("订阅")}</p>
@@ -166,7 +171,7 @@ export function SettingsDialog() {
               </section>
               <section className="setup-block">
                 <p className="setup-title">{t("共享")}</p>
-                <label className="check"><input type="checkbox" checked={settings.shareTranscripts} onChange={(e) => saveSettings({ shareTranscripts: e.target.checked })} /> {t("匿名分享我生成的字幕、译文和导读")}</label>
+                <label className="check"><input type="checkbox" role="switch" checked={settings.shareTranscripts} onChange={(e) => saveSettings({ shareTranscripts: e.target.checked })} /> {t("匿名分享我生成的字幕、译文和导读")}</label>
                 <p className="muted small">{t("只分享文字，帮别人省去等待。关掉后照样能用别人分享的。")}</p>
               </section>
               <section className="setup-block">
@@ -176,7 +181,7 @@ export function SettingsDialog() {
             </>
           )}
           {section === "about" && <About />}
-        </div>
+        </div>}
       </div>
     </Modal>
   );

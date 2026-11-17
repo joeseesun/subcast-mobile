@@ -163,7 +163,7 @@ export function StatsView() {
     return (
       <div className="page stats">
         <h1 className="page-title">{t("收听统计")}</h1>
-        <EmptyState art={<HeadphonesArt />} title={t("还没有收听记录")} note={t("从这一版开始，听过的每一分钟都会记在这里，只存在你的电脑上。")}>
+        <EmptyState art={<HeadphonesArt />} title={t("还没有收听记录")}>
           <button className="btn primary" onClick={() => go({ kind: "latest" })}>{t("去听一集")}</button>
         </EmptyState>
       </div>
@@ -253,7 +253,7 @@ export function StatsView() {
         <div className="stats-card-h"><h2>{t("一年的样子")}</h2><span className="muted small">{t("每一格是一天")}</span></div>
         <Heatmap byDay={s.byDay} />
       </section>
-      <p className="muted small stats-foot">{t("只统计真正在播放的时间，拖动进度条不算。数据只保存在这台电脑上。")}</p>
+      <p className="muted small stats-foot">{t("收听记录仅保存在本机。")}</p>
     </div>
   );
 }

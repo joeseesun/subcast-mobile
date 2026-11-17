@@ -8,6 +8,8 @@ Share sheet and now-playing controls
 - `allow-now-playing`
 - `allow-clear-now-playing`
 - `allow-insets`
+- `allow-selection-feedback`
+- `allow-podcast-audio`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -101,6 +103,32 @@ Denies the now_playing command without any pre-configured scope.
 <tr>
 <td>
 
+`mobile:allow-podcast-audio`
+
+</td>
+<td>
+
+Enables the podcast_audio command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:deny-podcast-audio`
+
+</td>
+<td>
+
+Denies the podcast_audio command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `mobile:allow-register-listener`
 
 </td>
@@ -146,6 +174,32 @@ Enables the remove_listener command without any pre-configured scope.
 <td>
 
 Denies the remove_listener command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:allow-selection-feedback`
+
+</td>
+<td>
+
+Enables the selection_feedback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:deny-selection-feedback`
+
+</td>
+<td>
+
+Denies the selection_feedback command without any pre-configured scope.
 
 </td>
 </tr>

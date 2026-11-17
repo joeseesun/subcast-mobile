@@ -1,0 +1,172 @@
+import AVFoundation
+import Foundation
+import Tauri
+
+struct PodcastCommand: Decodable {
+  let session: String
+  let action: String
+  let url: String?
+  let value: Double?
+  let rate: Double?
+}
+
+/// One selected episode. Preparing an item may fetch and decode audio, but never starts the clock.
+final class PodcastAudio {
+  private var session = ""
+  private var player: AVPlayer?
+  private var itemStatus: NSKeyValueObservation?
+  private var playerStatus: NSKeyValueObservation?
+  private var positioning = false
+  private var timeStatus: NSKeyValueObservation?
+  private var periodic: Any?
+  private var notifications = [NSObjectProtocol]()
+  private var wantsPlay = false
+  private var ready = false
+  private var rate: Float = 1
+  private var position: Double = 0
+  private var lastBuffer: Double = -1
+  private var bufferObserver: NSKeyValueObservation?
+  var notify: ((JSObject) -> Void)?
+
+  func apply(_ command: PodcastCommand) {
+    if command.action == "prepare" {
+      guard let raw = command.url, let url = URL(string: raw),
+            ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
+      stop()
+      session = command.session
+      position = max(0, command.value ?? 0)
+      rate = Float(command.rate ?? 1)
+      let item = AVPlayerItem(url: url)
+      item.preferredForwardBufferDuration = 20
+      let p = AVPlayer(playerItem: item)
+      player = p
+      p.automaticallyWaitsToMinimizeStalling = true
+      itemStatus = item.observe(\.status, options: [.initial, .new]) { [weak self] _, _ in
+        DispatchQueue.main.async { self?.prepareIfReady(p) }
+      }
+      playerStatus = p.observe(\.status, options: [.initial, .new]) { [weak self] _, _ in
+        DispatchQueue.main.async { self?.prepareIfReady(p) }
+      }
+      timeStatus = p.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in
+        DispatchQueue.main.async { if self?.player === p { self?.publish() } }
+      }
+      bufferObserver = item.observe(\.loadedTimeRanges, options: [.new]) { [weak self] _, _ in
+        DispatchQueue.main.async {
+          guard let self = self, self.player === p, self.ready else { return }
+          let end = self.bufferEnd()
+          if abs(self.lastBuffer - end) >= 1 { self.lastBuffer = end; self.publish() }
+        }
+      }
+      periodic = p.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 2), queue: .main) { [weak self] _ in
+        if self?.player === p { self?.publish() }
+      }
+      let center = NotificationCenter.default
+      notifications.append(center.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+        guard let self = self, self.player === p else { return }
+        self.wantsPlay = false
+        self.publish("ended")
+      })
+      notifications.append(center.addObserver(forName: .AVPlayerItemFailedToPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+        if self?.player === p { self?.publish("failed") }
+      })
+      notifications.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+        if (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue {
+          self?.wantsPlay = false
+          self?.player?.pause()
+          self?.publish()
+        }
+      })
+      notifications.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+        if (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
+          self?.wantsPlay = false
+          self?.player?.pause()
+          self?.publish()
+        }
+      })
+      return
+    }
+    guard session == command.session, let p = player else { return }
+    switch command.action {
+    case "dispose": stop(); return
+    case "toggle" where wantsPlay: wantsPlay = false; p.pause()
+    case "toggle", "play": wantsPlay = true; if ready { start() }
+    case "seek":
+      position = max(0, command.value ?? 0)
+      wantsPlay = true
+      if ready {
+        p.cancelPendingPrerolls()
+        p.seek(to: CMTime(seconds: position, preferredTimescale: 600))
+        start()
+      }
+    case "rate": rate = Float(command.value ?? 1); if wantsPlay && ready { p.rate = rate }
+    case "mute": p.isMuted = (command.value ?? 0) != 0
+    default: return
+    }
+    publish()
+  }
+
+  private func prepareIfReady(_ p: AVPlayer) {
+    guard player === p, let item = p.currentItem else { return }
+    if item.status == .failed || p.status == .failed { publish("failed"); return }
+    guard p.status == .readyToPlay, item.status == .readyToPlay, !ready, !positioning else { return }
+    let duration = item.duration.seconds
+    if duration.isFinite && position >= duration - 1 { position = 0 }
+    let target = position
+    let finish = {
+      guard self.player === p else { return }
+      self.positioning = false
+      if self.position != target { self.prepareIfReady(p); return }
+      self.ready = true
+      if self.wantsPlay { self.start() }
+      else if p.status == .readyToPlay && p.rate == 0 { p.preroll(atRate: self.rate) { _ in } }
+      self.publish()
+    }
+    if target > 0 {
+      positioning = true
+      p.seek(to: CMTime(seconds: target, preferredTimescale: 600)) { _ in DispatchQueue.main.async { finish() } }
+    } else { finish() }
+  }
+
+  private func start() {
+    guard let p = player else { return }
+    p.cancelPendingPrerolls()
+    try? AVAudioSession.sharedInstance().setActive(true)
+    if let duration = p.currentItem?.duration.seconds, duration.isFinite, p.currentTime().seconds >= duration - 0.1 {
+      p.seek(to: .zero)
+    }
+    p.rate = rate
+  }
+
+  private func bufferEnd() -> Double {
+    guard let p = player else { return 0 }
+    let time = p.currentTime().seconds
+    for value in p.currentItem?.loadedTimeRanges ?? [] {
+      let range = value.timeRangeValue
+      if range.start.seconds <= time + 0.1 && range.end.seconds >= time { return range.end.seconds }
+    }
+    return 0
+  }
+
+  private func publish(_ event: String = "") {
+    guard let p = player else { return }
+    let time = ready ? p.currentTime().seconds : position
+    let duration = p.currentItem?.duration.seconds ?? 0
+    let playing = p.timeControlStatus == .playing
+    let buffered = bufferEnd()
+    notify?(["session": session, "event": event, "time": time.isFinite ? time : 0,
+             "duration": duration.isFinite ? duration : 0, "buffer": buffered.isFinite ? buffered : 0,
+             "playing": playing, "waiting": wantsPlay && !playing])
+  }
+
+  private func stop() {
+    itemStatus = nil; playerStatus = nil; timeStatus = nil; bufferObserver = nil
+    if let observer = periodic { player?.removeTimeObserver(observer) }
+    notifications.forEach { NotificationCenter.default.removeObserver($0) }
+    notifications.removeAll()
+    periodic = nil
+    player?.cancelPendingPrerolls()
+    player?.pause()
+    player?.replaceCurrentItem(with: nil)
+    player = nil; ready = false; positioning = false; wantsPlay = false; lastBuffer = -1
+  }
+}

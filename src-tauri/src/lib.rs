@@ -372,15 +372,25 @@ async fn use_youtube_track(state: State<'_, AppState>, episode_id: String, langu
 #[tauri::command]
 async fn fetch_official_transcript(state: State<'_, AppState>, episode_id: String) -> Res<Option<Transcript>> {
     let ep = db::get_episode(&state.db.lock().unwrap(), &episode_id).map_err(e)?.ok_or("节目不存在")?;
-    let t = if let Some(vid) = &ep.video_id {
-        let info = youtube::video_info(vid).await.map_err(e)?;
-        let hint = youtube::script_hint(&info.title).or_else(|| youtube::script_hint(&ep.title));
-        match youtube::choose(&info.tracks, info.original_language.as_deref(), hint) {
-            // Saved inside, together with the publisher's Chinese when there is one.
-            Some(track) => { let t = youtube_transcript(&state, &ep, &info, track).await.map_err(e)?; return Ok((!t.segments.is_empty()).then_some(t)); }
-            None => None,
+    let mut youtube_error = None;
+    if let Some(vid) = &ep.video_id {
+        let published = async {
+            let info = youtube::video_info(vid).await?;
+            let hint = youtube::script_hint(&info.title).or_else(|| youtube::script_hint(&ep.title));
+            if let Some(track) = youtube::choose(&info.tracks, info.original_language.as_deref(), hint) {
+                let t = youtube_transcript(&state, &ep, &info, track).await?;
+                if !t.segments.is_empty() { return Ok(Some(t)); }
+            }
+            Ok::<_, anyhow::Error>(None)
+        };
+        match tokio::time::timeout(std::time::Duration::from_secs(35), published).await {
+            Ok(Ok(Some(t))) => return Ok(Some(t)),
+            Ok(Ok(None)) => (),
+            Ok(Err(error)) => youtube_error = Some(e(error)),
+            Err(_) => youtube_error = Some("字幕下载失败".to_owned()),
         }
-    } else if let Some(url) = ep.transcript_url.as_ref().filter(|_| ep.transcript_type.as_deref() != Some("podscribe")) {
+    }
+    let t = if let Some(url) = ep.transcript_url.as_ref().filter(|_| ep.transcript_type.as_deref() != Some("podscribe")) {
         let body = net::get_text(url).await.map_err(e)?;
         let kind = ep.transcript_type.clone().unwrap_or_default();
         let segs = if kind.contains("json") { transcript::parse_podcast_json(&body) } else { transcript::parse_cues(&body) };
@@ -409,6 +419,7 @@ async fn fetch_official_transcript(state: State<'_, AppState>, episode_id: Strin
         if t.segments.is_empty() { return Ok(None); }
         db::save_transcript(&state.db.lock().unwrap(), t).map_err(e)?;
     }
+    if t.is_none() { if let Some(error) = youtube_error { return Err(error); } }
     Ok(t)
 }
 
@@ -532,20 +543,27 @@ async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: St
     let mode = mode.unwrap_or_else(|| if cfg!(target_os = "ios") { "native-hls".into() } else { "mp4".into() });
     let key = format!("{video_id}|{mode}");
     let _ = app.emit("yt-stream", json!({ "videoId": video_id, "stage": "resolve", "progress": 0.0 }));
-    let cached = if fresh.unwrap_or(false) { None } else { asr::streams::get(&key) };
-    let url = match cached {
-        Some(u) => u,
+    // A direct address may require the issuing client's User-Agent or the user's in-app proxy.
+    // WebKit cannot set those headers. The loopback route retains them for every range and HLS segment.
+    let relay = mode == "relay" || mode == "proxy-hls" || !net::proxy().is_empty();
+    let cached = if relay || fresh.unwrap_or(false) { None } else { asr::streams::get(&key) };
+    let (url, agent) = match cached {
+        Some(url) => (url, String::new()),
         None => {
             let purpose = if mode == "mp4" { youtube::StreamUse::Mp4 } else { youtube::StreamUse::Video };
-            let s = tokio::time::timeout(std::time::Duration::from_secs(40), youtube::streams(&video_id, purpose)).await
+            let s = tokio::time::timeout(std::time::Duration::from_secs(12), youtube::streams(&video_id, purpose)).await
                 .map_err(|_| "获取视频地址超时，请检查网络或代理".to_string())?.map_err(e)?;
-            let u = if mode == "mp4" { s.mp4 } else { s.hls.or(s.mp4) }.ok_or("这个视频没有可直接播放的地址")?;
-            asr::streams::put(&key, &u);
-            u
+            let url = match mode.as_str() {
+                "mp4" => s.mp4,
+                "relay" => s.mp4.or(s.hls),
+                _ => s.hls.or(s.mp4),
+            }.ok_or("这个视频没有可直接播放的地址")?;
+            if !relay { asr::streams::put(&key, &url); }
+            (url, s.ua)
         }
     };
     let is_hls = url.contains("m3u8") || url.contains("/manifest/hls");
-    if is_hls && mode == "proxy-hls" { return Ok(VideoStream { url: hlsproxy::proxied(&url).await.map_err(e)?, kind: "hls" }); }
+    let url = if relay { hlsproxy::proxied(&url, &agent).await.map_err(e)? } else { url };
     Ok(VideoStream { url, kind: if is_hls { "hls" } else { "mp4" } })
 }
 

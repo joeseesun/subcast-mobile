@@ -1,7 +1,7 @@
 // Keeps a playing video alive across pages. The YouTube player lives once, at the app's root, and is only moved
 // with CSS: over the episode page's video slot when that page is open, or into a small floating window when
 // the listener goes elsewhere. Moving a node holding an iframe would reload it; this never moves it.
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { create } from "zustand";
 import { ExternalLink, X } from "lucide-react";
 import type { Episode } from "../lib/api";
@@ -35,26 +35,43 @@ export function VideoDock() {
   const ep = slot?.ep ?? floating?.ep;
   const theater = useStore((s) => s.theater);
 
-  // Follow the slot every frame while it is on screen (scrolling, resizing panes), clipped to its column.
-  useEffect(() => {
-    const b = box.current;
-    if (!b) return;
-    if (!slot) { b.removeAttribute("style"); return; }
-    let raf = 0, last = "";
-    const tick = () => {
-      const r = slot.el.getBoundingClientRect();
-      const c = (slot.el.closest(".ep-left") ?? document.body).getBoundingClientRect();
-      const top = Math.max(0, c.top - r.top), bottom = Math.max(0, r.bottom - c.bottom);
-      const key = `${r.left},${r.top},${r.width},${r.height},${top},${bottom}`;
-      if (key !== last) {
-        last = key;
-        Object.assign(b.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, clipPath: top || bottom ? `inset(${top}px 0 ${bottom}px 0 round 12px)` : "" });
-      }
-      raf = requestAnimationFrame(tick);
+  const slotElement = slot?.el;
+  useLayoutEffect(() => {
+    const dock = box.current;
+    if (!dock) return;
+    if (!slotElement) { dock.removeAttribute("style"); return; }
+    let frame = 0;
+    const column = slotElement.closest(".ep-left") ?? document.body;
+    const measure = () => {
+      frame = 0;
+      const r = slotElement.getBoundingClientRect();
+      const bounds = column.getBoundingClientRect();
+      const top = Math.max(0, bounds.top - r.top), bottom = Math.max(0, r.bottom - bounds.bottom);
+      Object.assign(dock.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px",
+        clipPath: top || bottom ? `inset(${top}px 0 ${bottom}px 0 round 12px)` : "" });
     };
-    tick();
-    return () => cancelAnimationFrame(raf);
-  }, [slot]);
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    const onScroll = (e: Event) => { if (e.target instanceof Node && e.target.contains(slotElement)) schedule(); };
+    const observer = new ResizeObserver(schedule);
+    for (let node: Element | null = slotElement; node; node = node.parentElement) {
+      observer.observe(node);
+      for (const sibling of Array.from(node.parentElement?.children ?? [])) {
+        if (sibling === node) break;
+        observer.observe(sibling);
+      }
+    }
+    measure();
+    document.addEventListener("scroll", onScroll, true);
+    window.visualViewport?.addEventListener("resize", schedule);
+    window.visualViewport?.addEventListener("scroll", schedule);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      document.removeEventListener("scroll", onScroll, true);
+      window.visualViewport?.removeEventListener("resize", schedule);
+      window.visualViewport?.removeEventListener("scroll", schedule);
+    };
+  }, [slotElement, theater]);
 
   // A floating video that is paused for good (ended, or another episode took over) goes away.
   const current = useStore((s) => s.current);

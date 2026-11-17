@@ -38,6 +38,27 @@ class MobilePlugin: Plugin {
     webview.configuration.allowsInlineMediaPlayback = true
   }
 
+  private let podcast = PodcastAudio()
+
+  @objc public func podcastAudio(_ invoke: Invoke) throws {
+    let command = try invoke.parseArgs(PodcastCommand.self)
+    DispatchQueue.main.async {
+      self.podcast.notify = { [weak self] data in self?.trigger("podcast", data: data) }
+      self.podcast.apply(command)
+      invoke.resolve()
+    }
+  }
+
+  private lazy var selectionGenerator = UISelectionFeedbackGenerator()
+
+  @objc public func selectionFeedback(_ invoke: Invoke) {
+    DispatchQueue.main.async {
+      self.selectionGenerator.selectionChanged()
+      self.selectionGenerator.prepare()
+      invoke.resolve()
+    }
+  }
+
   private func setUpCommands() {
     if commandsReady { return }
     commandsReady = true

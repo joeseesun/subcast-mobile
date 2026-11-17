@@ -1,12 +1,13 @@
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
+import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Loader2, Minimize2, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, type Episode } from "../lib/api";
 import { clock } from "../lib/format";
 import { loadYouTube } from "../lib/youtube";
-import { useStore } from "../store";
+import { useStore, type PlayerHandle } from "../store";
 import { IS_MAC, t, tr } from "../lib/i18n";
 import { audioSrc, useOffline } from "../lib/offline";
 import { playNext } from "../lib/library";
@@ -55,9 +56,23 @@ function track(ep: Episode, time: number, length?: number) {
   if (Math.abs(time - lastSaved) > SAVE_EVERY) { lastSaved = time; void api.setProgress(ep.id, time); }
 }
 
+function syncBuffer(el: HTMLMediaElement, id: string) {
+  const s = useStore.getState();
+  if (s.player?.episodeId !== id || s.current?.id !== id) return;
+  let end = 0;
+  for (let i = 0; i < el.buffered.length; i++) {
+    if (el.buffered.start(i) <= el.currentTime + 0.1 && el.buffered.end(i) >= el.currentTime) {
+      end = el.buffered.end(i);
+      break;
+    }
+  }
+  if (s.bufferedUntil !== end) s.set({ bufferedUntil: end });
+}
+
 function mediaHandle(el: HTMLMediaElement, episodeId: string) {
   const play = () => {
     if (el.error) el.load();
+    if (el.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) waiting(true);
     void el.play().catch((error: Error) => {
       if (error.name === "AbortError" || useStore.getState().player?.episodeId !== episodeId) return;
       useStore.setState({ playing: false, loadingSince: null });
@@ -66,7 +81,12 @@ function mediaHandle(el: HTMLMediaElement, episodeId: string) {
   };
   return {
     episodeId, play,
-    seek: (time: number) => { el.currentTime = time; play(); },
+    seek: (time: number) => {
+      const target = Math.max(0, Number.isFinite(el.duration) ? Math.min(time, el.duration) : time);
+      el.currentTime = target;
+      if (useStore.getState().current?.id === episodeId) useStore.setState({ time: target });
+      play();
+    },
     toggle: () => el.paused ? play() : el.pause(),
     setRate: (rate: number) => { el.playbackRate = rate; },
     toggleMute: () => { el.muted = !el.muted; return el.muted; },
@@ -80,6 +100,77 @@ export function AudioEngine() {
 }
 
 function EpisodeAudio({ audio }: { audio: Episode }) {
+  const saved = useOffline((s) => s.saved[audio.id]?.path);
+  const playing = useStore((s) => s.playing);
+  const [fallback, setFallback] = useState(false);
+  const [local, setLocal] = useState(!!saved);
+  useEffect(() => { if (!playing || !saved) setLocal(!!saved); }, [saved, playing]);
+  if (IS_MAC && !local && !fallback && /^https?:\/\//i.test(audio.audioUrl ?? "")) {
+    return <SystemAudio ep={audio} src={audio.audioUrl!} onFallback={() => setFallback(true)} />;
+  }
+  return <WebAudio audio={audio} />;
+}
+
+type AudioStatus = {
+  session: string; event: string; playing: boolean; waiting: boolean;
+  time: number; duration: number; buffer: number;
+};
+
+function SystemAudio({ ep, src, onFallback }: { ep: Episode; src: string; onFallback: () => void }) {
+  const fallbackRef = useRef(onFallback);
+  fallbackRef.current = onFallback;
+  useEffect(() => {
+    const session = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    let active = true, failed = false, muted = false, requested = false;
+    let pending = Promise.resolve();
+    const fallback = () => {
+      if (!active || failed) return;
+      failed = true;
+      if (requested) useStore.setState({ playWhenReady: ep.id });
+      fallbackRef.current();
+    };
+    const send = (action: string, values: object = {}) => {
+      pending = pending.then(async () => {
+        if (active || action === "dispose") await invoke("plugin:mobile|podcast_audio", { command: { session, action, ...values } });
+      }).catch(fallback);
+      return pending;
+    };
+    const handle: PlayerHandle = {
+      episodeId: ep.id,
+      play: () => { requested = true; waiting(true); void send("play"); },
+      toggle: () => { requested = !requested; waiting(requested); void send("toggle"); },
+      seek: (value) => { requested = true; useStore.setState({ time: value }); waiting(true); void send("seek", { value }); },
+      setRate: (value) => { void send("rate", { value }); },
+      toggleMute: () => { muted = !muted; void send("mute", { value: muted ? 1 : 0 }); return muted; },
+    };
+    const listener = addPluginListener<AudioStatus>("mobile", "podcast", (status) => {
+      const s = useStore.getState();
+      if (!active || status.session !== session || s.current?.id !== ep.id || s.current.videoId) return;
+      if (status.event === "failed") { fallback(); return; }
+      if (s.playing && !status.playing) void api.setProgress(ep.id, status.time);
+      s.set({ playing: status.playing, bufferedUntil: status.buffer });
+      requested = status.playing || status.waiting;
+      waiting(status.waiting);
+      track(ep, status.time, status.duration);
+      if (status.event === "ended") { void api.setProgress(ep.id, status.duration || status.time); void playNext(); }
+    });
+    void listener.then(async () => {
+      if (!active) return;
+      const s = useStore.getState();
+      await send("prepare", { url: src, value: s.time, rate: s.settings.playbackRate });
+      if (active && !failed) useStore.setState({ player: handle });
+    }).catch(fallback);
+    return () => {
+      active = false;
+      if (useStore.getState().player === handle) useStore.setState({ player: null, bufferedUntil: 0, playing: false });
+      void send("dispose");
+      void listener.then((l) => l.unregister()).catch(() => {});
+    };
+  }, [ep.id, src]);
+  return null;
+}
+
+function WebAudio({ audio }: { audio: Episode }) {
   const rate = useStore((s) => s.settings.playbackRate);
   const ref = useRef<HTMLAudioElement>(null);
   const saved = useOffline((s) => s.saved[audio.id]?.path);
@@ -104,15 +195,17 @@ function EpisodeAudio({ audio }: { audio: Episode }) {
     <audio
       ref={ref}
       src={src}
-      preload="metadata"
+      preload="auto"
       onLoadedMetadata={(e) => {
         const el = e.currentTarget;
         el.playbackRate = rate;
         const s = useStore.getState();
         const start = s.current?.id === audio.id ? s.time : audio.progress;
-        if (start > 5 && start < el.duration - 10) el.currentTime = start;
+        if (start > 0 && (!Number.isFinite(el.duration) || start < el.duration)) el.currentTime = start;
         track(audio, el.currentTime, el.duration);
       }}
+      onProgress={(e) => syncBuffer(e.currentTarget, audio.id)}
+      onSeeked={(e) => syncBuffer(e.currentTarget, audio.id)}
       onTimeUpdate={(e) => track(audio, e.currentTarget.currentTime)}
       onPlay={() => { useStore.getState().set({ playing: true }); if (ref.current && ref.current.readyState < 3) waiting(true); }}
       onWaiting={() => waiting(true)}
@@ -147,21 +240,23 @@ export function YouTubePlayer({ ep, overlay, onUnplayable }: { ep: Episode; over
   const route = routes[attempt];
   const theater = useStore((s) => s.theater);
   const pending = useStore((s) => s.playWhenReady === ep.id);
-  const fail = (message: string) => {
+  const fail = (message: string, exhaustedDirect = false) => {
     const s = useStore.getState();
     if (s.current?.id !== ep.id || !s.current.videoId) return;
     if (s.playing || s.loadingSince) s.set({ playWhenReady: ep.id });
     setReason(message);
-    setAttempt((n) => n === attempt ? n + 1 : n);
+    const next = exhaustedDirect && route === "direct" ? attempt + 2 : attempt + 1;
+    setAttempt((n) => n === attempt ? next : n);
   };
   useEffect(() => {
+    useStore.setState({ bufferedUntil: 0 });
     if (!route) { useStore.setState({ playing: false, loadingSince: null, playWhenReady: null }); return; }
     if (route === "embed") return;
     let active = true;
-    const mode = route === "mp4" ? "mp4" : IS_MAC ? "native-hls" : "proxy-hls";
+    const mode = route === "mp4" ? (IS_MAC ? "relay" : "mp4") : IS_MAC ? "native-hls" : "proxy-hls";
     void api.youtubeStream(ep.videoId!, mode, route === "mp4").then((result) => {
       if (active) setMedia({ ...result, attempt });
-    }).catch((err) => { if (active) fail(tr(String(err?.message ?? err))); });
+    }).catch((err) => { if (active) fail(tr(String(err?.message ?? err)), true); });
     return () => { active = false; };
   }, [ep.id, attempt]);
   useEffect(() => () => { if (useStore.getState().theater) toggleTheater(false); }, []);
@@ -228,7 +323,7 @@ function EmbedVideo({ ep, onBlocked, onError }: { ep: Episode; onBlocked: (why: 
               length: player.getDuration?.() || ep.duration || 0,
               player: {
                 episodeId: ep.id,
-                seek: (t: number) => { player.seekTo(t, true); player.playVideo(); },
+                seek: (t: number) => { player.seekTo(t, true); useStore.setState({ time: t }); player.playVideo(); },
                 toggle: () => (player.getPlayerState() === 1 ? player.pauseVideo() : (waiting(true), player.playVideo())),
                 play: () => { waiting(true); player.playVideo(); },
                 setRate: (r: number) => player.setPlaybackRate(r),
@@ -279,10 +374,19 @@ function EmbedVideo({ ep, onBlocked, onError }: { ep: Episode; onBlocked: (why: 
 function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind: "hls" | "mp4"; onFail?: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
   const rate = useStore((s) => s.settings.playbackRate);
+  const [preparing, setPreparing] = useState(false);
+  const priming = useRef(false);
+  const quietPause = useRef(false);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    const mayPrime = IS_MAC && document.visibilityState === "visible"
+      && !(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
+    priming.current = mayPrime;
+    quietPause.current = false;
+    el.muted = mayPrime;
+    setPreparing(mayPrime);
     let hls: any;
     let active = true;
     if (kind === "mp4" || el.canPlayType("application/vnd.apple.mpegurl")) el.src = src;
@@ -294,10 +398,41 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
       hls.loadSource(src);
       hls.attachMedia(el);
     }).catch(() => { if (active) onFail?.(); });
-    const handle = mediaHandle(el, ep.id);
+    const ordinary = mediaHandle(el, ep.id);
+    const takeControl = () => {
+      if (priming.current) {
+        priming.current = false;
+        el.muted = false;
+        setPreparing(false);
+      }
+      quietPause.current = false;
+    };
+    const handle = { ...ordinary,
+      play: () => { takeControl(); ordinary.play(); },
+      toggle: () => { if (priming.current) { takeControl(); ordinary.play(); } else ordinary.toggle(); },
+      seek: (time: number) => { takeControl(); ordinary.seek(time); },
+    };
     useStore.getState().set({ player: handle });
+    // WebKit may ignore preload=auto on iPhone. Decode the first frame silently in the
+    // selected element, then park it. A transport tap always takes over immediately.
+    const park = () => {
+      if (!active || !priming.current) return;
+      priming.current = false;
+      quietPause.current = true;
+      el.pause();
+      el.muted = false;
+      setPreparing(false);
+      syncBuffer(el, ep.id);
+    };
+    const whenPlaying = () => { if (!el.seeking) park(); };
+    el.addEventListener("playing", whenPlaying);
+    const timer = window.setTimeout(park, 8000);
+    if (priming.current) void el.play().catch(park);
     return () => {
       active = false;
+      window.clearTimeout(timer);
+      el.removeEventListener("playing", whenPlaying);
+      el.pause();
       hls?.destroy?.();
       if (el.currentTime > 0) void api.setProgress(ep.id, el.currentTime);
       const s = useStore.getState();
@@ -307,30 +442,37 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
   useEffect(() => { if (ref.current) ref.current.playbackRate = rate; }, [rate]);
   return (
     <>
-      <video ref={ref} className="video-native" playsInline controls poster={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} preload="metadata"
+      <video ref={ref} className="video-native" playsInline controls={!preparing} poster={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} preload="auto"
         onError={onFail}
-        onLoadedMetadata={(e) => { const el = e.currentTarget; el.playbackRate = rate; const start = useStore.getState().time; if (start > 5 && start < el.duration - 10) el.currentTime = start; track(ep, el.currentTime, el.duration); }}
-        onTimeUpdate={(e) => track(ep, e.currentTarget.currentTime)}
-        onPlay={(e) => { useStore.getState().set({ playing: true }); if (e.currentTarget.readyState < 3) waiting(true); }}
-        onWaiting={() => waiting(true)}
-        onPlaying={() => waiting(false)}
-        onPause={(e) => { waiting(false); useStore.getState().set({ playing: false }); void api.setProgress(ep.id, e.currentTarget.currentTime); }}
+        onLoadedMetadata={(e) => { const el = e.currentTarget; el.playbackRate = rate; const start = useStore.getState().time; if (start > 0 && (!Number.isFinite(el.duration) || start < el.duration)) el.currentTime = start; track(ep, el.currentTime, el.duration); }}
+        onProgress={(e) => syncBuffer(e.currentTarget, ep.id)}
+        onSeeked={(e) => { syncBuffer(e.currentTarget, ep.id); if (!priming.current) track(ep, e.currentTarget.currentTime); }}
+        onTimeUpdate={(e) => { if (!priming.current && !quietPause.current) track(ep, e.currentTarget.currentTime); }}
+        onPlay={(e) => { if (priming.current) return; quietPause.current = false; useStore.getState().set({ playing: true }); if (e.currentTarget.readyState < 3) waiting(true); }}
+        onWaiting={() => { if (!priming.current && !ref.current?.paused) waiting(true); }}
+        onPlaying={() => { if (!priming.current && !quietPause.current && !ref.current?.paused) { useStore.setState({ playing: true }); waiting(false); } }}
+        onPause={(e) => { if (priming.current || quietPause.current) return; waiting(false); useStore.getState().set({ playing: false }); void api.setProgress(ep.id, e.currentTarget.currentTime); }}
         onEnded={(e) => { void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }} />
+      {preparing && <button className="video-preroll" aria-label={t("播放")} onClick={() => playSoon(ep.id)}><Play size={28} fill="currentColor" /></button>}
     </>
   );
 }
 
-export function Controls({ compact = false }: { compact?: boolean }) {
+export function Controls({ compact = false, leading }: { compact?: boolean; leading?: React.ReactNode }) {
   const current = useStore((s) => s.current);
-  const { time, length, playing, player, settings, loadingSince } = useStore(useShallow((s) => ({ time: s.time, length: s.length, playing: s.playing, player: s.player, settings: s.settings, loadingSince: s.loadingSince })));
+  const { time, length, bufferedUntil, playing, player, settings, loadingSince } = useStore(useShallow((s) => ({ time: s.time, length: s.length, bufferedUntil: s.bufferedUntil, playing: s.playing, player: s.player, settings: s.settings, loadingSince: s.loadingSince })));
   const [drag, setDrag] = useState<number | null>(null);
 
   const shown = drag ?? time;
-  const nextRate = cycleRate;
+  const commitSeek = (input: HTMLInputElement) => {
+    player?.seek(input.valueAsNumber);
+    setDrag(null);
+  };
   return (
     <div className={`controls ${compact ? "compact" : ""}`}>
+      {leading}
       <button className="icon-btn" title={t("后退 {n} 秒（←）", { n: settings.skipBack ?? 15 })} onClick={() => player?.seek(Math.max(0, time - (settings.skipBack ?? 15)))} disabled={!player}><RotateCcw size={18} /></button>
-      <button className={`play-btn ${loadingSince ? "loading" : ""}`} title={loadingSince ? t("正在加载…") : playing ? t("暂停（空格）") : t("播放（空格）")} aria-label={playing ? t("暂停") : t("播放")} onClick={() => { if (player) player.toggle(); else if (current) playSoon(current.id); }} disabled={!player && !current?.videoId} aria-busy={!!loadingSince}>
+      <button className={`play-btn ${loadingSince ? "loading" : ""}`} title={loadingSince ? t("正在加载…") : playing ? t("暂停（空格）") : t("播放（空格）")} aria-label={playing ? t("暂停") : t("播放")} onClick={() => { if (player) player.toggle(); else if (current) playSoon(current.id); }} disabled={!player && !current} aria-busy={!!loadingSince}>
         {loadingSince ? <Loader2 size={20} className="spin" /> : playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
       </button>
       <button className="icon-btn" title={t("前进 {n} 秒（→）", { n: settings.skipForward ?? 30 })} onClick={() => player?.seek(time + (settings.skipForward ?? 30))} disabled={!player}><RotateCw size={18} /></button>
@@ -343,13 +485,18 @@ export function Controls({ compact = false }: { compact?: boolean }) {
         step={1}
         value={Math.min(shown, length || shown)}
         onChange={(e) => setDrag(Number(e.target.value))}
-        onPointerUp={() => { if (drag != null) { player?.seek(drag); setDrag(null); } }}
-        onKeyUp={() => { if (drag != null) { player?.seek(drag); setDrag(null); } }}
-        style={{ "--fill": `${length ? (shown / length) * 100 : 0}%` } as React.CSSProperties}
+        onPointerUp={(e) => commitSeek(e.currentTarget)}
+        onPointerCancel={() => setDrag(null)}
+        onKeyUp={(e) => { if (drag !== null) commitSeek(e.currentTarget); }}
+        style={{ "--buffer": `${length ? Math.min(100, bufferedUntil / length * 100) : 0}%`, "--fill": `${length ? (shown / length) * 100 : 0}%` } as React.CSSProperties}
         aria-label={t("播放进度")}
       />
       <span className="time">{length ? clock(length) : "--:--"}</span>
-      <button className={`rate-btn${settings.playbackRate >= 2 ? " fast" : ""}`} onClick={nextRate} title={t("播放速度（S）")}>{settings.playbackRate >= 2 && <span className="rate-bars" aria-hidden><i /><i /><i /></span>}{settings.playbackRate}×</button>
+      <select className="rate-btn" value={settings.playbackRate} aria-label={t("播放速度")} onChange={(event) => {
+        const rate = Number(event.currentTarget.value);
+        player?.setRate(rate);
+        void useStore.getState().saveSettings({ playbackRate: rate });
+      }}>{Array.from(new Set([...RATES, settings.playbackRate])).sort((a, b) => a - b).map((r) => <option key={r} value={r}>{r}×</option>)}</select>
     </div>
   );
 }

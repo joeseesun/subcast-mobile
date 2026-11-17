@@ -71,6 +71,15 @@ export function WaveToTextArt({ className }: Art) {
   );
 }
 
+export function BookmarkArt() {
+  return <svg {...frame(96, 64, "ia-bookmark")}>
+    <rect x="22" y="12" width="45" height="45" rx="9" className="s" />
+    <rect x="29" y="7" width="45" height="45" rx="9" fill="var(--panel)" />
+    <path className="s" d="M38 37h17m-17 6h23" />
+    <path className="bookmark-ribbon" d="M51 7h13v22l-6.5-4-6.5 4z" fill="var(--accent-soft)" />
+  </svg>;
+}
+
 /** A tray with sound dropping in; `busy` keeps it falling. */
 export function TrayArt({ busy, className }: Art & { busy?: boolean }) {
   return (

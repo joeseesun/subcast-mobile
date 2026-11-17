@@ -5,7 +5,7 @@ import { setLang, t } from "./lib/i18n";
 
 export type View =
   | { kind: "latest" }
-  | { kind: "recent" }
+  | { kind: "recent"; saved?: boolean }
   | { kind: "stats" }
   | { kind: "discover" }
   | { kind: "downloads" }
@@ -37,6 +37,7 @@ interface State {
   /** The episode loaded in the player (may differ from the one being viewed). */
   current: Episode | null;
   time: number;
+  bufferedUntil: number;
   length: number;
   playing: boolean;
   player: PlayerHandle | null;
@@ -84,6 +85,7 @@ export const useStore = create<State>((set, get) => ({
   history: [],
   current: null,
   time: 0,
+  bufferedUntil: 0,
   length: 0,
   playing: false,
   player: null,
@@ -136,7 +138,7 @@ export const useStore = create<State>((set, get) => ({
     if (s.current?.id === ep.id) return;
     const requested = s.playWhenReady === ep.id;
     set({
-      current: ep, time: ep.progress || 0, length: ep.duration || 0, playing: false,
+      current: ep, bufferedUntil: 0, time: ep.progress || 0, length: ep.duration || 0, playing: false,
       player: s.player?.episodeId === ep.id ? s.player : null,
       playWhenReady: requested ? ep.id : null, loadingSince: requested ? s.loadingSince : null,
     });

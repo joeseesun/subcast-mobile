@@ -1,15 +1,15 @@
 import { useShallow } from "zustand/react/shallow";
 import { SkeletonLines } from "./Skeleton";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { BookA, Check, ChevronDown, Ellipsis, Languages, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { Modal } from "./Chrome";
 import type { EpisodeContext } from "../lib/ai";
-import { CassetteArt, FlatLineArt, NightNote, TrayArt, WaveToTextArt } from "./Illustrations";
+import { CassetteArt, FlatLineArt, TrayArt, WaveToTextArt } from "./Illustrations";
 import { bytes } from "../lib/offline";
 import { api, errorText, rawErrorText, type Episode, type ModelInfo, type Segment } from "../lib/api";
 import { clock } from "../lib/format";
-import { generateTranscript, llmReady, loadTranslation, needsTranslation, stopTranslation, switchYoutubeTrack, translateEpisode, useJobs } from "../lib/jobs";
+import { generateTranscript, loadTranscript, llmReady, loadTranslation, needsTranslation, stopTranslation, switchYoutubeTrack, translateEpisode, useJobs } from "../lib/jobs";
 import { providerFor, useStore } from "../store";
 import { ASR_SERVICES, CLOUD_ASR_MAIN, type Settings } from "../lib/settings";
 import { lang, t, tk, tr, useLang } from "../lib/i18n";
@@ -83,7 +83,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const official = useJobs((s) => s.officialChecked[ep.id]);
   const officialError = useJobs((s) => s.officialError[ep.id]);
   const translation = useJobs((s) => s.translations[ep.id]);
-  const { time, player, settings, saveSettings, current, openSettings } = useStore(useShallow((s) => ({ time: s.time, player: s.player, settings: s.settings, saveSettings: s.saveSettings, current: s.current, openSettings: s.openSettings })));
+  const { player, settings, saveSettings, current, openSettings } = useStore(useShallow((s) => ({ player: s.player, settings: s.settings, saveSettings: s.saveSettings, current: s.current, openSettings: s.openSettings })));
   const isCurrent = current?.id === ep.id;
   const list = useRef<HTMLDivElement>(null);
   const userScrolled = useRef(0);
@@ -94,8 +94,8 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const [startError, setStartError] = useState<string | null>(null);
   const [canUpgrade, setCanUpgrade] = useState(false);
   const segments = transcript?.segments ?? [];
-  const active = isCurrent ? activeIndex(segments, time) : -1;
-  const seek = (t: number) => { if (isCurrent) player?.seek(t); };
+  const active = useStore((s) => isCurrent && transcript ? activeIndex(transcript.segments, s.time) : -1);
+  const seek = useCallback((time: number) => { if (isCurrent) player?.seek(time); }, [isCurrent, player]);
   const wantsZh = transcript ? needsTranslation(transcript) : false;
   const mode = wantsZh ? settings.subtitleMode : "original";
 
@@ -105,7 +105,13 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
 
   useEffect(() => {
     if (active < 0 || Date.now() - userScrolled.current < 5000 || query) return;
-    list.current?.querySelector<HTMLElement>("[data-active]")?.scrollIntoView({ block: "center", behavior: "smooth" });
+    const pane = list.current, row = pane?.querySelector<HTMLElement>("[data-active]");
+    if (!pane || !row) return;
+    const bounds = pane.getBoundingClientRect(), r = row.getBoundingClientRect();
+    if (r.top < bounds.top || r.bottom > bounds.bottom) {
+      pane.scrollBy({ top: r.top - bounds.top - Math.max(0, (bounds.height - r.height) / 2),
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    }
   }, [active, query]);
 
   // ⌘F searches the transcript; Enter / ⇧Enter step through matches.
@@ -174,7 +180,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
           <button className="icon-btn sm" onClick={() => { setQuery(""); setSearching(false); }} aria-label={t("关闭搜索")}><X size={14} /></button>
         </div>
       )}
-      <div className="lines" ref={list} onWheel={() => (userScrolled.current = Date.now())}>
+      <div className="lines" ref={list} onTouchMove={() => { userScrolled.current = Date.now(); }} onWheel={() => (userScrolled.current = Date.now())}>
         {rows.map((i, k) => (
           <Row key={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} mode={mode} pending={pending} onSeek={seek} query={query} current={!!matches && k === hit} />
         ))}
@@ -432,13 +438,13 @@ function NoTranscript({ ep, official, officialError }: { ep: Episode; official?:
     );
   }
   return (
-    <GenCard icon={<WaveToTextArt />} title={t("这集还没有字幕")}
-      note={cloud ? t("用{name}生成，音频会上传到该服务，速度更快。生成后自动翻译成中文。", { name: t(cloud.name) }) : t("用本机模型生成，音频只在这台电脑上处理。生成后自动翻译成中文。")}>
-      {official === "error" && officialError && <p className="gen-warn" title={tr(officialError)}><span>{t("节目自带的字幕没读到：{error}", { error: plainError(tr(officialError)) })}</span></p>}
+    <GenCard icon={<WaveToTextArt />} title={official === "error" ? t("字幕暂未载入") : t("这集还没有字幕")}
+      note={cloud ? t("生成字幕会将音频发送到{name}。", { name: t(cloud.name) }) : undefined}>
+      {official === "error" && <button className="btn" title={officialError ? plainError(tr(officialError)) : undefined} onClick={() => void loadTranscript(ep)}>{t("重新获取字幕")}</button>}
       <button className="btn primary gen-go" onClick={generate} disabled={!model}>{missingKey ? t("先填写 API Key") : t("生成字幕")}</button>
-      {missingKey && <p className="gen-size">{t("用{name}识别需要它的 API Key，填好就能开始", { name: t(cloud!.name) })}</p>}
+
       <button className="link-btn gen-more" aria-expanded={options} onClick={() => setOptions(!options)}>{t("识别设置")}<ChevronDown size={12} className={options ? "flip" : ""} /></button>
-      {!options && <NightNote />}
+
       {options && (
         <div className="gen-options">
           <label><span>{t("识别方式")}</span>
@@ -459,14 +465,14 @@ function NoTranscript({ ep, official, officialError }: { ep: Episode; official?:
 const plainError = (m: string) => m.replace(/[：:]?\s*https?:\/\/\S+/g, "").trim() || m;
 
 /** The centred card shown in the subtitle panel while an episode has no subtitles yet. */
-function GenCard({ icon, title, note, children }: { icon: React.ReactNode; title: string; note: string; children?: React.ReactNode }) {
+function GenCard({ icon, title, note, children }: { icon: React.ReactNode; title: string; note?: string; children?: React.ReactNode }) {
   return (
     <div className="transcript">
       <div className="gen-wrap">
         <div className="gen-card">
           <span className="gen-art" aria-hidden>{icon}</span>
           <h3 className="gen-title">{title}</h3>
-          <p className="gen-note">{note}</p>
+          {note && <p className="gen-note">{note}</p>}
           {children}
         </div>
       </div>
