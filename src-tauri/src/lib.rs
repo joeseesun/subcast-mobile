@@ -15,6 +15,8 @@ mod qiaomu;
 mod shared;
 mod transcript;
 mod translate;
+#[cfg(not(debug_assertions))]
+mod uiserver;
 mod youtube;
 
 use model::*;
@@ -26,11 +28,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
-
-/// The port the bundled app serves its pages from. YouTube's embedded player refuses pages served from the
-/// `tauri://` scheme (no valid origin / referrer), so release builds use http://localhost like a normal website.
-#[cfg(not(debug_assertions))]
-const LOCAL_PORT: u16 = 14327;
 
 pub struct AppState {
     db: Mutex<Connection>,
@@ -248,7 +245,8 @@ struct ShowHit {
 
 /// Searches one show's episodes on this computer: titles (and their Chinese translations), show notes, and the
 /// subtitles of episodes that have them, original and Chinese. Every word must appear in the same field.
-#[tauri::command]
+// Off the main thread: it reads many rows, and the whole interface would freeze meanwhile.
+#[tauri::command(async)]
 fn search_show(state: State<'_, AppState>, show_id: String, query: String) -> Res<Vec<ShowHit>> {
     search_episodes(&state.db.lock().unwrap(), &show_id, &query).map_err(e)
 }
@@ -483,29 +481,6 @@ async fn tts_speak(text: String, voice: String, resource: Option<String>) -> Res
 #[serde(rename_all = "camelCase")]
 struct VideoStream { url: String, /** hls | mp4 */ kind: &'static str }
 
-/// Serves the interface on localhost:LOCAL_PORT (what tauri-plugin-localhost did), from the active hot update when
-/// there is one.
-#[cfg(not(debug_assertions))]
-fn serve_ui(app: &AppHandle, active: ota::Active) {
-    let resolver = app.asset_resolver();
-    std::thread::spawn(move || {
-        let Ok(server) = tiny_http::Server::http(format!("localhost:{LOCAL_PORT}")) else { return };
-        for req in server.incoming_requests() {
-            let path = req.url().split(['?', '#']).next().unwrap_or("/").to_string();
-            let found = match ota::read(&active, &path) {
-                Some(file) => file.map(|(bytes, mime)| (bytes, mime.to_string(), None)),
-                None => resolver.get(path).map(|a| (a.bytes, a.mime_type, a.csp_header)),
-            };
-            let Some((bytes, mime, csp)) = found else { let _ = req.respond(tiny_http::Response::empty(404)); continue };
-            let mut resp = tiny_http::Response::from_data(bytes);
-            for (k, v) in [("Content-Type", Some(mime)), ("Cache-Control", Some("no-cache".to_string())), ("Content-Security-Policy", csp)] {
-                if let Some(h) = v.and_then(|v| tiny_http::Header::from_bytes(k.as_bytes(), v.as_bytes()).ok()) { resp.add_header(h); }
-            }
-            let _ = req.respond(resp);
-        }
-    });
-}
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UiInfo { shell: &'static str, build: Option<u64> }
@@ -513,6 +488,8 @@ struct UiInfo { shell: &'static str, build: Option<u64> }
 /// The page rendered: a hot update being tried becomes the known-good one.
 #[tauri::command]
 fn ui_ready(state: State<'_, AppState>) -> UiInfo {
+    #[cfg(not(debug_assertions))]
+    uiserver::mark_ready();
     UiInfo { shell: ota::SHELL, build: if cfg!(debug_assertions) { None } else { ota::ready(&state.data) } }
 }
 
@@ -909,7 +886,8 @@ fn log_listen(state: State<'_, AppState>, episode_id: String, show_id: String, s
     db::log_listen(&state.db.lock().unwrap(), &episode_id, &show_id, seconds, translated).map_err(e)
 }
 
-#[tauri::command]
+// Off the main thread: it reads many rows, and the whole interface would freeze meanwhile.
+#[tauri::command(async)]
 fn listening_stats(state: State<'_, AppState>, since: String) -> Res<Vec<Value>> {
     db::listens_since(&state.db.lock().unwrap(), &since).map_err(e)
 }
@@ -956,7 +934,8 @@ async fn llm_chat(app: AppHandle, state: State<'_, AppState>, request_id: String
 }
 
 /// Every subscription with a feed as an OPML document (the page shares or copies it).
-#[tauri::command]
+// Off the main thread: it reads many rows, and the whole interface would freeze meanwhile.
+#[tauri::command(async)]
 fn export_opml(state: State<'_, AppState>) -> Res<String> {
     let shows = db::list_shows(&state.db.lock().unwrap()).map_err(e)?;
     let list: Vec<(String, String)> = shows.into_iter().filter(|s| s.feed_url.starts_with("http")).map(|s| (s.title, s.feed_url)).collect();
@@ -990,7 +969,12 @@ async fn translate_texts(state: State<'_, AppState>, texts: Vec<String>, target:
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // iOS may kill the WKWebView content process (memory pressure, long in the background); the view stays
+    // empty until the page loads again.
+    #[cfg(all(target_os = "ios", not(debug_assertions)))]
+    let builder = builder.on_web_content_process_terminate(|_| { std::thread::spawn(uiserver::content_process_died); });
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_mobile::init())
         .setup(|app| {
@@ -1004,16 +988,19 @@ pub fn run() {
             }
             llm::init_store(&data);
             // Release builds serve the interface over http://localhost (YouTube's embedded player refuses pages
-            // from tauri:// or http://tauri.localhost: no valid origin). No hot updates on phones.
+            // from tauri:// or http://tauri.localhost: no valid origin), bound before the window opens and kept
+            // alive across suspension (see uiserver.rs). No hot updates on phones.
             #[cfg(not(debug_assertions))]
-            serve_ui(app.handle(), std::sync::Arc::new(std::sync::RwLock::new(None)));
+            uiserver::start(app.handle(), std::sync::Arc::new(std::sync::RwLock::new(None)));
             if let Some(v) = db::get_setting(&conn, "remote-config")?.and_then(|r| serde_json::from_str::<Value>(&r).ok()) { apply_config(&v); }
             app.manage(AppState { db: Mutex::new(conn), data, jobs: Mutex::new(HashMap::new()) });
             #[cfg(debug_assertions)]
             let url = tauri::WebviewUrl::App("index.html".into());
             #[cfg(not(debug_assertions))]
-            let url = tauri::WebviewUrl::External(format!("http://localhost:{LOCAL_PORT}").parse().unwrap());
+            let url = tauri::WebviewUrl::External(uiserver::url());
             tauri::WebviewWindowBuilder::new(app, "main", url).build()?;
+            #[cfg(not(debug_assertions))]
+            uiserver::watch_launch();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1022,8 +1009,12 @@ pub fn run() {
             get_blob, set_blob, get_settings, set_settings, set_api_key, has_api_key, llm_chat, translate_texts, shared_transcript, shared_exists, shared_guide, share_guide, log_listen, listening_stats, export_opml, share_translation, ui_ready, refresh_config, youtube_stream, prepare_youtube, youtube_tracks, use_youtube_track, qiaomu_detail, preview_show, list_models, tts_speak, cached_show, save_image,
             download_episode, list_downloads, delete_download, clear_downloads, storage_info, clear_temp, full_notes
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            #[cfg(not(debug_assertions))]
+            if let tauri::RunEvent::Resumed = _event { std::thread::spawn(uiserver::resumed); }
+        });
 }
 
 #[cfg(test)]

@@ -67,7 +67,26 @@
   ],
   "remote": {
     "urls": [
-      "http://localhost:14327"
+      "http://localhost:14327",
+      "http://localhost:14328",
+      "http://localhost:14329",
+      "http://localhost:14330",
+      "http://localhost:14331",
+      "http://localhost:14332",
+      "http://localhost:14333",
+      "http://localhost:14334",
+      "http://localhost:14335",
+      "http://localhost:14336",
+      "http://localhost:14337",
+      "http://localhost:14338",
+      "http://localhost:14339",
+      "http://localhost:14340",
+      "http://localhost:14341",
+      "http://localhost:14342",
+      "http://localhost:14343",
+      "http://localhost:14344",
+      "http://localhost:14345",
+      "http://localhost:14346"
     ]
   }
 }

@@ -4,7 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="color-scheme" content="light dark" />
     <title>SubCast</title>
+    <!-- Painted before the styles load, so a launch never flashes a white page in dark mode. -->
+    <style>html,body{background:#faf7f1}@media (prefers-color-scheme:dark){html,body{background:#191411}}</style>
   </head>
   <body>
     <div id="root"></div>

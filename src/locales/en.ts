@@ -1114,6 +1114,8 @@ const dict: Record<string, string> = {
   "共享字幕": "Shared subtitles",
   "{n} 集未听": "{n} unplayed",
   "双语字幕": "Bilingual subtitles",
+  "出了点问题，界面没能显示出来。": "Something went wrong and the screen couldn't be shown.",
+  "重新加载": "Reload",
 };
 
 export default dict;
