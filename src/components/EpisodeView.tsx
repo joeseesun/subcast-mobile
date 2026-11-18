@@ -1,6 +1,8 @@
+import { BrandGlyph } from "./BrandGlyph";
+import { MobileSheet, presentNativeChoices } from "./MobileSheet";
+import { selectionFeedback } from "../lib/feedback";
 import { ask } from "../lib/confirm";
 import { useShallow } from "zustand/react/shallow";
-import { TopBar } from "./Chrome";
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { t, tk } from "../lib/i18n";
 
@@ -14,8 +16,8 @@ class PanelBoundary extends Component<{ children: ReactNode }, { error: string |
     ) : this.props.children;
   }
 }
-import { ArrowDownToLine, BookOpen, Captions, ChevronDown, ScrollText, ExternalLink, MessageCircle, Info, Play, Trash2, Youtube, Bookmark, Pause } from "lucide-react";
-import { BookArt, DoneCheck, EmptyState } from "./Illustrations";
+import { ChevronLeft, ChevronDown, Trash2, Check } from "lucide-react";
+import { BookArt, EmptyState } from "./Illustrations";
 import { DeepRead } from "./DeepRead";
 import { SkeletonEpisode } from "./Skeleton";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -26,12 +28,10 @@ import { isZh, useZh, useZhParagraphs } from "../lib/zh";
 import { autoTranslate, loadTranscript, useJobs } from "../lib/jobs";
 import { useStore } from "../store";
 import { ChatPanel, SummaryPanel } from "./AiPanels";
-import { Controls, playSoon } from "./Players";
+import { Controls, playSoon, toggleTheater } from "./Players";
 import { VideoSlot } from "./VideoDock";
 import { bytes, cancelDownload, downloadEpisode, isSaved, removeDownload, useOffline } from "../lib/offline";
-import { showLinks } from "../lib/showLinks";
 import { toggleFavorite, useLibrary } from "../lib/library";
-import { YtVideoStrip } from "./YtPromo";
 import { activeIndex, TranscriptPanel } from "./TranscriptPanel";
 
 type Tab = "transcript" | "deep" | "chat" | "summary" | "notes";
@@ -72,6 +72,40 @@ function pieceAt(text: string, cjk: boolean, progress: number): string {
   return ps[ps.length - 1];
 }
 
+export type Cue = { s: number; e: number; zh: string | null; o: string | null };
+
+/** The whole subtitle timeline as the on-screen overlay shows it (same pieces, same timing), for players that
+ *  draw captions themselves: the native full-screen player and the system's own video full screen. */
+export function buildCues(segments: { start: number; end: number; text: string }[], items: (string | null | undefined)[] | undefined, mode: string): Cue[] {
+  const out: Cue[] = [];
+  segments.forEach((seg, i) => {
+    const next = segments[i + 1];
+    const start = Math.max(0, seg.start - 0.15);
+    const end = Math.max(start + 0.2, Math.min(seg.end + 1.5, next ? next.start - 0.15 : seg.end + 1.5));
+    const span = Math.max(0.5, seg.end - seg.start);
+    const zh = items?.[i] ?? null;
+    const showOrig = mode !== "translation" || !zh;
+    const showZh = !!zh && mode !== "original";
+    const origPs = showOrig ? pieces(seg.text, /[\u4e00-\u9fff]/.test(seg.text)) : [];
+    const zhPs = showZh && zh ? pieces(zh, true) : [];
+    // Each piece covers its share of characters of the block; the cue changes wherever either line changes.
+    const marks = (ps: string[]) => { const total = ps.reduce((n, p) => n + p.length, 0) || 1; let acc = 0; return ps.map((p) => (acc += p.length) / total); };
+    const om = marks(origPs), zm = marks(zhPs);
+    const cuts = [...new Set([...om, ...zm])].filter((x) => x < 1).sort((a, b) => a - b);
+    let from = 0;
+    for (const to of [...cuts, 1]) {
+      const at = (from + to) / 2;
+      const pick = (ps: string[], m: number[]) => ps.length ? ps[Math.max(0, m.findIndex((x) => x >= at))] ?? ps[ps.length - 1] : null;
+      const s = from === 0 ? start : seg.start + from * span;
+      const e = to === 1 ? end : seg.start + to * span;
+      if (e > s) out.push({ s, e, zh: pick(zhPs, zm), o: pick(origPs, om) });
+      from = to;
+    }
+  });
+  // Overlapping source blocks can step back slightly; players look cues up by start time.
+  return out.sort((a, b) => a.s - b.s);
+}
+
 /** Which piece (sentence-sized) of a block is being spoken, assuming speech is spread evenly over it. */
 function pieceIndex(ps: string[], progress: number): number {
   const total = ps.reduce((n, p) => n + p.length, 0) || 1;
@@ -87,6 +121,7 @@ function AudioSubtitles({ ep }: { ep: Episode }) {
   const items = useJobs((s) => s.translations[ep.id]?.items);
   const time = useStore((s) => s.time);
   const mode = useStore((s) => s.settings.subtitleMode);
+  const showNext = useStore((s) => s.settings.audioNextLine === true);
   if (!transcript) return null;
   const segs = transcript.segments;
   const i = Math.max(0, activeIndex(segs, time));
@@ -112,26 +147,32 @@ function AudioSubtitles({ ep }: { ep: Episode }) {
       {(mode !== "translation" || !l.zh) && <p className="sub-orig">{l.orig}</p>}
     </div>
   );
-  return <div className="asub" aria-live="off">{line(nowLine, "now", `${i}-${k}`)}{nextLine && line(nextLine, "next", `${i}-${k}-n`)}</div>;
+  return <div className="asub" aria-live="off">{line(nowLine, "now", `${i}-${k}`)}{showNext && nextLine && line(nextLine, "next", `${i}-${k}-n`)}</div>;
 }
 
 function SubtitleOverlay({ ep }: { ep: Episode }) {
   const transcript = useJobs((s) => s.transcripts[ep.id]);
   const items = useJobs((s) => s.translations[ep.id]?.items);
-  const time = useStore((s) => s.time);
   const mode = useStore((s) => s.settings.subtitleMode);
-  if (!transcript) return null;
-  const i = activeIndex(transcript.segments, time);
-  const seg = transcript.segments[i];
-  if (!seg || time > seg.end + 1.5) return null;
-  const zh = items?.[i];
-  const progress = Math.min(1, Math.max(0, (time - seg.start) / Math.max(0.5, seg.end - seg.start)));
-  const cjk = /[\u4e00-\u9fff]/.test(seg.text);
+  // Render only when the words change. The video clock also updates while a cue is on screen.
+  const cue = useStore(useShallow(({ time }) => {
+    if (!transcript) return null;
+    const i = activeIndex(transcript.segments, time);
+    const segment = transcript.segments[i];
+    if (!segment || time > segment.end + 1.5) return null;
+    const progress = Math.min(1, Math.max(0, (time - segment.start) / Math.max(0.5, segment.end - segment.start)));
+    const zh = items?.[i];
+    return {
+      original: mode !== "translation" || !zh ? pieceAt(segment.text, /[\u4e00-\u9fff]/.test(segment.text), progress) : null,
+      translated: zh && mode !== "original" ? pieceAt(zh, true, progress) : null,
+    };
+  }));
+  if (!cue) return null;
   return (
     <div className="subtitle-overlay">
       <div className="sub-box">
-        {zh && mode !== "original" && <p className="sub-zh">{pieceAt(zh, true, progress)}</p>}
-        {(mode !== "translation" || !zh) && <p className="sub-orig">{pieceAt(seg.text, cjk, progress)}</p>}
+        {cue.translated && <p className="sub-zh">{cue.translated}</p>}
+        {cue.original && <p className="sub-orig">{cue.original}</p>}
       </div>
     </div>
   );
@@ -144,22 +185,32 @@ export function EpisodeView({ id }: { id: string }) {
   const [startAudio, setStartAudio] = useState(false);
 
   useEffect(() => {
+    let active = true;
     api.getEpisode(id).then(async (e) => {
-      if (!e) return;
-      // 乔木精读 episodes learn their audio address from their page the first time they are opened.
-      if (e.transcriptType === "qiaomu" && !e.audioUrl) {
-        try { await api.qiaomuDetail(e.id); e = (await api.getEpisode(id)) ?? e; } catch { /* plays video, or shows the error later */ }
-      }
-      // Offline with the audio saved: a YouTube episode starts in audio mode instead of a player that cannot load.
+      if (!active || !e) return;
       const offline = !!e.videoId && !navigator.onLine && isSaved(e.id);
       setStartAudio(offline);
       setEp(e);
       if (e.deep) setTab((t) => (t === "transcript" ? "deep" : t));
-      void loadTranscript(e);
-      // Opening an episode loads it into the player, unless something else is playing.
       const s = useStore.getState();
-      if (s.current?.id !== e.id && !s.playing) load(offline ? { ...e, videoId: undefined } : e);
+      if (s.current?.id !== e.id && ((!s.playing && !s.loadingSince) || s.playWhenReady === e.id)) load(offline ? { ...e, videoId: undefined } : e);
+      // A known video can start buffering immediately while the publisher's detail page supplies its audio.
+      if (e.transcriptType === "qiaomu" && !e.audioUrl) {
+        try {
+          await api.qiaomuDetail(e.id);
+          e = (await api.getEpisode(id)) ?? e;
+          if (!active) return;
+          setEp(e);
+        } catch { /* keep the episode supplied by the feed */ }
+      }
+      if (!active) return;
+      const current = useStore.getState().current;
+      if (current?.id === e.id && !current.audioUrl && e.audioUrl) {
+        useStore.setState({ current: { ...current, audioUrl: e.audioUrl } });
+      }
+      void loadTranscript(e);
     });
+    return () => { active = false; };
   }, [id]);
 
   if (!ep) return <SkeletonEpisode />;
@@ -216,41 +267,24 @@ function Notes({ ep, text, defaultOpen = false }: { ep: Episode; text: string; d
   );
 }
 /** Save for offline listening; shows progress while saving and the saved state after. */
-function DownloadButton({ ep }: { ep: Episode }) {
-  const [menu, setMenu] = useState(false);
-  const go = useStore((s) => s.go);
+function EpisodeActions({ ep, close }: { ep: Episode; close: () => void }) {
+  const fav = useLibrary((s) => s.favorites.some((f) => f.id === ep.id));
   const saved = useOffline((s) => s.saved[ep.id]);
   const progress = useOffline((s) => s.active[ep.id]);
-  if (!ep.audioUrl && !ep.videoId) return null;
-  if (progress !== undefined) {
-    const r = 7, c = 2 * Math.PI * r;
-    return (
-      <button className="round-btn dl-busy" title={progress == null ? t("正在下载，点一下取消") : t("已下载 {pct}%，点一下取消", { pct: Math.round(progress * 100) })} onClick={() => cancelDownload(ep.id)}>
-        <svg viewBox="0 0 20 20" width="18" height="18" className={progress == null ? "dl-ring spin" : "dl-ring"} aria-hidden>
-          <circle cx="10" cy="10" r={r} className="dl-track" />
-          <circle cx="10" cy="10" r={r} className="dl-fill" strokeDasharray={c} strokeDashoffset={c * (1 - (progress ?? 0.25))} />
-        </svg>
-      </button>
-    );
-  }
-  if (saved) {
-    // A download that just finished draws its tick once; older saves show it already drawn.
-    const fresh = Date.now() - saved.savedAt < 5000;
-    const close = () => setMenu(false);
-    return (
-      <div className="menu-wrap">
-        <button className="round-btn dl-done" title={t("已下载 · {size}", { size: bytes(saved.bytes) })} aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}><DoneCheck fresh={fresh} /></button>
-        {menu && (
-          <div className="menu right" role="menu" onMouseLeave={close}>
-            <p className="menu-note">{t("已下载 · {size}", { size: bytes(saved.bytes) })}</p>
-            <button role="menuitem" onClick={() => { close(); go({ kind: "downloads" }); }}><ArrowDownToLine size={14} /> {t("管理全部下载")}</button>
-            <button role="menuitem" className="danger" onClick={() => { close(); void ask({ title: t("删除这一集已下载的音频？"), message: t("之后在线播放，字幕和进度都会保留。"), ok: t("删除"), danger: true }).then((yes) => { if (yes) void removeDownload(ep.id); }); }}><Trash2 size={14} /> {t("删除下载")}</button>
-          </div>
-        )}
-      </div>
-    );
-  }
-  return <button className="round-btn" title={ep.audioUrl ? t("下载，离线也能听") : t("下载音频，离线也能听")} onClick={() => void downloadEpisode(ep)}><ArrowDownToLine size={15} /></button>;
+  const [bookmarkMotion, setBookmarkMotion] = useState(0);
+  return <MobileSheet title={t("本集操作")} onClose={close}>
+    <button className="favorite-row" aria-pressed={fav} onClick={() => {
+      toggleFavorite(ep, false);
+      setBookmarkMotion((n) => n + 1);
+      selectionFeedback();
+    }}><span key={bookmarkMotion} className={bookmarkMotion && fav ? "bookmark-placed" : undefined}><BrandGlyph name="saved" /></span>{fav ? t("取消收藏") : t("收藏这一集")}{fav && <Check className="row-check" />}</button>
+    {saved ? <>
+      <button onClick={() => { close(); useStore.getState().go({ kind: "downloads" }); }}><BrandGlyph name="cache" />{t("管理离线音频")}<small>{bytes(saved.bytes)}</small></button>
+      <button className="destructive" onClick={async () => { close(); if (await ask({ title: t("清理这一集的离线音频？"), ok: t("清理"), danger: true })) void removeDownload(ep.id); }}><Trash2 />{saved.cached ? t("清理缓存") : t("删除下载")}</button>
+    </> : (ep.audioUrl || ep.videoId) && <button onClick={() => { if (progress !== undefined) cancelDownload(ep.id); else void downloadEpisode(ep); close(); }}>
+      <BrandGlyph name="cache" />{progress !== undefined ? t("取消缓存") : t("缓存音频")}{typeof progress === "number" && <small>{Math.round(progress * 100)}%</small>}
+    </button>}
+  </MobileSheet>;
 }
 
 function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; setTab: (t: Tab) => void; startAudio: boolean }) {
@@ -259,18 +293,30 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const { current, load } = useStore(useShallow((s) => ({ current: s.current, load: s.load })));
   const titleZh = useZh(ep.title);
   const isCurrent = current?.id === ep.id;
-  const playing = useStore((s) => s.playing);
-  const fav = useLibrary((s) => s.favorites.some((f) => f.id === ep.id));
+  const [draft, setDraft] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const [videoRecovery, setVideoRecovery] = useState(false);
+  const reading = tab === "summary" || tab === "chat";
+  const showingRecovery = isCurrent && !!current.videoId && videoRecovery;
+  // Reading the transcript of an audio episode: once the list scrolls, the player folds into one row.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => { setScrolled(false); }, [ep.id, tab]);
+  const collapsible = reading || (tab === "transcript" && scrolled);
+  const compact = collapsible && !expanded && isCurrent && !showingRecovery;
+  useEffect(() => {
+    const askSelection = (event: Event) => {
+      const quote = (event as CustomEvent<string>).detail;
+      setDraft((previous) => previous ? previous + "\n\n“" + quote + "”" : "“" + quote + "”\n");
+      setExpanded(false); setTab("chat");
+    };
+    window.addEventListener("subcast-ask-selection", askSelection);
+    return () => window.removeEventListener("subcast-ask-selection", askSelection);
+  }, [ep.id, setTab]);
+  const [sheet, setSheet] = useState<"actions" | "media" | null>(null);
   // Translate foreign-language subtitles whichever tab is open: the video's subtitles need the Chinese too.
   const transcript = useJobs((s) => s.transcripts[ep.id]);
   const mode = useStore((s) => s.settings.subtitleMode);
   useEffect(() => { if (transcript) autoTranslate(ep); }, [transcript, mode]);
-  const coverToggle = () => {
-    if (isCurrent) { useStore.getState().player?.toggle(); return; }
-    load(ep); playSoon(ep.id);
-  };
-  const leftRef = useRef<HTMLElement>(null);
-  const controlsRef = useRef<HTMLDivElement>(null);
   // rss.qiaomu.ai channels only carry a ~300-character summary; fetch the full notes once (YouTube or 小宇宙).
   const [fullNotes, setFullNotes] = useState<string | null>(null);
   useEffect(() => {
@@ -280,88 +326,114 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   }, [ep.id]);
   const notes = notesText(fullNotes ?? ep.notes);
   // Video first; the audio file is the fallback (and a choice, for listening without the picture).
-  const [audioMode, setAudioMode] = useState(startAudio);
+  const audioMode = isCurrent ? !current.videoId : startAudio;
   const saved = useOffline((s) => !!s.saved[ep.id]);
   const both = !!ep.videoId && (!!ep.audioUrl || saved);
   const showVideo = !!ep.videoId && !audioMode;
-  const ytPromo = useStore((s) => s.settings.youtubePromo);
-  const epShow = useStore((s) => s.shows.find((x) => x.id === ep.showId));
-  const ytChannel = showLinks(epShow?.feedUrl).youtube;
-  const switchTo = (audio: boolean, why?: string) => {
+  // Only the reader's own drag folds the player; the transcript following playback scrolls by itself and must not.
+  const onListDrag = (e: React.TouchEvent<HTMLElement>) => {
+    if (tab !== "transcript" || showVideo || !isCurrent || scrolled) return;
+    const list = (e.target as HTMLElement).closest(".lines");
+    if (list && list.scrollTop > 80) { setScrolled(true); setExpanded(false); }
+  };
+  const onListScroll = (e: React.UIEvent<HTMLElement>) => {
+    if (scrolled && (e.target as HTMLElement).scrollTop < 8) setScrolled(false);
+  };
+  // Turning the phone sideways while a video plays fills the screen with it (subtitles included); upright restores the page.
+  useEffect(() => {
+    if (!showVideo || !isCurrent) return;
+    const landscape = window.matchMedia("(orientation: landscape) and (max-height: 560px)");
+    const apply = () => { if (landscape.matches !== useStore.getState().theater) toggleTheater(landscape.matches); };
+    apply();
+    landscape.addEventListener("change", apply);
+    return () => { landscape.removeEventListener("change", apply); if (useStore.getState().theater) toggleTheater(false); };
+  }, [showVideo, isCurrent]);
+  const startPlayback = () => {
+    if (!isCurrent) load(audioMode ? { ...ep, videoId: undefined } : ep);
+    playSoon(ep.id);
+  };
+  const switchTo = (audio: boolean) => {
     const s = useStore.getState();
-    const t = s.current?.id === ep.id ? s.time : ep.progress;
-    setAudioMode(audio);
-    s.set({ current: audio ? { ...ep, videoId: undefined, progress: t } : { ...ep, progress: t }, time: t, player: null, playing: false });
-    if (why) s.notify(why);
+    const time = isCurrent ? s.time : ep.progress;
+    const resume = isCurrent && (s.playing || !!s.loadingSince || s.playWhenReady === ep.id);
+    s.set({ current: { ...ep, videoId: audio ? undefined : ep.videoId, progress: time }, time,
+      bufferedUntil: 0, length: isCurrent ? s.length : ep.duration || 0, player: null, playing: false,
+      playWhenReady: resume ? ep.id : null, loadingSince: resume ? Date.now() : null });
   };
 
-  // Stable, so the video (kept at the app's root, see VideoDock) isn't told about a change every render.
   const videoOverlay = useMemo(() => <SubtitleOverlay ep={ep} />, [ep.id]);
   const switchRef = useRef(switchTo);
   switchRef.current = switchTo;
-  const onUnplayable = useMemo(() => () => switchRef.current(true, t("这个视频无法在应用内播放，已切换为音频")), [ep.id]);
+  const onUnplayable = useMemo(() => () => { switchRef.current(true); playSoon(ep.id); }, [ep.id]);
 
-  const tabBtn = (k: Tab, icon: ReactNode, label: string) => (
-    <button role="tab" title={t(TAB_NAMES[k])} aria-label={t(TAB_NAMES[k])} aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{icon}<span className="tab-label">{label}</span></button>
-  );
-
+  const tabs: [Tab, string][] = [["transcript", t("字幕")]];
+  if (ep.deep && noDeep !== ep.id) tabs.push(["deep", t("精读")]);
+  tabs.push(["summary", t("导读")], ["chat", t("问答")]);
+  if (notes) tabs.push(["notes", t("简介")]);
+  const mediaOptions = [
+    { id: "video", title: t("视频"), glyph: "film", symbol: "film", selected: !audioMode },
+    { id: "audio", title: t("仅音频"), glyph: "sound", symbol: "waveform", selected: audioMode },
+  ] as const;
+  const chooseMedia = async (trigger: HTMLButtonElement) => {
+    const choice = await presentNativeChoices(t("播放方式"), [...mediaOptions], trigger);
+    if (choice === null) { setSheet("media"); return; }
+    const mode = mediaOptions.find((option) => option.id === choice);
+    if (mode && !mode.selected) switchTo(mode.id === "audio");
+  };
+  const modeButton = both && <button className="media-mode" aria-label={t("切换播放方式")} aria-haspopup="dialog" onClick={(e) => void chooseMedia(e.currentTarget)}>
+    {audioMode ? <BrandGlyph name="sound" size={21} /> : <BrandGlyph name="film" size={21} />}<span>{audioMode ? t("音频") : t("视频")}</span><ChevronDown size={12} />
+  </button>;
   // Phone layout: the player stays on top (title, picture or cover, controls); the tabs fill the rest.
   return (
     <div className="episode m-episode">
-      <TopBar />
-      <section className="m-ep-top" ref={leftRef}>
-        <div className="ep-title-block">
+      <header className="m-episode-nav">
+        <button className="m-back" onClick={() => useStore.getState().back()} aria-label={t("返回")}><ChevronLeft size={24} /></button>
+        <span className="clamp1">{ep.showTitle && ep.showId !== "single" ? showName(ep.showTitle) : "SubCast"}</span>
+        <button className="m-back" aria-label={t("本集操作")} aria-haspopup="dialog" onClick={() => setSheet("actions")}><BrandGlyph name="more" /></button>
+      </header>
+      {sheet === "actions" && <EpisodeActions ep={ep} close={() => setSheet(null)} />}
+      {sheet === "media" && <MobileSheet title={t("播放方式")} onClose={() => setSheet(null)}>
+        {mediaOptions.map(({ id, title, glyph, selected }) => <button key={id} aria-pressed={selected} onClick={() => {
+          setSheet(null); if (!selected) { selectionFeedback(); switchTo(id === "audio"); }
+        }}><BrandGlyph name={glyph} />{title}{selected && <Check className="row-check" />}</button>)}
+      </MobileSheet>}
+      <section className={`m-ep-top ${compact ? "reader-player" : ""} ${showVideo ? "with-video" : ""}`}>
+        <div className={`ep-title-block ${showVideo ? "" : "audio-heading"}`}>
+          {!showVideo && ep.cover && <img className="episode-artwork" src={ep.cover} alt="" />}
           <div className="ep-title">
-            <p className="meta-line">{[ep.showTitle && ep.showId !== "single" ? <span key="s">{showName(ep.showTitle)}</span> : null, date(ep.published), duration(ep.duration)].filter(Boolean).map((x, i) => <span key={i}>{i > 0 && " · "}{x}</span>)}</p>
+            <p className="meta-line">{[date(ep.published), duration(ep.duration)].filter(Boolean).map((x, i) => <span key={i}>{i > 0 && " · "}{x}</span>)}</p>
             <h1>{titleZh ?? ep.title}</h1>
             {titleZh && titleZh !== ep.title && <p className="orig-line clamp1">{ep.title}</p>}
           </div>
-          <div className="m-ep-actions">
-            <button className={`round-btn fav-btn ${fav ? "on" : ""}`} aria-pressed={fav} aria-label={fav ? t("取消收藏") : t("收藏这一集")} onClick={() => toggleFavorite(ep)}><Bookmark size={16} fill={fav ? "currentColor" : "none"} /></button>
-            <DownloadButton ep={ep} />
-            {ep.videoId
-              ? <button className="round-btn yt-open" aria-label={t("在 YouTube 打开（从当前位置继续）")} onClick={() => { const s = Math.floor(isCurrent ? useStore.getState().time : ep.progress ?? 0); void openUrl(`https://www.youtube.com/watch?v=${ep.videoId}${s > 5 ? `&t=${s}s` : ""}`); }}><Youtube size={17} /></button>
-              : ep.link && <button className="round-btn" aria-label={t("节目网页")} onClick={() => openUrl(ep.link!)}><ExternalLink size={16} /></button>}
-            {both && (
-              <div className="media-switch seg-control" role="radiogroup" aria-label={t("播放方式")}>
-                <button role="radio" aria-checked={!audioMode} className={!audioMode ? "on" : ""} onClick={() => audioMode && switchTo(false)}>{t("视频")}</button>
-                <button role="radio" aria-checked={audioMode} className={audioMode ? "on" : ""} onClick={() => !audioMode && switchTo(true)}>{t("仅音频")}</button>
-              </div>
-            )}
-          </div>
         </div>
         {showVideo ? (
-          <VideoSlot ep={ep} overlay={videoOverlay} onUnplayable={ep.audioUrl || saved ? onUnplayable : undefined} />
-        ) : (
-          <div className="audio-stage m-audio-stage">
-            <button type="button" className="cover-play" onClick={coverToggle} aria-label={isCurrent && playing ? t("暂停") : t("播放")}>
-              {ep.cover ? <img src={ep.cover} alt="" /> : <span className="cover-fallback" />}
-              <span className={`cover-play-btn ${isCurrent && playing ? "playing" : ""}`}>{isCurrent && playing ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" />}</span>
-            </button>
-            <div className="audio-sub"><AudioSubtitles ep={ep} /></div>
-          </div>
+          isCurrent ? <VideoSlot ep={ep} overlay={videoOverlay} onUnplayable={both ? onUnplayable : undefined} onRecoveryChange={setVideoRecovery} /> :
+          <button className="video-slot video-preview" onClick={startPlayback} aria-label={t("播放这一集")}>
+            <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" /><BrandGlyph name="play" size={28} />
+          </button>
+        ) : tab !== "transcript" && (
+          <div className="audio-sub mobile-caption"><AudioSubtitles ep={ep} /></div>
         )}
-        {isCurrent ? <div className="controls-slot" ref={controlsRef}><Controls /></div> : (
-          <button className="btn primary m-play" onClick={() => { load(ep); playSoon(ep.id); }}><Play size={14} /> {t("播放这一集")}</button>
+        {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton} /></div> : (
+          <div className="m-start-row">{modeButton}<button className="btn primary m-play" onClick={startPlayback}><BrandGlyph name="play" size={22} /> {t("播放这一集")}</button></div>
         )}
+        {collapsible && isCurrent && !showingRecovery && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
       </section>
       <section className="ep-right m-ep-tabs">
-        <div className="tabs" role="tablist">
-          {tabBtn("transcript", <Captions size={15} />, t("字幕"))}
-          {ep.deep && noDeep !== ep.id && tabBtn("deep", <BookOpen size={15} />, t("精读"))}
-          {tabBtn("summary", <ScrollText size={15} />, t("导读"))}
-          {tabBtn("chat", <MessageCircle size={15} />, t("问答"))}
-          {notes && tabBtn("notes", <Info size={15} />, t("简介"))}
+        <div className="reading-segments" role="tablist" style={{ "--count": tabs.length, "--index": Math.max(0, tabs.findIndex(([k]) => k === tab)) } as React.CSSProperties}>
+          <i aria-hidden />
+          {tabs.map(([k, label]) => <button key={k} role="tab" aria-label={t(TAB_NAMES[k])} aria-selected={tab === k} onClick={() => {
+            if (tab !== k) { selectionFeedback(); setExpanded(false); setTab(k); }
+          }}>{label}</button>)}
         </div>
-        <div className="tab-body">
+        <div className="tab-body" onScrollCapture={onListScroll} onTouchMoveCapture={onListDrag}>
           <PanelBoundary key={tab}>
             {tab === "transcript" && <TranscriptPanel ep={ep} />}
-            {tab === "chat" && <ChatPanel ep={ep} />}
-            {tab === "summary" && <SummaryPanel ep={ep} />}
-            {tab === "deep" && <DeepRead ep={ep} onMissing={() => { setNoDeep(ep.id); setTab("transcript"); }}><EmptyState art={<BookArt />} title={t("这一集还没有精读")} note={t("这期没有精读长文，字幕和 AI 导读依然可以帮你")} /></DeepRead>}
+            {tab === "chat" && <ChatPanel ep={ep} input={draft} setInput={setDraft} onSubtitles={() => setTab("transcript")} />}
+            {tab === "summary" && <SummaryPanel ep={ep} onSubtitles={() => setTab("transcript")} />}
+            {tab === "deep" && <DeepRead ep={ep} onMissing={() => { setNoDeep(ep.id); setTab("transcript"); }}><EmptyState art={<BookArt />} title={t("这一集还没有精读")} /></DeepRead>}
             {tab === "notes" && notes && (
               <div className="m-notes">
-                {ytPromo && ytChannel && <YtVideoStrip channel={ytChannel} name={showName(epShow?.title ?? "")} cover={epShow?.cover} />}
                 <Notes ep={ep} text={notes} defaultOpen />
               </div>
             )}

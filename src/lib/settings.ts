@@ -51,7 +51,6 @@ export interface Settings {
   /** Interface language; "auto" follows the system. */
   uiLang: LangSetting;
   /** Show the "subscribe on YouTube" links for shows that have an official channel. */
-  youtubePromo: boolean;
   /** Download new versions in the background; they install on the next restart. */
   autoUpdate: boolean;
   /** The Discover banner for our own show was closed by the user. */
@@ -178,7 +177,6 @@ export const DEFAULTS: Settings = {
   chatPromptOn: true,
   quickPrompts: null,
   uiLang: "auto",
-  youtubePromo: true,
   autoUpdate: true,
   homeBannerHidden: false,
   shareTranscripts: true,

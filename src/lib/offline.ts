@@ -39,11 +39,11 @@ export async function downloadEpisode(ep: Episode) {
   try {
     const saved = await api.downloadEpisode(ep.id);
     useOffline.setState((s) => ({ saved: { ...s.saved, [ep.id]: saved }, active: drop(s.active, ep.id) }));
-    useStore.getState().notify(t("已下载，没有网络也能听"));
+    useStore.getState().notify(t("已缓存，可离线收听"), "cache");
   } catch (e) {
     useOffline.setState((s) => ({ active: drop(s.active, ep.id) }));
     const msg = errorText(e);
-    if (!/已取消|Canceled|キャンセル/.test(msg)) useStore.getState().notify(t("下载没有完成：{error}", { error: msg }));
+    if (!/已取消|Canceled|キャンセル/.test(msg)) useStore.getState().notify(t("缓存未完成：{error}", { error: msg }));
   }
 }
 

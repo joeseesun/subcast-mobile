@@ -191,13 +191,32 @@ fn youtube_channel(id: &str) -> Option<&'static str> {
     })
 }
 
+/// Historical cross-listings verified against the publisher's RSS GUIDs and official
+/// YouTube channel. The uploads feed is a rolling window and can be unreachable on a phone.
+pub const NEXT_TOKEN_VIDEOS: &[(&str, &str)] = &[
+    ("cdb92a5c645ca8f331fcc4c2e15346f0", "tBMlXQIrYK4"),
+    ("a8cccb14414742d2324a27da2063d40d", "bDckKDrfa_Q"),
+    ("e33cfd4737411be165853a2dfe5671a0", "wpwWJ9iuS5o"),
+    ("b576daac8bd1662683950372ee1da667", "jbgY_2EiYQc"),
+    ("76c9c03125e3a629c59a9d9340fac4b3", "YLNqlY6Ut38"),
+    ("796412e1668ae756ad05a6786aa9610a", "rvMDDqqkiaM"),
+    ("c5af27a6dbd74833a7fe05ca3e714c6b", "p-OBIBt5OR0"),
+    ("a358286feecaa805a2242a8c5466592c", "sx_bAooPhdU"),
+    ("720972a488ce4f4680cd2ec78fc5a55f", "hsppRLQF3wc"),
+    ("6e3aba89b2168681bbe60c32838a8f4a", "U1QWTPQSSYo"),
+];
+
 struct YtVideo { id: String, num: Option<u32> }
 
 /// The channel's recent videos from its public feed (no API key, no yt-dlp needed).
 async fn youtube_videos(channel_id: &str) -> Vec<YtVideo> {
     let Ok(xml) = net::get_text(&format!("https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}")).await else { return vec![] };
-    Regex::new(r"(?s)<yt:videoId>s*([^<]+?)s*</yt:videoId>.*?<title>([^<]*)</title>").unwrap()
-        .captures_iter(&xml).map(|c| YtVideo { id: c[1].to_string(), num: episode_num(&c[2]) }).collect()
+    let Ok(feed) = roxmltree::Document::parse(&xml) else { return vec![] };
+    feed.descendants().filter(|n| n.has_tag_name("entry")).filter_map(|entry| {
+        let id = entry.children().find(|n| n.has_tag_name(("http://www.youtube.com/xml/schemas/2015", "videoId")))?.text()?.trim();
+        let title = entry.children().find(|n| n.has_tag_name("title"))?.text()?;
+        Some(YtVideo { id: id.to_owned(), num: episode_num(title) })
+    }).collect()
 }
 
 /// The episode number both the audio feed ("#010 …") and the video title ("EP010 …") carry.
@@ -295,7 +314,10 @@ pub async fn rss_channel(id: &str) -> Result<Channel> {
         let (mut audio, mut duration) = (e["audio"]["url"].as_str().map(String::from), None);
         if audio.is_none() { if let Some(b) = find_audio(&borrowed, &title, e["publishedTs"].as_i64()) { audio = Some(b.audio.clone()); duration = b.duration; } }
         let video = link.as_deref().and_then(crate::feeds::youtube_video_id)
-            .or_else(|| episode_num(&title).and_then(|n| yt.iter().find(|v| v.num == Some(n))).map(|v| v.id.clone()));
+            .or_else(|| episode_num(&title).and_then(|n| yt.iter().find(|v| v.num == Some(n))).map(|v| v.id.clone()))
+            .or_else(|| if id == "nexttoken" {
+                NEXT_TOKEN_VIDEOS.iter().find(|(g, _)| *g == guid).map(|(_, video)| (*video).to_owned())
+            } else { None });
         // Some sources mix in written posts (Latent Space's AINews); without a transcript there is nothing to play or follow.
         if audio.is_none() && video.is_none() && !podscribe { return None; }
         let transcript_url = if podscribe { link.as_deref().and_then(|l| l.strip_prefix("https://podcasts.happyscribe.com/")).map(|p| format!("https://api.qiaomu.ai/podscribe/v1/episodes/{p}/transcript")) } else { None };

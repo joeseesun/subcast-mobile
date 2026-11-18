@@ -32,6 +32,9 @@ const CLIENTS: &[(&str, &str, Option<u32>)] = &[
 #[derive(Clone, Debug)]
 pub struct Track {
     pub base_url: String,
+    video_id: String,
+    client_name: String,
+    agent: String,
     pub language: String,
     pub auto: bool,
 }
@@ -61,7 +64,7 @@ fn original_language(player: &Value) -> Option<String> {
 
 fn base(lang: &str) -> String { lang.split(['-', '_']).next().unwrap_or(lang).to_lowercase() }
 
-fn tracks_of(player: &Value) -> Vec<Track> {
+fn tracks_of(player: &Value, video_id: &str, client_name: &str, agent: &str) -> Vec<Track> {
     player["captions"]["playerCaptionsTracklistRenderer"]["captionTracks"]
         .as_array()
         .into_iter()
@@ -70,19 +73,27 @@ fn tracks_of(player: &Value) -> Vec<Track> {
             let url = t["baseUrl"].as_str()?;
             // Token-gated tracks need the web player's proof; skip them.
             if url.contains("exp=xpe") { return None; }
-            Some(Track { base_url: url.to_string(), language: t["languageCode"].as_str().unwrap_or("und").to_string(), auto: t["kind"].as_str() == Some("asr") })
+            Some(Track { video_id: video_id.into(), client_name: client_name.into(), agent: agent.into(), base_url: url.to_string(), language: t["languageCode"].as_str().unwrap_or("und").to_string(), auto: t["kind"].as_str() == Some("asr") })
         })
         .collect()
 }
 
 pub async fn video_info(video_id: &str) -> Result<VideoInfo> {
+    let mut list = clients();
+    list.sort_by_key(|(name, _, _)| name != "IOS");
+    video_info_from(video_id, list).await
+}
+
+async fn video_info_from(video_id: &str, list: Vec<(String, String, Option<u32>)>) -> Result<VideoInfo> {
     let mut last_err = anyhow!("YouTube 没有返回视频信息");
     let mut fallback: Option<VideoInfo> = None;
-    for (name, version, sdk) in clients() {
+    for (name, version, sdk) in list {
         let mut client = json!({ "clientName": name, "clientVersion": version, "hl": "en" });
         if let Some(sdk) = sdk { client["androidSdkVersion"] = json!(sdk); }
+        let agent = ua_for(&name, &version, sdk);
+        if name == "IOS" { client["deviceModel"] = json!("iPhone16,2"); }
         let body = json!({ "context": { "client": client }, "videoId": video_id, "contentCheckOk": true, "racyCheckOk": true });
-        let res = net::client().post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false").json(&body).send().await;
+        let res = net::client().post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false").header("User-Agent", &agent).timeout(std::time::Duration::from_secs(8)).json(&body).send().await;
         let player: Value = match res {
             Ok(r) if r.status().is_success() => match r.json().await { Ok(v) => v, Err(e) => { last_err = e.into(); continue; } },
             Ok(r) => { last_err = anyhow!("YouTube {}", r.status()); continue; }
@@ -94,7 +105,7 @@ pub async fn video_info(video_id: &str) -> Result<VideoInfo> {
             author: d["author"].as_str().unwrap_or("").to_string(),
             duration: d["lengthSeconds"].as_str().and_then(|s| s.parse().ok()),
             description: d["shortDescription"].as_str().unwrap_or("").to_string(),
-            tracks: tracks_of(&player),
+            tracks: tracks_of(&player, video_id, &name, &agent),
             original_language: original_language(&player),
         };
         if !info.tracks.is_empty() { return Ok(info); }
@@ -116,44 +127,67 @@ fn ua_for(name: &str, version: &str, sdk: Option<u32>) -> String {
     }
 }
 
-pub async fn streams(video_id: &str) -> Result<Streams> {
-    let mut last_err = anyhow!("YouTube 没有返回可播放的地址");
-    // The iOS client is the one that hands out HLS; try it first.
-    let mut list = clients();
-    list.sort_by_key(|(n, _, _)| if n == "IOS" { 0 } else { 1 });
-    for (name, version, sdk) in list {
-        let mut client = json!({ "clientName": name, "clientVersion": version, "hl": "en" });
-        if let Some(sdk) = sdk { client["androidSdkVersion"] = json!(sdk); }
-        if name == "IOS" { client["deviceModel"] = json!("iPhone16,2"); }
-        let ua = ua_for(&name, &version, sdk);
-        let body = json!({ "context": { "client": client }, "videoId": video_id, "contentCheckOk": true, "racyCheckOk": true });
-        let res = net::client().post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false").header("User-Agent", &ua).json(&body).send().await;
-        let player: Value = match res {
-            Ok(r) if r.status().is_success() => match r.json().await { Ok(v) => v, Err(e) => { last_err = e.into(); continue; } },
-            Ok(r) => { last_err = anyhow!("YouTube {}", r.status()); continue; }
-            Err(e) => { last_err = anyhow!("连不上 YouTube（国内需要设置代理）：{e}"); continue; }
-        };
-        let status = player["playabilityStatus"]["status"].as_str().unwrap_or("");
-        if status != "OK" {
-            last_err = anyhow!("YouTube 不让播放这个视频（{}）", player["playabilityStatus"]["reason"].as_str().unwrap_or(status));
-            continue;
+#[derive(Clone, Copy)]
+pub enum StreamUse { Audio, Video, Hls, Mp4 }
+
+impl StreamUse {
+    fn accepts(self, streams: &Streams) -> bool {
+        match self {
+            Self::Audio => streams.audio.is_some(),
+            Self::Video => streams.hls.is_some() || streams.mp4.is_some(),
+            Self::Hls => streams.hls.is_some(),
+            Self::Mp4 => streams.mp4.is_some(),
         }
-        let sd = &player["streamingData"];
-        let url_of = |f: &Value| f["url"].as_str().map(str::to_string);
-        let mp4 = sd["formats"].as_array().into_iter().flatten()
-            .filter(|f| f["mimeType"].as_str().is_some_and(|m| m.starts_with("video/mp4")))
-            .max_by_key(|f| f["height"].as_u64().unwrap_or(0)).and_then(url_of);
-        let audios: Vec<&Value> = sd["adaptiveFormats"].as_array().into_iter().flatten()
-            .filter(|f| f["mimeType"].as_str().is_some_and(|m| m.starts_with("audio/mp4")) && f["url"].is_string()).collect();
-        // The original-language track when the video has dubs; the highest bitrate otherwise.
-        let original = audios.iter().filter(|f| f["audioTrack"]["displayName"].as_str().is_some_and(|n| n.to_lowercase().contains("original"))).max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0));
-        let audio = original.or_else(|| audios.iter().filter(|f| f["audioTrack"].is_null() || f["audioTrack"]["audioIsDefault"].as_bool() == Some(true)).max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)))
-            .or_else(|| audios.iter().max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0))).and_then(|f| url_of(f));
-        let out = Streams { hls: sd["hlsManifestUrl"].as_str().map(str::to_string), mp4, audio, ua };
-        if out.hls.is_some() || out.mp4.is_some() || out.audio.is_some() { return Ok(out); }
-        last_err = anyhow!("YouTube 没有给出可直接播放的地址");
+    }
+}
+
+pub async fn streams(video_id: &str, purpose: StreamUse) -> Result<Streams> {
+    use futures_util::{stream, StreamExt};
+    let mut list = clients();
+    list.sort_by_key(|(name, _, _)| name != "IOS");
+    // Give the HLS client a head start. A slow or audio-only response must not block the muxed client.
+    let requests = stream::iter(list.into_iter().enumerate()).map(|(index, (name, version, sdk))| async move {
+        if index == 1 && !matches!(purpose, StreamUse::Audio) {
+            tokio::time::sleep(std::time::Duration::from_millis(180)).await;
+        }
+        resolve_stream(video_id, purpose, name, version, sdk).await
+    });
+    let mut results = requests.buffer_unordered(if matches!(purpose, StreamUse::Audio) { 1 } else { 2 });
+    let mut last_err = anyhow!("YouTube 没有返回可播放的地址");
+    while let Some(result) = results.next().await {
+        match result { Ok(streams) => return Ok(streams), Err(err) => last_err = err }
     }
     Err(last_err)
+}
+
+async fn resolve_stream(video_id: &str, purpose: StreamUse, name: String, version: String, sdk: Option<u32>) -> Result<Streams> {
+    let mut client = json!({ "clientName": name, "clientVersion": version, "hl": "en" });
+    if let Some(sdk) = sdk { client["androidSdkVersion"] = json!(sdk); }
+    if name == "IOS" { client["deviceModel"] = json!("iPhone16,2"); }
+    let ua = ua_for(&name, &version, sdk);
+    let body = json!({ "context": { "client": client }, "videoId": video_id, "contentCheckOk": true, "racyCheckOk": true });
+    let response = net::client().post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+        .header("User-Agent", &ua).json(&body).send().await
+        .map_err(net::describe)?.error_for_status()?;
+    let player: Value = response.json().await?;
+    let status = player["playabilityStatus"]["status"].as_str().unwrap_or("");
+    if status != "OK" {
+        return Err(anyhow!("YouTube 不让播放这个视频（{}）", player["playabilityStatus"]["reason"].as_str().unwrap_or(status)));
+    }
+    let sd = &player["streamingData"];
+    let url_of = |f: &Value| f["url"].as_str().map(str::to_string);
+    let mp4 = sd["formats"].as_array().into_iter().flatten()
+        .filter(|f| f["mimeType"].as_str().is_some_and(|m| m.starts_with("video/mp4")) && f["url"].is_string())
+        .max_by_key(|f| f["height"].as_u64().unwrap_or(0)).and_then(url_of);
+    let audios: Vec<&Value> = sd["adaptiveFormats"].as_array().into_iter().flatten()
+        .filter(|f| f["mimeType"].as_str().is_some_and(|m| m.starts_with("audio/mp4")) && f["url"].is_string()).collect();
+    // The original-language track when the video has dubs; the highest bitrate otherwise.
+    let original = audios.iter().filter(|f| f["audioTrack"]["displayName"].as_str().is_some_and(|n| n.to_lowercase().contains("original"))).max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0));
+    let audio = original.or_else(|| audios.iter().filter(|f| f["audioTrack"].is_null() || f["audioTrack"]["audioIsDefault"].as_bool() == Some(true)).max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0)))
+        .or_else(|| audios.iter().max_by_key(|f| f["bitrate"].as_u64().unwrap_or(0))).and_then(|f| url_of(f));
+    let out = Streams { hls: sd["hlsManifestUrl"].as_str().map(str::to_string), mp4, audio, ua };
+    if purpose.accepts(&out) { return Ok(out); }
+    Err(anyhow!("YouTube 没有给出可直接播放的地址"))
 }
 
 /// Downloads a googlevideo stream in 8 MB ranges (a single request is throttled to real-time speed).
@@ -232,14 +266,29 @@ pub fn align(orig: &[Segment], other: &[Segment]) -> Vec<Option<String>> {
 }
 
 pub async fn fetch_track(track: &Track) -> Result<Vec<Segment>> {
-    let base = regex::Regex::new(r"&fmt=[^&]*").unwrap().replace_all(&track.base_url, "").to_string();
-    for url in [format!("{base}&fmt=json3"), base.clone()] {
-        if let Ok(r) = net::client().get(&url).send().await {
-            if let Ok(body) = r.text().await {
-                let segs = transcript::parse_youtube(&body);
-                if !segs.is_empty() { return Ok(segs); }
+    if let Ok(lines) = read_track(track).await { return Ok(lines); }
+    // Listing a language does not guarantee its body is available from that client.
+    // Ask for a fresh published track, retaining the language and manual/automatic choice.
+    for client in clients().into_iter().filter(|(name, _, _)| name != &track.client_name) {
+        if let Ok(info) = video_info_from(&track.video_id, vec![client]).await {
+            if let Some(other) = info.tracks.iter().find(|t| t.language == track.language && t.auto == track.auto) {
+                if let Ok(lines) = read_track(other).await { return Ok(lines); }
             }
         }
+    }
+    Err(anyhow!("字幕下载失败"))
+}
+
+async fn read_track(track: &Track) -> Result<Vec<Segment>> {
+    let base = &track.base_url;
+    let without_format = regex::Regex::new(r"&fmt=[^&]*").unwrap().replace_all(base, "");
+    for url in [format!("{without_format}&fmt=json3"), base.clone()] {
+        let response = net::client().get(url).header("User-Agent", &track.agent)
+            .timeout(std::time::Duration::from_secs(8)).send().await?;
+        if !response.status().is_success() { break; }
+        let body = response.text().await?;
+        let rows = transcript::parse_youtube(&body);
+        if !rows.is_empty() { return Ok(rows); }
     }
     Err(anyhow!("字幕下载失败"))
 }
@@ -247,7 +296,7 @@ pub async fn fetch_track(track: &Track) -> Result<Vec<Segment>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn t(l: &str, auto: bool) -> Track { Track { base_url: String::new(), language: l.into(), auto } }
+    fn t(l: &str, auto: bool) -> Track { Track { video_id: String::new(), client_name: String::new(), agent: String::new(), base_url: String::new(), language: l.into(), auto } }
     #[test]
     fn dubbed_video_picks_original() {
         let tracks = vec![t("ar", true), t("en", true), t("en-US", false), t("de", true)];
@@ -276,5 +325,23 @@ mod tests {
         let orig = vec![seg(0.0, 4.0, "Hello there."), seg(4.0, 9.0, "How are you?"), seg(9.0, 12.0, "Fine.")];
         let zh = vec![seg(0.2, 2.0, "你好"), seg(2.0, 3.8, "呀。"), seg(4.5, 8.0, "你好吗？")];
         assert_eq!(align(&orig, &zh), vec![Some("你好呀。".into()), Some("你好吗？".into()), None]);
+    }
+}
+
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+
+    #[test]
+    fn audio_only_response_does_not_end_video_lookup() {
+        let audio = Streams { audio: Some("audio".into()), ..Default::default() };
+        assert!(StreamUse::Audio.accepts(&audio));
+        assert!(!StreamUse::Video.accepts(&audio));
+        let hls = Streams { hls: Some("hls".into()), ..Default::default() };
+        assert!(StreamUse::Video.accepts(&hls));
+        assert!(StreamUse::Hls.accepts(&hls));
+        assert!(!StreamUse::Hls.accepts(&audio));
+        assert!(!StreamUse::Mp4.accepts(&hls));
     }
 }

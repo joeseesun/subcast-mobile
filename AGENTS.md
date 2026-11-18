@@ -16,6 +16,9 @@ The iOS / Android build of SubCast (desktop: `../subcast`). Read README.md first
 - **Driving the simulator** (agent device access off): during `npm run ios`, write `public/__nav.json`
   (see `src/lib/devnav.ts`); WebView console lines land in `/tmp/subcast-webview.log`. Android: `adb shell input tap`
   uses the screen's real pixels, not the downscaled screenshot.
+- **Full screen on iOS**: a full-screen AVPlayerViewController takes the WebView out of the window, so
+  `requestAnimationFrame` stops and anything the page measures or pushes freezes. Native full screen gets its
+  subtitles as a cue timeline (`video-cues`, `buildCues`); the web `<video>` fallback gets a WebVTT track.
 - **WebView traps**: no `window.confirm/alert/prompt` (use `ask()` from `src/lib/confirm.ts`); select store slices with
   `useShallow`; never define components inside components.
 - **Secrets**: never in the repo, logs or prompts (API keys, signing keys, Apple credentials).

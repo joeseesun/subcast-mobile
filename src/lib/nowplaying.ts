@@ -34,21 +34,26 @@ export function startNowPlaying() {
       playing: s.playing,
     });
   };
-  useStore.subscribe((s, prev) => {
+  const unsubscribe = useStore.subscribe((s, prev) => {
     if (s.current?.id !== prev.current?.id || s.playing !== prev.playing || s.length !== prev.length) push(true);
     else if (Math.abs(s.time - prev.time) > 3) push(true); // a seek
     else push();
   });
 
-  void addPluginListener<{ action: string; position?: number }>("mobile", "remote", ({ action, position }) => {
+  const listener = addPluginListener<{ action: string; position?: number }>("mobile", "remote", ({ action, position }) => {
     const s = useStore.getState();
     const p = s.player;
     if (!p) return;
-    if (action === "play") { if (!s.playing) p.toggle(); }
-    else if (action === "pause") { if (s.playing) p.toggle(); }
+    if (action === "play") p.play();
+    else if (action === "pause") { if (p.pause) p.pause(); else if (s.playing) p.toggle(); }
+    else if (action === "interruption") p.pause?.();
     else if (action === "toggle") p.toggle();
     else if (action === "forward") p.seek(s.time + (s.settings.skipForward ?? 30));
     else if (action === "back") p.seek(Math.max(0, s.time - (s.settings.skipBack ?? 15)));
     else if (action === "seek" && position != null) p.seek(position);
-  }).catch(() => {});
+  }).catch(() => null);
+  return () => {
+    unsubscribe();
+    void listener.then((handle) => handle?.unregister()).catch(() => {});
+  };
 }

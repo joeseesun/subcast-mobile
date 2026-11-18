@@ -331,6 +331,30 @@
           "markdownDescription": "Denies the now_playing command without any pre-configured scope."
         },
         {
+          "description": "Enables the podcast_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-podcast-audio",
+          "markdownDescription": "Enables the podcast_audio command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the podcast_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-podcast-audio",
+          "markdownDescription": "Denies the podcast_audio command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the present_settings_index command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-present-settings-index",
+          "markdownDescription": "Enables the present_settings_index command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the present_settings_index command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-present-settings-index",
+          "markdownDescription": "Denies the present_settings_index command without any pre-configured scope."
+        },
+        {
           "description": "Enables the register_listener command without any pre-configured scope.",
           "type": "string",
           "const": "allow-register-listener",
@@ -355,6 +379,18 @@
           "markdownDescription": "Denies the remove_listener command without any pre-configured scope."
         },
         {
+          "description": "Enables the selection_feedback command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-selection-feedback",
+          "markdownDescription": "Enables the selection_feedback command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the selection_feedback command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-selection-feedback",
+          "markdownDescription": "Denies the selection_feedback command without any pre-configured scope."
+        },
+        {
           "description": "Enables the share command without any pre-configured scope.",
           "type": "string",
           "const": "allow-share",
@@ -367,10 +403,22 @@
           "markdownDescription": "Denies the share command without any pre-configured scope."
         },
         {
-          "description": "Share sheet and now-playing controls\n#### This default permission set includes:\n\n- `allow-share`\n- `allow-now-playing`\n- `allow-clear-now-playing`\n- `allow-insets`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Enables the update_glass_dock command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-glass-dock",
+          "markdownDescription": "Enables the update_glass_dock command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_glass_dock command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-glass-dock",
+          "markdownDescription": "Denies the update_glass_dock command without any pre-configured scope."
+        },
+        {
+          "description": "Share sheet and now-playing controls\n#### This default permission set includes:\n\n- `allow-share`\n- `allow-now-playing`\n- `allow-clear-now-playing`\n- `allow-insets`\n- `allow-selection-feedback`\n- `allow-podcast-audio`\n- `allow-update-glass-dock`\n- `allow-present-settings-index`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Share sheet and now-playing controls\n#### This default permission set includes:\n\n- `allow-share`\n- `allow-now-playing`\n- `allow-clear-now-playing`\n- `allow-insets`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Share sheet and now-playing controls\n#### This default permission set includes:\n\n- `allow-share`\n- `allow-now-playing`\n- `allow-clear-now-playing`\n- `allow-insets`\n- `allow-selection-feedback`\n- `allow-podcast-audio`\n- `allow-update-glass-dock`\n- `allow-present-settings-index`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

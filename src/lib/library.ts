@@ -22,13 +22,13 @@ export async function loadFavorites() {
 
 export const isFavorite = (id: string) => useLibrary.getState().favorites.some((f) => f.id === id);
 
-export function toggleFavorite(ep: Episode) {
+export function toggleFavorite(ep: Episode, announce = true) {
   const { favorites } = useLibrary.getState();
   const on = favorites.some((f) => f.id === ep.id);
   const next = on ? favorites.filter((f) => f.id !== ep.id) : [{ id: ep.id, at: Date.now() }, ...favorites];
   useLibrary.setState({ favorites: next });
   void api.setBlob(...KEY, JSON.stringify(next));
-  useStore.getState().notify(on ? t("已取消收藏") : t("已收藏，在首页「接下来听」里能找到"));
+  if (announce) useStore.getState().notify(on ? t("已取消收藏") : t("已加入收藏"));
 }
 
 /** Opens an episode and starts it (video episodes need their page open to play). */

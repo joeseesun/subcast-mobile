@@ -1,9 +1,10 @@
 import { ask } from "../lib/confirm";
 import { useShallow } from "zustand/react/shallow";
-import { useEffect, useState } from "react";
-import { BookOpen, Check, ChevronDown, ExternalLink, Github, Loader2, MessageCircle, RefreshCw, Trash2, Captions, HardDrive, Info, SlidersHorizontal, Sparkles, type LucideIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { BookOpen, Check, ChevronLeft, ChevronRight, ChevronDown, ExternalLink, Github, Loader2, MessageCircle, RefreshCw, Trash2, Captions, HardDrive, Info, PlayCircle, Mic, Volume2, SlidersHorizontal, Sparkles, Share } from "lucide-react";
 import { getVersion } from "@tauri-apps/api/app";
-import { ASR_SERVICES, CLOUD_ASR_MAIN } from "../lib/settings";
+import { ASR_SERVICES } from "../lib/settings";
 import { stopSpeaking } from "../lib/tts";
 import logoUrl from "../assets/logo.png";
 import wechatQr from "../assets/about-wechat-qr.jpg";
@@ -14,15 +15,18 @@ import { api, errorText, llmChat, type CloudAsr, type Provider } from "../lib/ap
 import { useStore } from "../store";
 import { Modal } from "./Chrome";
 import { bytes, clearDownloads, useOffline } from "../lib/offline";
-import { HomeShowCard } from "./YtPromo";
-import { LANGS, systemLang, t, tk, type LangSetting } from "../lib/i18n";
+
+import { IS_MAC, LANGS, systemLang, t, tk, tr, useLang, type LangSetting } from "../lib/i18n";
 import { ModelSettings } from "./ModelSettings";
 import { ReadingSettings } from "./ReadingSettings";
+import { RATES } from "./Players";
+import { SettingGroup, SettingSelect, SettingsSwitch, SettingText, NO_AUTO, KeyField, KeyRow } from "./SettingRows";
+import type { Settings } from "../lib/settings";
 
-export const NO_AUTO = { autoCapitalize: "off", autoCorrect: "off", spellCheck: false } as const;
+import { ReadAloudSettings } from "./ReadAloud";
 
 /** One default model for translation and the guide; Q&A starts with it and can switch in the chat box. */
-export function DefaultButton({ id, isDefault }: { id: string; isDefault: boolean }) {
+function DefaultButton({ id, isDefault }: { id: string; isDefault: boolean }) {
   const saveSettings = useStore((s) => s.saveSettings);
   const mode = useStore((s) => s.settings.translateMode);
   return isDefault
@@ -39,7 +43,7 @@ function ProviderEditor({ p, onChange }: { p: Provider; onChange: (p: Provider) 
   const [live, setLive] = useState<string[] | null>(null);
   const [fetching, setFetching] = useState(false);
   const [advanced, setAdvanced] = useState(false);
-  useEffect(() => { setKey(""); setLive(null); setAdvanced(!p.needsKey); api.hasApiKey(p.id).then(setHasKey); }, [p.id]);
+  useEffect(() => { setKey(""); setLive(null); setAdvanced(!p.needsKey); api.hasApiKey(p.id).then(setHasKey).catch(() => setHasKey(false)); }, [p.id]);
   const fetchModels = async () => {
     setFetching(true); setTesting(null); setTestOk(false);
     try { if (key.trim()) await saveKey(); const ids = await api.listModels(p); setLive(ids); if (!ids.length) setTesting(t("这个服务没有返回模型列表，请手动填写")); }
@@ -55,6 +59,7 @@ function ProviderEditor({ p, onChange }: { p: Provider; onChange: (p: Provider) 
     } catch (e) { setTesting(errorText(e)); }
   };
   const forTranslate = settings.translateProvider === p.id && settings.translateMode !== "google";
+  const models = [...new Set([p.model, ...(p.models ?? []), ...(live ?? [])])].filter(Boolean);
   return (
     <div className="provider-form">
       {p.needsKey && (
@@ -76,171 +81,197 @@ function ProviderEditor({ p, onChange }: { p: Provider; onChange: (p: Provider) 
         <button className="adv-toggle" onClick={() => setAdvanced(!advanced)}><ChevronDown size={12} className={advanced ? "flip" : ""} /> {t("高级设置")}</button>
       </div>
       {advanced && (
-        <div className="adv-body">
-          <label><span>{t("接口类型")}</span>
-            <select value={p.protocol} onChange={(e) => onChange({ ...p, protocol: e.target.value as Provider["protocol"] })}>
-              <option value="openai">{t("OpenAI 兼容")}</option><option value="anthropic">Anthropic</option>
-            </select>
-          </label>
-          <label><span>{t("接口地址")}</span><input {...NO_AUTO} value={p.baseUrl} onChange={(e) => onChange({ ...p, baseUrl: e.target.value })} placeholder="https://…/v1" /></label>
-          <label><span>{t("模型")}</span>
-            <input {...NO_AUTO} value={p.model} list={`models-${p.id}`} onChange={(e) => onChange({ ...p, model: e.target.value })} placeholder={t("模型名")} />
-            <datalist id={`models-${p.id}`}>{[...new Set([...(live ?? []), ...(p.models ?? [])])].map((m) => <option key={m} value={m} />)}</datalist>
-          </label>
-          {(p.models?.length || live?.length) ? (
-            <div className="model-chips">
-              {[...new Set([...(p.models ?? []), ...(live ?? []).slice(0, 40)])].map((m) => <button key={m} className={`chip sm ${p.model === m ? "on" : ""}`} onClick={() => onChange({ ...p, model: m })}>{m}</button>)}
-            </div>
-          ) : null}
-          <div className="row-actions">
-            <button className="btn ghost sm" onClick={fetchModels} disabled={fetching}>{fetching ? <Loader2 size={13} className="spin" /> : <RefreshCw size={13} />} {t("获取模型列表")}</button>
-          </div>
-        </div>
+        <SettingGroup>
+          <SettingSelect label={t("接口类型")} value={p.protocol} options={[["openai", t("OpenAI 兼容")], ["anthropic", "Anthropic"]]}
+            onChange={(protocol) => onChange({ ...p, protocol })} />
+          <SettingText label={t("接口地址")} type="url" value={p.baseUrl} onCommit={(baseUrl) => onChange({ ...p, baseUrl })} placeholder="https://…/v1" />
+          <SettingText label={t("模型")} value={p.model} placeholder={t("模型名")} onCommit={(model) => onChange({ ...p, model })} />
+          {models.length > 1 && <SettingSelect label={t("可选模型")} value={p.model} options={models.map((model) => [model, model] as const)} onChange={(model) => onChange({ ...p, model })} />}
+          <button className="ios-setting-action" onClick={fetchModels} disabled={fetching}>{fetching ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />} {t("获取模型列表")}</button>
+        </SettingGroup>
       )}
     </div>
   );
 }
 
+const SETTING_GROUPS = [
+  [
+    { id: "playback", label: tk("播放"), Icon: PlayCircle, symbol: "play.circle" },
+    { id: "reading", label: tk("阅读与字幕"), Icon: Captions, symbol: "captions.bubble" },
+    { id: "asr", label: tk("语音识别"), Icon: Mic, symbol: "waveform" },
+    { id: "model", label: tk("AI 模型"), Icon: Sparkles, symbol: "sparkles" },
+    { id: "tts", label: tk("朗读"), Icon: Volume2, symbol: "speaker.wave.2" },
+  ],
+  [
+    { id: "general", label: tk("通用"), Icon: SlidersHorizontal, symbol: "slider.horizontal.3" },
+    { id: "storage", label: tk("存储"), Icon: HardDrive, symbol: "internaldrive" },
+  ],
+  [
+    { id: "about", label: tk("关于"), Icon: Info, symbol: "info.circle" },
+  ],
+] as const;
+const SETTING_PAGES = SETTING_GROUPS.flat();
+type Section = typeof SETTING_PAGES[number]["id"];
+const LEGACY: Record<string, Section> = { overview: "reading", subtitles: "reading", ai: "model", shortcuts: "playback" };
+function settingPage(id: string | undefined) {
+  return id ? SETTING_PAGES.find((row) => row.id === (LEGACY[id] ?? id)) : undefined;
+}
+
 export function SettingsDialog() {
-  const { settings, saveSettings, set, notify, settingsSection } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings, set: s.set, notify: s.notify, settingsSection: s.settingsSection })));
-  type Section = "subtitles" | "ai" | "general" | "about";
-  // Old section names (links from elsewhere in the app) land in their new home.
-  const LEGACY: Record<string, Section> = { overview: "subtitles", reading: "subtitles", asr: "subtitles", model: "ai", tts: "general", shortcuts: "general", storage: "general", general: "general", about: "about", subtitles: "subtitles", ai: "ai" };
-  const [section, setSection] = useState<Section>(LEGACY[settingsSection ?? "subtitles"] ?? "subtitles");
-  const [proxy, setProxy] = useState(settings.proxy);
-  const [moreCloud, setMoreCloud] = useState(false);
-  const [showStorage, setShowStorage] = useState(false);
-  const NAV: [Section, string, LucideIcon][] = [["subtitles", tk("字幕"), Captions], ["ai", tk("AI"), Sparkles], ["general", tk("通用"), SlidersHorizontal], ["about", tk("关于"), Info]];
+  const initial = useStore((s) => s.settingsSection);
+  const [section, setSection] = useState<Section | null>(() => settingPage(initial)?.id ?? null);
+  const [nativeIndex, setNativeIndex] = useState(IS_MAC);
+  const presentation = useRef<Promise<string | null> | null>(null);
+  const [provider, setProvider] = useState<string | null>(null);
+  const providerName = useStore((state) => provider ? state.settings.providers[provider]?.name : undefined);
+  const lang = useLang((s) => s.lang);
+  const close = () => { stopSpeaking(); useStore.setState({ settingsOpen: false }); };
 
-  return (
-    <Modal title={t("设置")} onClose={() => { stopSpeaking(); set({ settingsOpen: false }); }} wide>
-      <div className="settings">
-        <nav className="settings-nav">
-          {NAV.map(([k, label, Icon]) => <button key={k} className={section === k ? "on" : ""} onClick={() => setSection(k)}><Icon size={15} aria-hidden />{t(label)}</button>)}
-        </nav>
-        <div className="settings-body">
-          {section === "subtitles" && (
-            <>
-              <ReadingSettings />
-              <section className="setup-block">
-                <p className="setup-title">{t("如果没有字幕时")}</p>
-                <p className="muted small">{t("先查节目自带的和别人分享的字幕，都没有时才听写。")}</p>
-                <p className="muted small">{t("手机上用云端服务听写：更快，需要 Key，按量付费。DeepSeek 和问答共用一个 Key。")}</p>
-                    <div className="provider-tabs">
-                      {ASR_SERVICES.filter((a) => moreCloud || CLOUD_ASR_MAIN.includes(a.id) || settings.asrEngine === a.id).map((a) => <button key={a.id} className={`chip ${settings.asrEngine === a.id ? "on" : ""}`} onClick={() => saveSettings({ asrEngine: a.id })}>{t(a.name)}</button>)}
-                      {!moreCloud && <button className="chip" onClick={() => setMoreCloud(true)}>{t("更多")}</button>}
-                    </div>
-                    {settings.cloudAsr[settings.asrEngine] && <CloudAsrEditor key={settings.asrEngine} a={settings.cloudAsr[settings.asrEngine]} onChange={(na) => saveSettings({ cloudAsr: { ...settings.cloudAsr, [na.id]: na } })} />}
-              </section>
-            </>
-          )}
-          {section === "ai" && <ModelSettings ProviderEditor={ProviderEditor} />}
-          {section === "general" && (
-            <>
-              <section className="setup-block">
-                <p className="setup-title">{t("界面")}</p>
-                <label><span>{t("界面语言")}</span>
-                  <select value={settings.uiLang} onChange={(e) => void saveSettings({ uiLang: e.target.value as LangSetting })}>
-                    <option value="auto">{t("跟随系统（{name}）", { name: LANGS.find((l) => l.id === systemLang())?.name ?? "" })}</option>
-                    {LANGS.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                  </select>
-                </label>
-                <label className="check"><input type="checkbox" checked={settings.youtubePromo} onChange={(e) => saveSettings({ youtubePromo: e.target.checked })} /> {t("显示节目的 YouTube 订阅按钮")}</label>
-                {settings.youtubePromo && <label className="check"><input type="checkbox" checked={!settings.homeBannerHidden} onChange={(e) => saveSettings({ homeBannerHidden: !e.target.checked })} /> {t("在发现页顶部推荐「词元之外」")}</label>}
-              </section>
-              <section className="setup-block">
-                <p className="setup-title">{t("订阅")}</p>
-                <div className="row-actions">
-                  <button className="btn sm" onClick={() => { set({ settingsOpen: false, addOpen: true, addTab: "import" }); }}>{t("导入订阅…")}</button>
-                  <button className="btn sm" onClick={async () => { try { await shareText(await api.exportOpml(), `SubCast-${new Date().toISOString().slice(0, 10)}.opml`); } catch (e) { notify(errorText(e)); } }}>{t("导出 OPML")}</button>
-                </div>
-              </section>
-              <section className="setup-block">
-                <p className="setup-title">{t("网络")}</p>
-                <label><span>{t("代理")}</span>
-                  <div className="key-row">
-                    <input {...NO_AUTO} value={proxy} onChange={(e) => setProxy(e.target.value)} placeholder={t("留空就用系统代理")} />
-                    <button className="btn sm" onClick={async () => { try { await saveSettings({ proxy }); notify(t("代理已保存")); } catch (e) { notify(errorText(e)); } }}>{t("保存")}</button>
-                  </div>
-                </label>
-              </section>
-              <section className="setup-block">
-                <p className="setup-title">{t("共享")}</p>
-                <label className="check"><input type="checkbox" checked={settings.shareTranscripts} onChange={(e) => saveSettings({ shareTranscripts: e.target.checked })} /> {t("匿名分享我生成的字幕、译文和导读")}</label>
-                <p className="muted small">{t("只分享文字，帮别人省去等待。关掉后照样能用别人分享的。")}</p>
-              </section>
-              <section className="setup-block">
-                <button className="setting-row" aria-expanded={showStorage} onClick={() => setShowStorage(!showStorage)}><HardDrive size={15} /> <span>{t("存储")}</span><StorageTotal /><ChevronDown size={14} className={showStorage ? "flip" : ""} /></button>
-                {showStorage && <Storage />}
-              </section>
-            </>
-          )}
-          {section === "about" && <About />}
-        </div>
-      </div>
-    </Modal>
-  );
-}
+  useEffect(() => {
+    if (section || !nativeIndex) return;
+    let active = true;
+    const pending = presentation.current ??= invoke<string | null>("plugin:mobile|present_settings_index", {
+      state: {
+        title: t("设置"), done: t("完成"),
+        groups: SETTING_GROUPS.map((group) => group.map(({ id, label, symbol }) => ({ id, title: t(label), symbol }))),
+      },
+    });
+    void pending.then((choice) => {
+      if (!active) return;
+      if (choice === "") close();
+      else if (choice && settingPage(choice)) setSection(settingPage(choice)!.id);
+      else setNativeIndex(false);
+    }).catch(() => { if (active) setNativeIndex(false); }).finally(() => {
+      if (presentation.current === pending) presentation.current = null;
+    });
+    return () => { active = false; };
+  }, [section, nativeIndex, lang]);
 
-export function KeyField({ account, placeholder }: { account: string; placeholder?: string }) {
-  const [key, setKey] = useState("");
-  const [has, setHas] = useState(false);
-  useEffect(() => { setKey(""); api.hasApiKey(account).then(setHas); }, [account]);
-  return <KeyRow key={account} has={has} value={key} onValue={setKey} placeholder={placeholder}
-    onSave={async () => { await api.setApiKey(account, key); setHas(!!key.trim()); setKey(""); }}
-    onDelete={async () => { await api.setApiKey(account, ""); setHas(false); }} />;
-}
-
-/** A saved key reads as saved (a tinted row with a check and masked dots), not as an empty field;
- *  「更换」 opens the field again. */
-function KeyRow({ has, value, onValue, onSave, onDelete, placeholder }: { has: boolean; value: string; onValue: (v: string) => void; onSave: () => Promise<void>; onDelete: () => Promise<void>; placeholder?: string }) {
-  const [editing, setEditing] = useState(false);
-  if (has && !editing) {
-    return (
-      <div className="key-row key-saved" title={t("存于系统钥匙串")}>
-        <span className="key-state"><Check size={14} /><span>{t("已保存")}</span><span className="key-dots" aria-hidden>••••••••</span></span>
-        <button className="btn sm" onClick={() => setEditing(true)}>{t("更换")}</button>
-        <button className="icon-btn" title={t("删除 Key")} aria-label={t("删除 Key")} onClick={() => void onDelete()}><Trash2 size={14} /></button>
-      </div>
-    );
-  }
-  return (
-    <div className="key-row">
-      <input {...NO_AUTO} type="password" autoFocus={editing} value={value} onChange={(e) => onValue(e.target.value)} placeholder={placeholder ?? t("粘贴 API Key")} />
-      <button className="btn sm" onClick={async () => { await onSave(); setEditing(false); }} disabled={!value.trim()}>{t("保存")}</button>
-      {has && <button className="btn ghost sm" onClick={() => { onValue(""); setEditing(false); }}>{t("取消")}</button>}
+  const title = providerName ? tr(providerName) : t(settingPage(section ?? undefined)?.label ?? tk("设置"));
+  return <Modal title={title} className="settings-modal" done wide onClose={close} head={section ? <>
+    <button className="settings-back" aria-label={providerName ? t("AI 模型") : t("设置")} onClick={() => {
+      if (provider) setProvider(null); else setSection(null);
+    }}><ChevronLeft size={22} /><span>{providerName ? t("AI 模型") : t("设置")}</span></button>
+    <h3>{title}</h3>
+  </> : undefined}>
+    <div className="settings">
+      {!section && !nativeIndex && SETTING_GROUPS.map((group) => <nav className="settings-list" key={group[0].id} aria-label={t("设置")}>
+        {group.map(({ id, label, Icon }) => <button key={id} onClick={() => setSection(id)}><Icon aria-hidden /><span>{t(label)}</span><ChevronRight size={18} aria-hidden /></button>)}
+      </nav>)}
+      {section && <div className="settings-body" key={section}>
+        {section === "playback" && <PlaybackSettings />}
+        {section === "reading" && <ReadingSettings />}
+        {section === "asr" && <TranscriptionSettings />}
+        {section === "model" && <ModelSettings ProviderEditor={ProviderEditor} editing={provider} setEditing={setProvider} />}
+        {section === "tts" && <ReadAloudSettings />}
+        {section === "general" && <GeneralSettings />}
+        {section === "storage" && <Storage />}
+        {section === "about" && <About />}
+      </div>}
     </div>
-  );
+  </Modal>;
+}
+
+function PlaybackSettings() {
+  const { settings, saveSettings } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings })));
+  const save = (patch: Partial<Settings>) => void saveSettings(patch);
+  const speedOptions = [...new Set([...RATES, settings.playbackRate])].sort((a, b) => a - b).map((rate) => [rate, `${rate}×`] as const);
+  const seconds = (current: number) => [...new Set([5, 10, 15, 30, 45, 60, current])].sort((a, b) => a - b).map((n) => [n, t("{n} 秒", { n })] as const);
+  return <>
+    <SettingGroup title={t("播放控制")}>
+      <SettingSelect label={t("播放速度")} options={speedOptions} value={settings.playbackRate} onChange={(rate) => {
+        useStore.getState().player?.setRate(rate);
+        save({ playbackRate: rate });
+      }} />
+      <SettingSelect label={t("后退")} options={seconds(settings.skipBack ?? 15)} value={settings.skipBack ?? 15} onChange={(skipBack) => save({ skipBack })} />
+      <SettingSelect label={t("前进")} options={seconds(settings.skipForward ?? 30)} value={settings.skipForward ?? 30} onChange={(skipForward) => save({ skipForward })} />
+    </SettingGroup>
+    <SettingGroup footer={t("播完后接着播放同一节目的下一集")}>
+      <SettingsSwitch label={t("自动连播")} value={!!settings.autoNext} onChange={(autoNext) => save({ autoNext })} />
+    </SettingGroup>
+  </>;
+}
+
+function TranscriptionSettings() {
+  const { settings, saveSettings } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings })));
+  const engine = settings.cloudAsr[settings.asrEngine];
+  return <>
+    <SettingGroup footer={t("查不到现成字幕时，可以用云端服务生成。")}>
+      <SettingSelect label={t("识别服务")} value={settings.asrEngine} options={ASR_SERVICES.map((a) => [a.id, t(a.name)] as const)}
+        onChange={(asrEngine) => void saveSettings({ asrEngine })} />
+    </SettingGroup>
+    {engine && <CloudAsrEditor key={engine.id} a={engine} onChange={(value) => void saveSettings({ cloudAsr: { ...settings.cloudAsr, [value.id]: value } })} />}
+  </>;
+}
+
+function GeneralSettings() {
+  const { settings, saveSettings, set, notify } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings, set: s.set, notify: s.notify })));
+  const [proxy, setProxy] = useState(settings.proxy);
+  const [saving, setSaving] = useState(false);
+  const [proxyFeedback, setProxyFeedback] = useState<{ error: boolean; text: string } | null>(null);
+  const saveProxy = async () => {
+    const previous = settings.proxy;
+    if (proxy.trim() === previous) return;
+    setSaving(true);
+    try {
+      await saveSettings({ proxy: proxy.trim() });
+      setProxy(proxy.trim());
+      setProxyFeedback({ error: false, text: t("代理已保存") });
+    } catch (error) {
+      useStore.setState((state) => ({ settings: { ...state.settings, proxy: previous } }));
+      setProxyFeedback({ error: true, text: errorText(error) });
+    } finally { setSaving(false); }
+  };
+  return <>
+    <SettingGroup title={t("界面")}>
+      <SettingSelect<LangSetting> label={t("界面语言")} value={settings.uiLang} options={[
+        ["auto", t("跟随系统（{name}）", { name: LANGS.find((l) => l.id === systemLang())?.name ?? "" })],
+        ...LANGS.map((language) => [language.id, language.name] as const),
+      ]} onChange={(uiLang) => void saveSettings({ uiLang })} />
+      <SettingsSwitch label={t("推荐「词元之外」")} value={!settings.homeBannerHidden} onChange={(on) => void saveSettings({ homeBannerHidden: !on })} />
+    </SettingGroup>
+    <SettingGroup title={t("订阅")}>
+      <button className="ios-setting-action" onClick={() => set({ settingsOpen: false, addOpen: true, addTab: "import" })}>{t("导入订阅…")}<ChevronRight size={18} /></button>
+      <button className="ios-setting-action" onClick={async () => {
+        try { await shareText(await api.exportOpml(), `SubCast-${new Date().toISOString().slice(0, 10)}.opml`); }
+        catch (error) { notify(errorText(error)); }
+      }}>{t("导出 OPML")}<Share size={17} aria-hidden /></button>
+    </SettingGroup>
+    <SettingGroup title={t("网络")}>
+      <form className="ios-setting-field" onSubmit={(e) => { e.preventDefault(); (document.activeElement as HTMLElement | null)?.blur(); void saveProxy(); }}>
+        <label htmlFor="settings-proxy">{t("代理")}</label>
+        <div className="key-row">
+          <input id="settings-proxy" {...NO_AUTO} type="url" enterKeyHint="done" value={proxy} disabled={saving} onChange={(e) => { setProxy(e.target.value); setProxyFeedback(null); }} onBlur={() => void saveProxy()} placeholder={t("留空就用系统代理")} />
+        </div>
+        {proxyFeedback && <p className={proxyFeedback.error ? "error-text small" : "muted small"} role="status">{proxyFeedback.text}</p>}
+      </form>
+    </SettingGroup>
+    <SettingGroup title={t("共享")} footer={t("只分享文字，帮别人省去等待。关掉后照样能用别人分享的。")}>
+      <SettingsSwitch label={t("匿名分享我生成的字幕、译文和导读")} value={settings.shareTranscripts} onChange={(shareTranscripts) => void saveSettings({ shareTranscripts })} />
+    </SettingGroup>
+  </>;
 }
 
 function CloudAsrEditor({ a, onChange }: { a: CloudAsr; onChange: (a: CloudAsr) => void }) {
   return (
-    <div className="provider-form">
+    <section className="setup-block provider-form">
+      <p className="setup-title">{t(a.name)}</p>
       <p className="muted small">{t("{note}。识别时音频会发送到 {name}。", { note: t(a.note), name: t(a.name) })}</p>
-      <label><span>{t("接口地址")}</span><input {...NO_AUTO} value={a.baseUrl} onChange={(e) => onChange({ ...a, baseUrl: e.target.value })} /></label>
-      <label><span>{t("模型")}</span>
-        <input {...NO_AUTO} value={a.model} list={`asr-${a.id}`} onChange={(e) => onChange({ ...a, model: e.target.value })} />
-        <datalist id={`asr-${a.id}`}>{a.models.map((m) => <option key={m} value={m} />)}</datalist>
-      </label>
-      {a.models.length > 1 && <div className="model-chips">{a.models.map((m) => <button key={m} className={`chip sm ${a.model === m ? "on" : ""}`} onClick={() => onChange({ ...a, model: m })}>{m}</button>)}</div>}
-      {a.needsKey && <label><span>API Key</span><KeyField account={`asr.${a.id}`} /></label>}
+      <SettingText label={t("接口地址")} type="url" value={a.baseUrl} onCommit={(baseUrl) => onChange({ ...a, baseUrl })} />
+      <SettingText label={t("模型")} value={a.model} onCommit={(model) => onChange({ ...a, model })} />
+      {a.models.length > 1 && <SettingSelect label={t("可选模型")} value={a.model}
+        options={[...new Set([a.model, ...a.models])].map((model) => [model, model] as const)} onChange={(model) => onChange({ ...a, model })} />}
+      {a.needsKey && <div><p className="setup-title">API Key</p><KeyField account={`asr.${a.id}`} /></div>}
       {a.protocol === "deepseek" && <p className="muted small">{t("已在「AI 模型」里填过 DeepSeek Key 的话，这里可以留空。")}</p>}
       <div className="row-actions">
         <span className="spacer" />
         {a.keyUrl && <button className="btn ghost sm" onClick={() => openUrl(a.keyUrl!)}><ExternalLink size={13} /> {t("获取 Key")}</button>}
       </div>
-    </div>
+    </section>
   );
 }
 
 const REPO = "https://github.com/joeseesun/subcast";
-/** "占用 1.9 GB" for the 通用 page's storage row. */
-function StorageTotal() {
-  const [total, setTotal] = useState<number | null>(null);
-  useEffect(() => { void api.storageInfo().then((i) => setTotal(i.downloads + i.models + i.library + i.temp)).catch(() => {}); }, []);
-  return <span className="muted small">{total == null ? "" : t("占用 {size}", { size: bytes(total) })}</span>;
-}
-
 function Storage() {
   const { set, go } = useStore(useShallow((s) => ({ set: s.set, go: s.go })));
   const saved = useOffline((s) => s.saved);
@@ -250,7 +281,7 @@ function Storage() {
   const n = Object.keys(saved).length;
   const size = (b?: number) => (info ? (b ? bytes(b) : "0 MB") : "…");
   const clearAll = async () => {
-    if (!(await ask({ title: t("删除全部已下载的音频？"), message: t("字幕、精读和收听进度都会保留。"), ok: t("全部删除"), danger: true }))) return;
+    if (!(await ask({ title: t("清理全部离线音频？"), message: t("字幕、精读和收听进度都会保留。"), ok: t("全部删除"), danger: true }))) return;
     await clearDownloads(); load();
   };
   return (
@@ -258,8 +289,8 @@ function Storage() {
       <div className="storage-list">
         <div className="storage-row">
           <div className="storage-row-text">
-            <p className="storage-row-name">{t("离线下载")}</p>
-            <p className="muted small">{n ? t("{n} 集音频，没有网络也能听", { n }) : t("在单集页点下载按钮，就能离线收听")}</p>
+            <p className="storage-row-name">{t("离线音频")}</p>
+            <p className="muted small">{n ? t("{n} 集音频，没有网络也能听", { n }) : t("缓存音频后即可离线收听")}</p>
           </div>
           <span className="storage-size">{size(info?.downloads)}</span>
           {n > 0 && <button className="btn ghost sm" onClick={() => { set({ settingsOpen: false }); go({ kind: "downloads" }); }}>{t("查看")}</button>}
@@ -289,33 +320,29 @@ function Storage() {
 
 function About() {
   const [version, setVersion] = useState("0.1.0");
-  const uiBuild = useStore((s) => s.uiBuild);
+  const [code, setCode] = useState<"wechat" | "reward" | null>(null);
   useEffect(() => { getVersion().then(setVersion).catch(() => {}); }, []);
-  const links: [string, string][] = [["qiaomu.ai", "https://qiaomu.ai"], [t("博客"), "https://blog.qiaomu.ai"], [t("乔木推荐"), "https://tuijian.qiaomu.ai"], ["X", "https://x.com/vista8"], ["GitHub", "https://github.com/joeseesun"]];
+
   return (
-    <div className="about">
-      <div className="about-top">
-        <img src={logoUrl} alt="" />
-        <div className="about-meta">
-          <p className="about-name">SubCast <span className="about-ver">{t("版本 {version}", { version })}{uiBuild ? ` · ${t("界面更新 {n}", { n: uiBuild })}` : ""}</span></p>
-          <p className="muted small">{t("海外好播客，配上中文字幕、精读与 AI 问答。")}</p>
-        </div>
+    <div className="settings-about">
+      <div className="settings-brand">
+        <img src={logoUrl} width={72} height={72} alt="" />
+        <h2>SubCast</h2>
+        <p>{t("版本 {version}", { version })}</p>
       </div>
-      <div className="row-actions">
-        <button className="btn sm" onClick={() => openUrl(`${REPO}/issues/new`)}><MessageCircle size={13} /> {t("反馈问题")}</button>
-        <button className="btn sm" onClick={() => openUrl(`${REPO}#readme`)}><BookOpen size={13} /> {t("使用说明")}</button>
-        <button className="btn sm" onClick={() => openUrl(REPO)}><Github size={13} /> {t("源代码")}</button>
-      </div>
-      <HomeShowCard />
-      <div className="about-qr">
-        <div className="qr-card"><img src={wechatQr} alt={t("公众号二维码")} /><div><p className="qr-title">{t("关注公众号")}</p><p className="muted small">{t("微信搜索「向阳乔木推荐看」")}</p></div></div>
-        <div className="qr-card"><img src={rewardQr} alt={t("赞赏码")} /><div><p className="qr-title">{t("请我喝杯咖啡")}</p><p className="muted small">{t("微信扫码赞赏")}</p></div></div>
-      </div>
-      <div className="about-foot">
-        {links.map(([label, u]) => <button key={u} className="link-btn" onClick={() => openUrl(u)}>{label}</button>)}
-        <span className="spacer" />
-        <span className="muted small">{t("© {year} 向阳乔木 · AGPL-3.0", { year: new Date().getFullYear() })}</span>
-      </div>
+      <SettingGroup>
+        <button className="ios-setting-action" onClick={() => void openUrl(`${REPO}/issues/new`)}><MessageCircle size={20} />{t("反馈问题")}<ExternalLink size={16} /></button>
+        <button className="ios-setting-action" onClick={() => void openUrl(`${REPO}#readme`)}><BookOpen size={20} />{t("使用说明")}<ExternalLink size={16} /></button>
+        <button className="ios-setting-action" onClick={() => void openUrl(REPO)}><Github size={20} />{t("源代码")}<ExternalLink size={16} /></button>
+      </SettingGroup>
+      <SettingGroup>
+        <button className="ios-setting-action" onClick={() => void openUrl("https://qiaomu.ai")}>qiaomu.ai<ExternalLink size={16} /></button>
+        <button className="ios-setting-action" aria-expanded={code === "wechat"} onClick={() => setCode(code === "wechat" ? null : "wechat")}>{t("关注公众号")}<ChevronDown size={16} /></button>
+        {code === "wechat" && <div className="settings-qr"><img src={wechatQr} alt={t("公众号二维码")} /><p>{t("微信搜索「向阳乔木推荐看」")}</p></div>}
+        <button className="ios-setting-action" aria-expanded={code === "reward"} onClick={() => setCode(code === "reward" ? null : "reward")}>{t("请我喝杯咖啡")}<ChevronDown size={16} /></button>
+        {code === "reward" && <div className="settings-qr"><img src={rewardQr} alt={t("赞赏码")} /></div>}
+      </SettingGroup>
+      <p className="settings-footnote">{t("© {year} 向阳乔木 · AGPL-3.0", { year: new Date().getFullYear() })}</p>
     </div>
   );
 }

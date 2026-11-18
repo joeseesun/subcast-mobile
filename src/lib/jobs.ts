@@ -39,11 +39,11 @@ export function startJobListeners() {
 export async function loadTranscript(ep: Episode) {
   const s = useJobs.getState();
   if (s.transcripts[ep.id] || s.officialChecked[ep.id] === "searching") return;
-  const cached = await api.loadTranscript(ep.id);
+  patch("officialChecked", ep.id, "searching");
+  const cached = await api.loadTranscript(ep.id).catch(() => null);
   // Before 0.2.1 a Chinese video that also had English subtitles opened in English: fetch those again.
   const stale = cached?.source.startsWith("youtube") && /[\u4e00-\u9fff].*[\u4e00-\u9fff]/.test(ep.title) && !/[\u3040-\u30ff]/.test(ep.title) && !cached.language.toLowerCase().startsWith("zh");
-  if (cached && (!stale || (await api.getBlob(ep.id, "track-picked")))) { patch("transcripts", ep.id, cached); return; }
-  patch("officialChecked", ep.id, "searching");
+  if (cached && (!stale || (await api.getBlob(ep.id, "track-picked")))) { patch("transcripts", ep.id, cached); patch("officialChecked", ep.id, "found"); return; }
   const fromShared = async () => {
     const sh = await api.sharedTranscript(ep.id).catch(() => null);
     if (sh) { patch("transcripts", ep.id, sh); patch("officialChecked", ep.id, "found"); return true; }

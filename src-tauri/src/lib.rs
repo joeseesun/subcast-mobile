@@ -301,7 +301,11 @@ fn get_episode(state: State<'_, AppState>, id: String) -> Res<Option<Episode>> {
 fn remove_show(state: State<'_, AppState>, id: String) -> Res<()> { db::delete_show(&state.db.lock().unwrap(), &id).map_err(e) }
 
 #[tauri::command]
-fn set_progress(state: State<'_, AppState>, id: String, seconds: f64) -> Res<()> { db::set_progress(&state.db.lock().unwrap(), &id, seconds).map_err(e) }
+fn set_progress(state: State<'_, AppState>, id: String, seconds: f64) -> Res<()> {
+    db::set_progress(&state.db.lock().unwrap(), &id, seconds).map_err(e)?;
+    if seconds > 0.0 { offline::renew_cache(&state.data, &id); }
+    Ok(())
+}
 
 #[tauri::command]
 async fn search_podcasts(term: String, country: Option<String>) -> Res<Vec<feeds::SearchResult>> {
@@ -372,15 +376,25 @@ async fn use_youtube_track(state: State<'_, AppState>, episode_id: String, langu
 #[tauri::command]
 async fn fetch_official_transcript(state: State<'_, AppState>, episode_id: String) -> Res<Option<Transcript>> {
     let ep = db::get_episode(&state.db.lock().unwrap(), &episode_id).map_err(e)?.ok_or("节目不存在")?;
-    let t = if let Some(vid) = &ep.video_id {
-        let info = youtube::video_info(vid).await.map_err(e)?;
-        let hint = youtube::script_hint(&info.title).or_else(|| youtube::script_hint(&ep.title));
-        match youtube::choose(&info.tracks, info.original_language.as_deref(), hint) {
-            // Saved inside, together with the publisher's Chinese when there is one.
-            Some(track) => { let t = youtube_transcript(&state, &ep, &info, track).await.map_err(e)?; return Ok((!t.segments.is_empty()).then_some(t)); }
-            None => None,
+    let mut youtube_error = None;
+    if let Some(vid) = &ep.video_id {
+        let published = async {
+            let info = youtube::video_info(vid).await?;
+            let hint = youtube::script_hint(&info.title).or_else(|| youtube::script_hint(&ep.title));
+            if let Some(track) = youtube::choose(&info.tracks, info.original_language.as_deref(), hint) {
+                let t = youtube_transcript(&state, &ep, &info, track).await?;
+                if !t.segments.is_empty() { return Ok(Some(t)); }
+            }
+            Ok::<_, anyhow::Error>(None)
+        };
+        match tokio::time::timeout(std::time::Duration::from_secs(35), published).await {
+            Ok(Ok(Some(t))) => return Ok(Some(t)),
+            Ok(Ok(None)) => (),
+            Ok(Err(error)) => youtube_error = Some(e(error)),
+            Err(_) => youtube_error = Some("字幕下载失败".to_owned()),
         }
-    } else if let Some(url) = ep.transcript_url.as_ref().filter(|_| ep.transcript_type.as_deref() != Some("podscribe")) {
+    }
+    let t = if let Some(url) = ep.transcript_url.as_ref().filter(|_| ep.transcript_type.as_deref() != Some("podscribe")) {
         let body = net::get_text(url).await.map_err(e)?;
         let kind = ep.transcript_type.clone().unwrap_or_default();
         let segs = if kind.contains("json") { transcript::parse_podcast_json(&body) } else { transcript::parse_cues(&body) };
@@ -409,6 +423,7 @@ async fn fetch_official_transcript(state: State<'_, AppState>, episode_id: Strin
         if t.segments.is_empty() { return Ok(None); }
         db::save_transcript(&state.db.lock().unwrap(), t).map_err(e)?;
     }
+    if t.is_none() { if let Some(error) = youtube_error { return Err(error); } }
     Ok(t)
 }
 
@@ -525,26 +540,43 @@ async fn refresh_config(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
 
 
 /// A direct stream for a video the embedded player can't play, straight from InnerTube (phones have no yt-dlp).
-/// `mode`: "native-hls" / "proxy-hls" (HLS; the proxy adds the headers googlevideo wants) or "mp4".
+/// The relay routes preserve the issuing client’s headers and choose one distinct media format.
 #[tauri::command]
 async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: String, mode: Option<String>, fresh: Option<bool>) -> Res<VideoStream> {
     asr::streams::init(&state.data);
     let mode = mode.unwrap_or_else(|| if cfg!(target_os = "ios") { "native-hls".into() } else { "mp4".into() });
     let key = format!("{video_id}|{mode}");
     let _ = app.emit("yt-stream", json!({ "videoId": video_id, "stage": "resolve", "progress": 0.0 }));
-    let cached = if fresh.unwrap_or(false) { None } else { asr::streams::get(&key) };
-    let url = match cached {
-        Some(u) => u,
+    // A direct address may require the issuing client's User-Agent or the user's in-app proxy.
+    // WebKit cannot set those headers. The loopback route retains them for every range and HLS segment.
+    let relay = matches!(mode.as_str(), "relay-hls" | "relay-mp4" | "proxy-hls") || !net::proxy().is_empty();
+    let ios_progressive = cfg!(target_os = "ios") && mode == "native-hls";
+    let hls = |url: &str| url.contains("m3u8") || url.contains("/manifest/hls");
+    let cached = if relay || fresh.unwrap_or(false) { None } else {
+        asr::streams::get(&key).filter(|url| !ios_progressive || hls(url))
+    };
+    let (url, agent) = match cached {
+        Some(url) => (url, String::new()),
         None => {
-            let s = tokio::time::timeout(std::time::Duration::from_secs(40), youtube::streams(&video_id)).await
+            let purpose = match mode.as_str() {
+                "mp4" | "relay-mp4" => youtube::StreamUse::Mp4,
+                "relay-hls" => youtube::StreamUse::Hls,
+                _ => youtube::StreamUse::Video,
+            };
+            let s = tokio::time::timeout(std::time::Duration::from_secs(12), youtube::streams(&video_id, purpose)).await
                 .map_err(|_| "获取视频地址超时，请检查网络或代理".to_string())?.map_err(e)?;
-            let u = if mode == "mp4" { s.mp4.or(s.hls) } else { s.hls.or(s.mp4) }.ok_or("这个视频没有可直接播放的地址")?;
-            asr::streams::put(&key, &u);
-            u
+            let url = match mode.as_str() {
+                "mp4" | "relay-mp4" => s.mp4,
+                "relay-hls" => s.hls,
+                _ => s.hls.or(s.mp4),
+            }.ok_or("这个视频没有可直接播放的地址")?;
+            if !relay && (!ios_progressive || hls(&url)) { asr::streams::put(&key, &url); }
+            (url, s.ua)
         }
     };
-    let is_hls = url.contains("m3u8") || url.contains("/manifest/hls");
-    if is_hls && mode == "proxy-hls" { return Ok(VideoStream { url: hlsproxy::proxied(&url).await.map_err(e)?, kind: "hls" }); }
+    let is_hls = hls(&url);
+    let use_relay = relay || (ios_progressive && !is_hls);
+    let url = if use_relay { hlsproxy::proxied(&url, &agent, !is_hls).await.map_err(e)? } else { url };
     Ok(VideoStream { url, kind: if is_hls { "hls" } else { "mp4" } })
 }
 
@@ -686,7 +718,7 @@ async fn transcribe(app: AppHandle, state: State<'_, AppState>, episode_id: Stri
         let audio = if let Some(saved) = offline::find(&state.data, &episode_id) {
             PathBuf::from(saved.path)
         } else if let Some(vid) = &ep.video_id {
-            let s = youtube::streams(vid).await.map_err(e)?;
+            let s = youtube::streams(vid, youtube::StreamUse::Audio).await.map_err(e)?;
             let url = s.audio.ok_or("YouTube 没有给出这个视频的音频地址")?;
             let dest = work.join("audio.m4a");
             let (app2, id2) = (app.clone(), episode_id.clone());
@@ -964,6 +996,7 @@ pub fn run() {
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data)?;
+            offline::prune_cache(&data, std::time::SystemTime::now());
             let conn = db::open(&data.join("subcast.db"))?;
             conn.execute("INSERT OR IGNORE INTO shows(id,kind,title,feed_url,updated_at) VALUES('single','single','单独打开','',0)", [])?;
             if let Some(s) = db::get_setting(&conn, "app")?.and_then(|r| serde_json::from_str::<Value>(&r).ok()) {
@@ -1147,10 +1180,11 @@ mod live {
     #[tokio::test]
     #[ignore]
     async fn innertube_streams() {
-        let s = youtube::streams("dQw4w9WgXcQ").await.unwrap();
+        let s = youtube::streams("dQw4w9WgXcQ", youtube::StreamUse::Video).await.unwrap();
         println!("hls={:?}\nmp4={:?}\naudio={:?}", s.hls.as_deref().map(|u| &u[..u.len().min(90)]), s.mp4.as_deref().map(|u| &u[..u.len().min(90)]), s.audio.as_deref().map(|u| &u[..u.len().min(90)]));
         assert!(s.hls.is_some() || s.mp4.is_some());
         let dest = std::env::temp_dir().join("subcast-yt-audio.m4a");
+        let s = youtube::streams("dQw4w9WgXcQ", youtube::StreamUse::Audio).await.unwrap();
         youtube::download_stream(s.audio.as_deref().unwrap(), &s.ua, &dest, &AtomicBool::new(false), |_, _| {}).await.unwrap();
         let samples = asr::decode_16k_mono(&dest).unwrap();
         println!("decoded {:.1} s", samples.len() as f64 / 16000.0);

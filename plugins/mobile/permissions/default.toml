@@ -1,3 +1,3 @@
 [default]
 description = "Share sheet and now-playing controls"
-permissions = ["allow-share", "allow-now-playing", "allow-clear-now-playing", "allow-insets", "allow-register-listener", "allow-remove-listener"]
+permissions = ["allow-share", "allow-now-playing", "allow-clear-now-playing", "allow-insets", "allow-selection-feedback", "allow-podcast-audio", "allow-update-glass-dock", "allow-present-settings-index", "allow-register-listener", "allow-remove-listener"]

@@ -1,20 +1,36 @@
+import { seekEpisode } from "./Players";
 import { useShallow } from "zustand/react/shallow";
 import { SkeletonLines } from "./Skeleton";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { BookA, Check, ChevronDown, Ellipsis, Languages, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { flushSync } from "react-dom";
+import { BookA, Check, ChevronDown, Languages, Loader2, RefreshCw, Search, X } from "lucide-react";
 import { Modal } from "./Chrome";
+import { BrandGlyph } from "./BrandGlyph";
+import { MobileSheet } from "./MobileSheet";
+import { selectionFeedback } from "../lib/feedback";
 import type { EpisodeContext } from "../lib/ai";
-import { CassetteArt, FlatLineArt, NightNote, TrayArt, WaveToTextArt } from "./Illustrations";
+import { CassetteArt, FlatLineArt, TrayArt, WaveToTextArt } from "./Illustrations";
 import { bytes } from "../lib/offline";
 import { api, errorText, rawErrorText, type Episode, type ModelInfo, type Segment } from "../lib/api";
 import { clock } from "../lib/format";
-import { generateTranscript, llmReady, loadTranslation, needsTranslation, stopTranslation, switchYoutubeTrack, translateEpisode, useJobs } from "../lib/jobs";
+import { generateTranscript, loadTranscript, llmReady, loadTranslation, needsTranslation, stopTranslation, switchYoutubeTrack, translateEpisode, useJobs } from "../lib/jobs";
 import { providerFor, useStore } from "../store";
 import { ASR_SERVICES, CLOUD_ASR_MAIN, type Settings } from "../lib/settings";
 import { lang, t, tk, tr, useLang } from "../lib/i18n";
 
 const SOURCE_LABEL: Record<string, string> = { youtube: tk("YouTube 字幕"), "youtube-auto": tk("YouTube 自动字幕"), rss: tk("节目方文字稿"), whisper: tk("本机识别"), cloud: tk("云端识别"), qiaomu: tk("精读站原文 · 时间为估算"), podscribe: tk("Podscribe 文字稿") };
+
+/** "shared:qwen3" → "共享字幕 · Qwen3"; unknown sources read as plain "字幕" rather than an internal id. */
+function sourceLabel(source: string) {
+  if (SOURCE_LABEL[source]) return t(SOURCE_LABEL[source]);
+  if (source.startsWith("shared:")) {
+    const model = source.slice(7);
+    const name = /^qwen/i.test(model) ? "Qwen3-ASR" : /whisper/i.test(model) ? "Whisper" : model ? model[0].toUpperCase() + model.slice(1) : "";
+    return name ? `${t("共享字幕")} · ${name}` : t("共享字幕");
+  }
+  return t("字幕");
+}
 
 export function activeIndex(segments: Segment[], time: number): number {
   let lo = 0, hi = segments.length - 1, found = -1;
@@ -35,7 +51,7 @@ const Row = memo(function Row({ seg, zh, active, mode, pending, onSeek, query, c
   const showZh = mode !== "original";
   const showOrig = mode !== "translation" || (!zh && !pending);
   return (
-    <div className={`line ${active ? "active" : ""} ${current ? "hit" : ""}`} data-active={active || undefined} data-hit={current || undefined} role="button" tabIndex={0} onClick={() => onSeek(seg.start)} onKeyDown={(e) => e.key === "Enter" && onSeek(seg.start)}>
+    <div className={`line ${active ? "active" : ""} ${current ? "hit" : ""}`} data-active={active || undefined} data-hit={current || undefined} aria-current={active ? "time" : undefined} role="button" tabIndex={0} onClick={() => onSeek(seg.start)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSeek(seg.start); } }}>
       <span className="line-time">{clock(seg.start)}</span>
       <div className="line-text">
         {showZh && (zh ? <p className="zh">{highlight(zh, query)}</p> : pending ? <span className="skeleton" /> : null)}
@@ -83,10 +99,12 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const official = useJobs((s) => s.officialChecked[ep.id]);
   const officialError = useJobs((s) => s.officialError[ep.id]);
   const translation = useJobs((s) => s.translations[ep.id]);
-  const { time, player, settings, saveSettings, current, openSettings } = useStore(useShallow((s) => ({ time: s.time, player: s.player, settings: s.settings, saveSettings: s.saveSettings, current: s.current, openSettings: s.openSettings })));
+  const { settings, saveSettings, current, openSettings } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings, current: s.current, openSettings: s.openSettings })));
   const isCurrent = current?.id === ep.id;
   const list = useRef<HTMLDivElement>(null);
-  const userScrolled = useRef(0);
+  const [following, setFollowing] = useState(true);
+  const [cueVisible, setCueVisible] = useState(true);
+  const scrollBeforeSearch = useRef(0);
   const searchInput = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -94,8 +112,11 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const [startError, setStartError] = useState<string | null>(null);
   const [canUpgrade, setCanUpgrade] = useState(false);
   const segments = transcript?.segments ?? [];
-  const active = isCurrent ? activeIndex(segments, time) : -1;
-  const seek = (t: number) => { if (isCurrent) player?.seek(t); };
+  const active = useStore((s) => isCurrent && transcript ? activeIndex(transcript.segments, s.time) : -1);
+  const seek = useCallback((time: number) => {
+    if (!searching) setFollowing(true);
+    seekEpisode(ep, time);
+  }, [ep, searching]);
   const wantsZh = transcript ? needsTranslation(transcript) : false;
   const mode = wantsZh ? settings.subtitleMode : "original";
 
@@ -104,16 +125,46 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
 
 
   useEffect(() => {
-    if (active < 0 || Date.now() - userScrolled.current < 5000 || query) return;
-    list.current?.querySelector<HTMLElement>("[data-active]")?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [active, query]);
+    const pane = list.current;
+    const row = pane?.querySelector<HTMLElement>("[data-active]");
+    if (!pane || !row || searching) return;
+    if (!following) {
+      const observer = new IntersectionObserver(([entry]) => {
+        setCueVisible(entry.isIntersecting && entry.intersectionRatio >= 0.85);
+      }, { root: pane, threshold: [0, 0.85] });
+      observer.observe(row);
+      return () => observer.disconnect();
+    }
+    const bounds = pane.getBoundingClientRect();
+    const cue = row.getBoundingClientRect();
+    if (cue.top <= bounds.top || cue.bottom >= bounds.bottom) {
+      const top = cue.top - bounds.top - Math.max(0, (bounds.height - cue.height) / 3);
+      pane.scrollBy({ top, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    }
+  }, [active, following, searching]);
 
-  // ⌘F searches the transcript; Enter / ⇧Enter step through matches.
+  const startSearch = useCallback(() => {
+    if (!searching) scrollBeforeSearch.current = list.current?.scrollTop ?? 0;
+    flushSync(() => setSearching(true));
+    searchInput.current?.focus();
+  }, [searching]);
+  const closeSearch = () => {
+    const previous = scrollBeforeSearch.current;
+    setQuery("");
+    setSearching(false);
+    if (!following) requestAnimationFrame(() => list.current?.scrollTo({ top: previous }));
+  };
+
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") { e.preventDefault(); setSearching(true); setTimeout(() => searchInput.current?.focus(), 0); } };
-    window.addEventListener("keydown", k);
-    return () => window.removeEventListener("keydown", k);
-  }, []);
+    const key = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        startSearch();
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [startSearch]);
 
   const matches = useMemo(() => {
     if (!query) return null;
@@ -145,10 +196,10 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   );
   const searchBtn = <>
     {transcript.source.startsWith("youtube") && <TrackPicker ep={ep} language={transcript.language} auto={transcript.source === "youtube-auto"} />}
-    <button className="icon-btn" title={t("搜索文稿（⌘F）")} onClick={() => { setSearching(true); setTimeout(() => searchInput.current?.focus(), 0); }}><Search size={15} /></button>
+    <button className="icon-btn" title={t("搜索文稿（⌘F）")} onClick={startSearch}><Search size={15} /></button>
     {wantsZh && canUpgrade && <PanelMenu ep={ep} onRetranslate={() => start("llm")} />}
   </>;
-  const source = SOURCE_LABEL[transcript.source] ? t(SOURCE_LABEL[transcript.source]) : transcript.source;
+  const source = sourceLabel(transcript.source);
 
   let status: React.ReactNode;
   if (!wantsZh) status = <StatusLine left={<span className="source-tag">{source}</span>} text="" right={searchBtn} />;
@@ -167,22 +218,37 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
           <Search size={14} />
           <input ref={searchInput} spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("搜索中文或原文")}
             onKeyDown={(e) => {
-              if (e.key === "Escape") { setQuery(""); setSearching(false); }
+              if (e.key === "Escape") closeSearch();
               if (e.key === "Enter" && matches?.length) setHit((h) => (h + (e.shiftKey ? -1 : 1) + matches.length) % matches.length);
             }} />
           {matches && <span className="muted small">{matches.length ? `${hit + 1}/${matches.length}` : t("无结果")}</span>}
-          <button className="icon-btn sm" onClick={() => { setQuery(""); setSearching(false); }} aria-label={t("关闭搜索")}><X size={14} /></button>
+          <button className="icon-btn sm" onClick={closeSearch} aria-label={t("关闭搜索")}><X size={14} /></button>
         </div>
       )}
-      <div className="lines" ref={list} onWheel={() => (userScrolled.current = Date.now())}>
-        {rows.map((i, k) => (
-          <Row key={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} mode={mode} pending={pending} onSeek={seek} query={query} current={!!matches && k === hit} />
-        ))}
-        {!matches && total > 0 && (
-          <div className={`lines-end ${active === total - 1 ? "reached" : ""}`}>
-            <FlatLineArt />
-            {active === total - 1 && <p>{t("到最后一句了，耳朵辛苦了")}</p>}
-          </div>
+      <div className="transcript-body">
+        <div className="lines" ref={list} onTouchMove={() => !searching && setFollowing(false)}
+          onWheel={() => !searching && setFollowing(false)}
+          onKeyDown={(event) => {
+            if (!searching && ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(event.key)) setFollowing(false);
+          }}>
+          {rows.map((i, k) => (
+            <Row key={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} mode={mode} pending={pending} onSeek={seek} query={query} current={!!matches && k === hit} />
+          ))}
+          {!matches && total > 0 && (
+            <div className={`lines-end ${active === total - 1 ? "reached" : ""}`}>
+              <FlatLineArt />
+              {active === total - 1 && <p>{t("到最后一句了，耳朵辛苦了")}</p>}
+            </div>
+          )}
+        </div>
+        {!searching && !following && active >= 0 && !cueVisible && (
+          <button className="transcript-follow" onClick={() => {
+            selectionFeedback();
+            setFollowing(true);
+            list.current?.querySelector<HTMLElement>("[data-active]")?.focus({ preventScroll: true });
+          }}>
+            <BrandGlyph name="sound" size={17} />{t("回到播放位置")}
+          </button>
         )}
       </div>
     </div>
@@ -193,25 +259,14 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
 function PanelMenu({ ep, onRetranslate }: { ep: Episode; onRetranslate: () => void }) {
   const [menu, setMenu] = useState(false);
   const [gloss, setGloss] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!menu) return;
-    const h = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setMenu(false); };
-    document.addEventListener("pointerdown", h);
-    return () => document.removeEventListener("pointerdown", h);
-  }, [menu]);
-  return (
-    <div className="panel-menu" ref={box}>
-      <button className="icon-btn" title={t("更多")} aria-label={t("更多")} aria-expanded={menu} onClick={() => setMenu(!menu)}><Ellipsis size={15} /></button>
-      {menu && (
-        <div className="panel-menu-pop" role="menu">
-          <button role="menuitem" onClick={() => { setMenu(false); setGloss(true); }}><BookA size={14} /> {t("本集术语表…")}</button>
-          <button role="menuitem" onClick={() => { setMenu(false); onRetranslate(); }}><RefreshCw size={14} /> {t("用模型重新翻译")}</button>
-        </div>
-      )}
-      {gloss && <Glossary ep={ep} onRetranslate={onRetranslate} onClose={() => setGloss(false)} />}
-    </div>
-  );
+  return <>
+    <button className="icon-btn" aria-label={t("更多")} aria-haspopup="dialog" onClick={() => setMenu(true)}><BrandGlyph name="more" size={21} /></button>
+    {menu && <MobileSheet title={t("字幕")} onClose={() => setMenu(false)}>
+      <button onClick={() => { setMenu(false); setGloss(true); }}><BookA />{t("本集术语表…")}</button>
+      <button onClick={() => { setMenu(false); onRetranslate(); }}><RefreshCw />{t("用模型重新翻译")}</button>
+    </MobileSheet>}
+    {gloss && <Glossary ep={ep} onRetranslate={onRetranslate} onClose={() => setGloss(false)} />}
+  </>;
 }
 
 /** The episode's names and terms (made before translating), editable; edits are kept when it is remade. */
@@ -271,49 +326,53 @@ function TrackPicker({ ep, language, auto }: { ep: Episode; language: string; au
   const [tracks, setTracks] = useState(trackCache.get(ep.id) ?? null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useLang((s) => s.lang);
   useEffect(() => {
-    if (!open) return;
-    const h = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("pointerdown", h); document.addEventListener("keydown", k);
-    return () => { document.removeEventListener("pointerdown", h); document.removeEventListener("keydown", k); };
-  }, [open]);
-  useEffect(() => {
-    if (tracks) return;
-    void api.youtubeTracks(ep.id).then((list) => { trackCache.set(ep.id, list); setTracks(list); }).catch(() => {});
-  }, [ep.id]);
-  if (!tracks || tracks.length < 2) return null;
+    if (!open || tracks) return;
+    let visible = true;
+    void api.youtubeTracks(ep.id).then((list) => {
+      if (!visible) return;
+      if (list.length) trackCache.set(ep.id, list);
+      setTracks(list);
+    }).catch(() => { if (visible) setFailed(true); });
+    return () => { visible = false; };
+  }, [ep.id, open, tracks, attempt]);
+
   let names: Intl.DisplayNames | null = null;
   try { names = new Intl.DisplayNames([lang()], { type: "language" }); } catch { /* old WebView */ }
-  const name = (l: string) => { try { return names?.of(l) ?? l; } catch { return l; } };
-  const label = (x: { language: string; auto: boolean }) => `${name(x.language)}${x.auto ? ` · ${t("自动生成")}` : ""}`;
-  const pick = async (x: { language: string; auto: boolean }) => {
+  const label = (track: { language: string; auto: boolean }) => {
+    let name = track.language;
+    try { name = names?.of(name) ?? name; } catch { /* unknown language */ }
+    return track.auto ? `${name} · ${t("自动生成")}` : name;
+  };
+  const pick = async (track: { language: string; auto: boolean }) => {
     setOpen(false);
-    if (x.language === language && x.auto === auto) return;
+    if (track.language === language && track.auto === auto) return;
+    selectionFeedback();
     setBusy(true);
-    try { await switchYoutubeTrack(ep, x.language, x.auto); }
+    try { await switchYoutubeTrack(ep, track.language, track.auto); }
     catch (e) { useStore.getState().notify(t("切换字幕失败：{error}", { error: errorText(e) })); }
     finally { setBusy(false); }
   };
-  return (
-    <div className="panel-menu" ref={box}>
-      <button className="track-pick" title={t("字幕语言")} aria-label={t("字幕语言")} aria-haspopup="menu" aria-expanded={open} disabled={busy} onClick={() => setOpen(!open)}>
-        {busy ? <Loader2 size={13} className="spin" /> : <Languages size={14} />}
-        <span>{label({ language, auto })}</span>
-        <ChevronDown size={12} className={open ? "flip" : ""} />
-      </button>
-      {open && (
-        <div className="panel-menu-pop" role="menu">
-          {tracks.map((x) => {
-            const on = x.language === language && x.auto === auto;
-            return <button key={`${x.auto}:${x.language}`} role="menuitemradio" aria-checked={on} className={on ? "on" : ""} onClick={() => void pick(x)}><Check size={14} className="pick-check" />{label(x)}</button>;
-          })}
-        </div>
-      )}
-    </div>
-  );
+  const available = tracks?.length ? tracks : [{ language, auto }];
+  return <>
+    <button className="icon-btn" aria-label={t("字幕语言")} aria-haspopup="dialog" disabled={busy}
+      onClick={() => { setFailed(false); setOpen(true); }}>
+      {busy ? <Loader2 size={19} className="spin" /> : <Languages size={19} />}
+    </button>
+    {open && <MobileSheet title={t("字幕语言")} onClose={() => setOpen(false)}>
+      {available.map((track) => {
+        const selected = track.language === language && track.auto === auto;
+        return <button key={`${track.auto}:${track.language}`} aria-pressed={selected} onClick={() => void pick(track)}>
+          {label(track)}{selected && <Check className="row-check" />}
+        </button>;
+      })}
+      {failed ? <button onClick={() => { setFailed(false); setAttempt((n) => n + 1); }}><RefreshCw />{t("重试")}</button>
+        : !tracks && <p className="sheet-status" role="status"><Loader2 size={16} className="spin" />{t("正在查找字幕…")}</p>}
+    </MobileSheet>}
+  </>;
 }
 
 /** What the episode's pickers offer: the main cloud services and whatever is in use. The rest are in Settings
@@ -432,13 +491,13 @@ function NoTranscript({ ep, official, officialError }: { ep: Episode; official?:
     );
   }
   return (
-    <GenCard icon={<WaveToTextArt />} title={t("这集还没有字幕")}
-      note={cloud ? t("用{name}生成，音频会上传到该服务，速度更快。生成后自动翻译成中文。", { name: t(cloud.name) }) : t("用本机模型生成，音频只在这台电脑上处理。生成后自动翻译成中文。")}>
-      {official === "error" && officialError && <p className="gen-warn" title={tr(officialError)}><span>{t("节目自带的字幕没读到：{error}", { error: plainError(tr(officialError)) })}</span></p>}
+    <GenCard icon={<WaveToTextArt />} title={official === "error" ? t("字幕暂未载入") : t("这集还没有字幕")}
+      note={cloud ? t("生成字幕会将音频发送到{name}。", { name: t(cloud.name) }) : undefined}>
+      {official === "error" && <button className="btn" title={officialError ? plainError(tr(officialError)) : undefined} onClick={() => void loadTranscript(ep)}>{t("重新获取字幕")}</button>}
       <button className="btn primary gen-go" onClick={generate} disabled={!model}>{missingKey ? t("先填写 API Key") : t("生成字幕")}</button>
-      {missingKey && <p className="gen-size">{t("用{name}识别需要它的 API Key，填好就能开始", { name: t(cloud!.name) })}</p>}
+
       <button className="link-btn gen-more" aria-expanded={options} onClick={() => setOptions(!options)}>{t("识别设置")}<ChevronDown size={12} className={options ? "flip" : ""} /></button>
-      {!options && <NightNote />}
+
       {options && (
         <div className="gen-options">
           <label><span>{t("识别方式")}</span>
@@ -459,14 +518,14 @@ function NoTranscript({ ep, official, officialError }: { ep: Episode; official?:
 const plainError = (m: string) => m.replace(/[：:]?\s*https?:\/\/\S+/g, "").trim() || m;
 
 /** The centred card shown in the subtitle panel while an episode has no subtitles yet. */
-function GenCard({ icon, title, note, children }: { icon: React.ReactNode; title: string; note: string; children?: React.ReactNode }) {
+function GenCard({ icon, title, note, children }: { icon: React.ReactNode; title: string; note?: string; children?: React.ReactNode }) {
   return (
     <div className="transcript">
       <div className="gen-wrap">
         <div className="gen-card">
           <span className="gen-art" aria-hidden>{icon}</span>
           <h3 className="gen-title">{title}</h3>
-          <p className="gen-note">{note}</p>
+          {note && <p className="gen-note">{note}</p>}
           {children}
         </div>
       </div>

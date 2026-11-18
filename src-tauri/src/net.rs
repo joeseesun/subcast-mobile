@@ -12,8 +12,11 @@ static CLIENT: Lazy<RwLock<(String, reqwest::Client)>> = Lazy::new(|| RwLock::ne
 static DIRECT: Lazy<reqwest::Client> = Lazy::new(|| base().no_proxy().build().unwrap());
 
 fn base() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
-        .user_agent(UA)
+    let builder = reqwest::Client::builder();
+    // Use Apple’s certificate evaluation on iOS so the app and WKWebView share the system trust policy.
+    #[cfg(target_os = "ios")]
+    let builder = builder.use_native_tls();
+    builder.user_agent(UA)
         .connect_timeout(Duration::from_secs(20))
         .read_timeout(Duration::from_secs(120))
         // Proxies (Clash and the like) and servers drop idle keep-alive connections; reusing one of those fails with
@@ -123,6 +126,10 @@ pub fn describe(e: reqwest::Error) -> anyhow::Error {
     while let Some(next) = cause.source() { cause = next; }
     let host = e.url().and_then(|u| u.host_str()).unwrap_or("").to_string();
     let why = cause.to_string();
+    let certificate_error = why.to_ascii_lowercase();
+    if certificate_error.contains("certificate") || certificate_error.contains("unknownissuer") {
+        return anyhow!("连接证书无法验证");
+    }
     if refused(&why) { anyhow!("连不上 {host}：连接被拒绝。如果开着代理软件（如 Clash），请确认它在运行，或在 设置 › 通用 里填写代理地址") }
     else if e.is_timeout() { anyhow!("连接 {host} 超时，请检查网络或代理") }
     else if e.is_connect() { anyhow!("连不上 {host}：{why}。请检查网络或代理设置") }

@@ -3,14 +3,21 @@ import { api, type Episode, type Show } from "./lib/api";
 import { DEFAULTS, loadSettings, type Settings } from "./lib/settings";
 import { setLang, t } from "./lib/i18n";
 
+export interface ShowFinder {
+  searchOpen: boolean;
+  query: string;
+  filter: "all" | "unplayed" | "subs";
+  month: string | null;
+}
+
 export type View =
   | { kind: "latest" }
-  | { kind: "recent" }
+  | { kind: "recent"; saved?: boolean }
   | { kind: "stats" }
   | { kind: "discover" }
   | { kind: "downloads" }
   | { kind: "library" }
-  | { kind: "show"; id: string }
+  | { kind: "show"; id: string; finder?: ShowFinder }
   | { kind: "channel"; input: string }
   | { kind: "episode"; id: string };
 
@@ -18,11 +25,13 @@ export interface PlayerHandle {
   seek(seconds: number): void;
   toggle(): void;
   play(): void;
+  pause?(): void;
   setRate(rate: number): void;
   /** Mutes or unmutes; returns whether it is muted now. */
   toggleMute?(): boolean;
   /** The episode this player plays. A video's player can be ready before the episode becomes current. */
   episodeId?: string;
+  systemVideo?: boolean;
 }
 
 interface State {
@@ -37,6 +46,7 @@ interface State {
   /** The episode loaded in the player (may differ from the one being viewed). */
   current: Episode | null;
   time: number;
+  bufferedUntil: number;
   length: number;
   playing: boolean;
   player: PlayerHandle | null;
@@ -44,14 +54,14 @@ interface State {
   loadingSince?: number | null;
   /** Play as soon as the player for `current` is ready (it may take a few seconds to appear). */
   playWhenReady?: string | null;
-  /** First run: show the welcome card; shows are being subscribed in the background. */
-  welcome?: boolean;
+  /** Starter shows are being subscribed in the background. */
   settingUp?: boolean;
   /** The video fills the window (and the window the screen), subtitles on it. */
   theater?: boolean;
   /** Which tab the add dialog opens on. */
   addTab?: "search" | "link" | "import";
   toast: string | null;
+  toastKind?: "cache";
   settingsOpen: boolean;
   settingsSection?: "model" | "asr" | "reading" | "tts" | "shortcuts" | "general" | "storage" | "about";
   addOpen: boolean;
@@ -63,7 +73,7 @@ interface State {
   openEpisode(ep: Episode): void;
   /** Loads an episode into the player without navigating. */
   load(ep: Episode): void;
-  notify(text: string): void;
+  notify(text: string, kind?: "cache"): void;
   openSettings(section?: "model" | "asr" | "tts" | "general" | "storage" | "about"): void;
   /** Checks every subscription for new episodes; tells the user when there are some. */
   checkUpdates(): Promise<void>;
@@ -84,6 +94,7 @@ export const useStore = create<State>((set, get) => ({
   history: [],
   current: null,
   time: 0,
+  bufferedUntil: 0,
   length: 0,
   playing: false,
   player: null,
@@ -132,11 +143,17 @@ export const useStore = create<State>((set, get) => ({
     get().go({ kind: "episode", id: ep.id });
   },
   load(ep) {
-    // Keep a player that already belongs to this episode (a video ready before "play" was pressed).
-    if (get().current?.id !== ep.id) { const p = get().player; set({ current: ep, time: ep.progress || 0, length: ep.duration || 0, playing: false, player: p?.episodeId === ep.id ? p : null }); }
+    const s = get();
+    if (s.current?.id === ep.id) return;
+    const requested = s.playWhenReady === ep.id;
+    set({
+      current: ep, bufferedUntil: 0, time: ep.progress || 0, length: ep.duration || 0, playing: false,
+      player: s.player?.episodeId === ep.id ? s.player : null,
+      playWhenReady: requested ? ep.id : null, loadingSince: requested ? s.loadingSince : null,
+    });
   },
-  notify(text) {
-    set({ toast: text });
+  notify(text, kind) {
+    set({ toast: text, toastKind: kind });
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => set({ toast: null }), 4200);
   },

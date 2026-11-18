@@ -34,9 +34,11 @@ export function PlugArt({ className }: Art) {
 /** A speech bubble with a voice moving inside it. */
 export function AskArt({ className }: Art) {
   return (
-    <svg {...frame(40, 40, "ia-ask", className)}>
-      <path d="M10 6h20a6 6 0 0 1 6 6v10a6 6 0 0 1-6 6H17l-7 6v-6a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6z" />
-      <g className="ia-eq"><path d="M13 15v4" /><path d="M18 12v10" /><path className="a" d="M23 14v6" /><path d="M28 16v2" /></g>
+    <svg {...frame(112, 80, "ia-ask", className)}>
+      <ellipse className="art-floor" cx="56" cy="71" rx="27" ry="4" />
+      <path className="art-wash" d="M24 18h55a12 12 0 0 1 12 12v14a12 12 0 0 1-12 12H45L31 66V56h-7a12 12 0 0 1-12-12V30a12 12 0 0 1 12-12Z"/>
+      <path className="s" d="M53 12h27a17 17 0 0 1 17 17v8"/>
+      <g className="ia-eq art-exchange"><path d="M33 35v7m9-12v17m9-22v27m9-20v13m9-10v7" /></g>
     </svg>
   );
 }
@@ -44,16 +46,18 @@ export function AskArt({ className }: Art) {
 /** A page with a timeline; `writing` draws its lines one by one while the model works. */
 export function PageArt({ writing, className }: Art & { writing?: boolean }) {
   return (
-    <svg {...frame(96, 64, `ia-page${writing ? " is-writing" : ""}`, className)}>
-      <rect x="18" y="4" width="60" height="56" rx="6" />
-      <rect className="ia-mark" x="37" y="30" width="33" height="6" rx="2" />
-      <path className="s" d="M30 18v32" />
+    <svg {...frame(116, 83, `ia-page${writing ? " is-writing" : ""}`, className)}>
+      <ellipse className="art-floor" cx="59" cy="75" rx="34" ry="4" />
+      <rect className="art-wash s" x="21" y="15" width="66" height="52" rx="8" transform="rotate(-8 54 41)" />
+      <rect className="art-paper" x="29" y="10" width="65" height="55" rx="8" />
+      <rect className="ia-mark" x="51" y="32" width="34" height="7" rx="3" />
+      <path className="s" d="M43 24v29" />
       <g className="ia-lines">
-        <path d="M38 16h28" /><path className="s" d="M38 22h20" />
-        <path d="M38 33h30" /><path className="s" d="M38 39h16" />
-        <path d="M38 50h24" />
+        <path d="M53 22h29" /><path className="s" d="M53 27h20" />
+        <path d="M53 35h27" /><path className="s" d="M53 41h16" />
+        <path d="M53 51h24" />
       </g>
-      <g className="ia-dots"><circle cx="30" cy="16" r="2.5" /><circle className="a" cx="30" cy="33" r="2.5" /><circle cx="30" cy="50" r="2.5" /></g>
+      <g className="ia-dots"><circle cx="43" cy="22" r="2.3" /><circle className="a" cx="43" cy="35" r="2.3" /><circle cx="43" cy="51" r="2.3" /></g>
     </svg>
   );
 }
@@ -61,23 +65,37 @@ export function PageArt({ writing, className }: Art & { writing?: boolean }) {
 /** Sound on the left, a subtitle line on the right: what this app does, drawn small. */
 export function WaveToTextArt({ className }: Art) {
   return (
-    <svg {...frame(136, 56, "ia-w2t", className)}>
-      <g className="ia-eq"><path d="M6 24v8" /><path d="M12 18v20" /><path d="M18 12v32" /><path d="M24 20v16" /><path d="M30 25v6" /></g>
-      <g className="ia-flow"><circle cx="43" cy="28" r="1.4" /><circle cx="50" cy="28" r="1.4" /><circle cx="57" cy="28" r="1.4" /></g>
-      <rect x="66" y="12" width="64" height="32" rx="7" />
-      <path className="a" d="M74 23h5" />
-      <g className="ia-sub"><path d="M85 23h37" /><path className="s" d="M74 33h40" /></g>
+    <svg {...frame(142, 83, "ia-w2t", className)}>
+      <ellipse className="art-floor" cx="73" cy="71" rx="41" ry="4" />
+      <circle className="art-wash" cx="37" cy="40" r="23" />
+      <g className="ia-eq"><path d="M23 36v8" /><path d="M30 32v16" /><path className="a" d="M37 27v26" /><path d="M44 33v14" /><path d="M51 36v8" /></g>
+      <g className="ia-flow"><circle cx="65" cy="40" r="1" /><circle cx="71" cy="40" r="1" /><circle cx="77" cy="40" r="1" /></g>
+      <rect className="art-paper" x="83" y="24" width="47" height="32" rx="8" />
+      <path className="a" d="M90 35h5" />
+      <g className="ia-sub"><path d="M101 35h20" /><path className="s" d="M91 44h26" /></g>
     </svg>
   );
+}
+
+export function BookmarkArt() {
+  return <svg {...frame(116, 86, "ia-bookmark")}>
+    <ellipse className="art-floor" cx="58" cy="76" rx="32" ry="4" />
+    <rect x="21" y="17" width="52" height="51" rx="9" className="art-wash s" transform="rotate(-10 47 43)" />
+    <rect x="37" y="13" width="52" height="51" rx="9" className="art-paper" />
+    <path className="s" d="M47 44h20m-20 7h28" />
+    <path className="bookmark-ribbon" d="M63 13h16v26l-8-5-8 5z" />
+  </svg>;
 }
 
 /** A tray with sound dropping in; `busy` keeps it falling. */
 export function TrayArt({ busy, className }: Art & { busy?: boolean }) {
   return (
-    <svg {...frame(96, 64, `ia-tray${busy ? " is-busy" : ""}`, className)}>
-      <path d="M18 38v12a6 6 0 0 0 6 6h48a6 6 0 0 0 6-6V38" />
-      <path className="s" d="M32 47h32" />
-      <g className="ia-drop"><path d="M42 18v8" /><path className="a" d="M48 11v22" /><path d="M54 18v8" /></g>
+    <svg {...frame(116, 83, `ia-tray${busy ? " is-busy" : ""}`, className)}>
+      <ellipse className="art-floor" cx="58" cy="72" rx="33" ry="4" />
+      <path className="art-wash" d="M20 45h20l7 8h23l7-8h19v12a9 9 0 0 1-9 9H29a9 9 0 0 1-9-9V45Z" />
+      <path className="s" d="m20 45 10-13h12m54 13L86 32H74" />
+      <path d="M20 45h20l7 8h23l7-8h19" />
+      <g className="ia-drop"><path d="M45 23v8" /><path d="M52 18v18" /><path className="a" d="M58 12v30" /><path d="M64 18v18M71 23v8" /></g>
     </svg>
   );
 }
@@ -131,19 +149,36 @@ export function HeadphonesArt({ className }: Art) {
 
 export function SearchArt({ className }: Art) {
   return (
-    <svg {...frame(44, 40, "ia-seek", className)}>
-      <g className="ia-lens"><circle cx="18" cy="17" r="10" /><path d="M25.5 24.5L33 32" /><path className="a" d="M12 17h2l2-4 3 8 2-4h2" /></g>
+    <svg {...frame(100, 74, "ia-seek", className)}>
+      <ellipse className="art-floor" cx="53" cy="66" rx="28" ry="4" />
+      <path className="s" d="M69 18h16m-11 6h7" />
+      <g className="ia-lens">
+        <circle className="art-wash" cx="43" cy="31" r="20" />
+        <path className="art-handle" d="m58 45 16 14" />
+        <path className="a" d="M31 32h5l4-9 6 15 4-6h5" />
+      </g>
     </svg>
   );
 }
 
+export function QuietArt() {
+  return <svg {...frame(116, 78, "ia-orbit")}>
+    <ellipse className="art-floor" cx="58" cy="69" rx="35" ry="4" />
+    <ellipse className="art-wash" cx="58" cy="38" rx="34" ry="20" transform="rotate(-14 58 38)" />
+    <ellipse className="s" cx="58" cy="38" rx="25" ry="13" transform="rotate(-14 58 38)" />
+    <ellipse className="s" cx="58" cy="38" rx="15" ry="6" transform="rotate(-14 58 38)" />
+    <path className="a orbit-echo" d="M16 42c4-13 31-27 56-30" />
+    <circle cx="58" cy="38" r="2.6" className="f" />
+  </svg>;
+}
+
 export function BookArt({ className }: Art) {
   return (
-    <svg {...frame(96, 62, "ia-book", className)}>
-      <path d="M48 14c-8-5-20-6-32-4v38c12-2 24-1 32 4 8-5 20-6 32-4V10c-12-2-24-1-32 4z" />
-      <path d="M48 14v38" />
-      <path className="s" d="M22 20h18M22 27h20M22 34h14M56 27h18M56 34h12" />
-      <path className="a ia-ribbon" d="M64 12v14l3.5-3 3.5 3V11" />
+    <svg {...frame(116, 84, "ia-book", className)}>
+      <ellipse className="art-floor" cx="58" cy="73" rx="38" ry="4" />
+      <path className="art-paper" d="M58 24c-8-6-21-7-36-5v40c15-2 28-1 36 5 8-6 21-7 36-5V19c-15-2-28-1-36 5Z"/>
+      <path className="s" d="M58 24v40M31 32h17m-17 8h19m-19 8h13m23-7h18m-18 8h12" />
+      <path className="a ia-ribbon" d="M72 20v17l4-3 4 3V19" />
     </svg>
   );
 }

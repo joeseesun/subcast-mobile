@@ -29,6 +29,14 @@ pub fn open(path: &Path) -> Result<Connection> {
     if !has_deep {
         conn.execute_batch("ALTER TABLE episodes ADD COLUMN deep INTEGER NOT NULL DEFAULT 0; UPDATE episodes SET deep=1 WHERE transcript_type='qiaomu';")?;
     }
+    // Repair pre-existing episodes immediately, including before the first network refresh.
+    let show = short_hash(&crate::qiaomu::rss_feed_url("nexttoken"), 16);
+    let tx = conn.unchecked_transaction()?;
+    for &(guid, video) in crate::qiaomu::NEXT_TOKEN_VIDEOS {
+        let id = short_hash(&format!("{show}:{guid}"), 20);
+        tx.execute("UPDATE episodes SET video_id=?1 WHERE id=?2 AND video_id IS NULL", params![video, id])?;
+    }
+    tx.commit()?;
     Ok(conn)
 }
 
@@ -49,7 +57,7 @@ pub fn upsert_episodes(conn: &mut Connection, eps: &[Episode]) -> Result<()> {
             "INSERT INTO episodes(id,show_id,guid,title,published,duration,audio_url,video_id,link,cover,notes,transcript_url,transcript_type,deep)
              VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)
              ON CONFLICT(id) DO UPDATE SET title=excluded.title, published=excluded.published, duration=COALESCE(excluded.duration, episodes.duration),
-             audio_url=COALESCE(excluded.audio_url, episodes.audio_url), link=excluded.link, cover=COALESCE(excluded.cover, episodes.cover),
+             audio_url=COALESCE(excluded.audio_url, episodes.audio_url), video_id=COALESCE(excluded.video_id, episodes.video_id), link=excluded.link, cover=COALESCE(excluded.cover, episodes.cover),
              notes=COALESCE(excluded.notes, episodes.notes), transcript_url=excluded.transcript_url, transcript_type=excluded.transcript_type, deep=excluded.deep",
         )?;
         for e in eps {
@@ -91,7 +99,7 @@ pub fn delete_show(conn: &Connection, id: &str) -> Result<()> {
     Ok(())
 }
 
-const EPISODE_COLS: &str = "e.id,e.show_id,e.guid,e.title,e.published,e.duration,e.audio_url,e.video_id,e.link,e.cover,e.notes,e.transcript_url,e.transcript_type,e.progress,
+const EPISODE_COLS: &str = "e.id,e.show_id,e.guid,e.title,e.published,e.duration,e.audio_url,e.video_id,e.link,COALESCE(NULLIF(e.cover,''),s.cover),e.notes,e.transcript_url,e.transcript_type,e.progress,
     EXISTS(SELECT 1 FROM transcripts t WHERE t.episode_id=e.id), s.title, e.deep";
 
 fn episode_from(r: &rusqlite::Row) -> rusqlite::Result<Episode> {
@@ -222,6 +230,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn restores_missing_curated_video_without_overwriting_progress_or_newer_links() {
+        let temp = std::env::temp_dir().join(format!("subcast-old-media-{}.sqlite", uuid::Uuid::new_v4()));
+        let mut db = open(&temp).unwrap();
+        let id = "413bc7dcf46f46b2b14b";
+        let ep = Episode { id: id.into(), ..Default::default() };
+        upsert_episodes(&mut db, &[ep]).unwrap();
+        set_progress(&db, id, 123.0).unwrap();
+        drop(db);
+        let db = open(&temp).unwrap();
+        let ep = get_episode(&db, id).unwrap().unwrap();
+        assert_eq!(ep.video_id.as_deref(), Some("tBMlXQIrYK4"));
+        assert_eq!(ep.progress, 123.0);
+        db.execute("UPDATE episodes SET video_id='newer' WHERE id=?1", [id]).unwrap();
+        drop(db);
+        let db = open(&temp).unwrap();
+        assert_eq!(get_episode(&db, id).unwrap().unwrap().video_id.as_deref(), Some("newer"));
+        drop(db);
+        std::fs::remove_file(temp).unwrap();
+    }
+
+    #[test]
     fn deep_column_migrates_and_round_trips() {
         let path = std::env::temp_dir().join(format!("subcast-db-test-{}.sqlite", std::process::id()));
         let _ = std::fs::remove_file(&path);
@@ -243,8 +272,10 @@ mod tests {
         conn = open(&path).unwrap();
         let mut ep = get_episode(&conn, "b").unwrap().unwrap();
         ep.deep = true;
+        ep.video_id = Some("video-from-refresh".into());
         upsert_episodes(&mut conn, std::slice::from_ref(&ep)).unwrap();
         assert!(get_episode(&conn, "b").unwrap().unwrap().deep);
+        assert_eq!(get_episode(&conn, "b").unwrap().unwrap().video_id, ep.video_id);
         ep.deep = false;
         upsert_episodes(&mut conn, std::slice::from_ref(&ep)).unwrap();
         assert!(!get_episode(&conn, "b").unwrap().unwrap().deep);

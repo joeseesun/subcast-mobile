@@ -1,45 +1,61 @@
+import { selectionFeedback } from "../lib/feedback";
 import { useShallow } from "zustand/react/shallow";
-import { ChartColumn, Compass, Download, Inbox, Library, Plus, Settings as Cog } from "lucide-react";
-import { useStore, type View } from "../store";
-import { t, useLang } from "../lib/i18n";
+import { BrandGlyph } from "./BrandGlyph";
+import { PageHeading } from "./PageHeading";
+import { useLibrary } from "../lib/library";
 import { useOffline } from "../lib/offline";
-import { Sidebar } from "./Chrome";
+import { useStore, type View } from "../store";
+import { t, tk, useLang } from "../lib/i18n";
+import { LibraryShows } from "./Chrome";
 
-/** The phone's bottom tab bar: 首页, 发现, 订阅 (the desktop sidebar's list), 统计 and 设置. */
-export function MobileNav() {
-  const { view, go, openSettings } = useStore(useShallow((s) => ({ view: s.view, go: s.go, openSettings: s.openSettings })));
-  useLang((s) => s.lang);
-  if (view.kind === "episode") return null;
-  // Show and channel pages are reached from the subscription list, so they keep its tab lit.
-  const on = (k: View["kind"]) => view.kind === k || (k === "library" && (view.kind === "show" || view.kind === "channel" || view.kind === "downloads"));
-  const tab = (v: View, icon: React.ReactNode, label: string) => (
-    <button key={v.kind} className={`m-tab ${on(v.kind) ? "on" : ""}`} aria-current={on(v.kind) ? "page" : undefined} onClick={() => go(v)}>{icon}<span>{label}</span></button>
-  );
-  return (
-    <nav className="m-nav" aria-label={t("主导航")}>
-      {tab({ kind: "latest" }, <Inbox size={21} />, t("首页"))}
-      {tab({ kind: "discover" }, <Compass size={21} />, t("发现"))}
-      {tab({ kind: "library" }, <Library size={21} />, t("订阅"))}
-      {tab({ kind: "stats" }, <ChartColumn size={21} />, t("统计"))}
-      <button className="m-tab" onClick={() => openSettings()}><Cog size={21} /><span>{t("设置")}</span></button>
-    </nav>
-  );
+export const mobileTabs = [
+  { id: "latest", label: tk("首页"), glyph: "listen" },
+  { id: "discover", label: tk("发现"), glyph: "discover" },
+  { id: "library", label: tk("资料库"), glyph: "library" },
+] as const;
+export type Root = typeof mobileTabs[number]["id"];
+
+export function selectedRoot(view: View, history: View[]) {
+  return [...history, view].reverse().find((v) => mobileTabs.some(({ id }) => id === v.kind))?.kind ?? "library";
 }
 
-/** 订阅: the shows the listener follows and the curated 精读 channels, as a page. */
+export function switchRoot(root: Root) {
+  const store = useStore.getState();
+  if (store.view.kind !== root) store.set({ view: { kind: root }, history: [] });
+  else document.querySelector(".page")?.scrollTo({ top: 0 });
+}
+
+export function MobileNav() {
+  const { view, history } = useStore(useShallow((s) => ({ view: s.view, history: s.history })));
+  useLang((s) => s.lang);
+  if (view.kind === "episode") return null;
+  const root = selectedRoot(view, history);
+  return <nav className="m-nav" aria-label={t("主导航")}>
+    {mobileTabs.map(({ id, label, glyph }) => (
+      <button key={id} className={`m-tab ${root === id ? "on" : ""}`} aria-current={root === id ? "page" : undefined}
+        onClick={() => { if (view.kind !== id) selectionFeedback(); switchRoot(id); }}><BrandGlyph name={glyph} /><span>{t(label)}</span></button>
+    ))}
+  </nav>;
+}
+
 export function LibraryView() {
-  const { set, go } = useStore(useShallow((s) => ({ set: s.set, go: s.go })));
-  const hasDownloads = useOffline((s) => Object.keys(s.saved).length + Object.keys(s.active).length > 0);
-  return (
-    <div className="page m-library">
-      <div className="page-head">
-        <h1 className="page-title">{t("订阅")}</h1>
-        <div className="row-actions">
-          {hasDownloads && <button className="btn ghost sm" onClick={() => go({ kind: "downloads" })}><Download size={14} /> {t("已下载")}</button>}
-          <button className="btn primary sm" onClick={() => set({ addOpen: true, addTab: "search" })}><Plus size={14} /> {t("添加节目")}</button>
-        </div>
-      </div>
-      <Sidebar />
+  const { set, go, openSettings } = useStore(useShallow((s) => ({ set: s.set, go: s.go, openSettings: s.openSettings })));
+  const saved = useLibrary((state) => state.favorites.length);
+  const cached = useOffline((state) => Object.keys(state.saved).length);
+  return <div className="page m-library">
+    <PageHeading title={t("资料库")}>
+      <button className="heading-tool" onClick={() => openSettings()} aria-label={t("设置")}><BrandGlyph name="settings" /></button>
+    </PageHeading>
+    <div className="library-collections">
+      <button onClick={() => go({ kind: "recent", saved: true })}><BrandGlyph name="saved" /><span>{t("收藏")}</span>{saved > 0 && <small>{saved}</small>}</button>
+      <button onClick={() => go({ kind: "downloads" })}><BrandGlyph name="cache" /><span>{t("离线音频")}</span>{cached > 0 && <small>{cached}</small>}</button>
+      <button onClick={() => go({ kind: "recent" })}><BrandGlyph name="history" /><span>{t("最近播放")}</span></button>
+      <button onClick={() => go({ kind: "stats" })}><BrandGlyph name="stats" /><span>{t("收听统计")}</span></button>
     </div>
-  );
+    <div className="module-head">
+      <h2 className="module-title">{t("订阅节目")}</h2>
+      <button className="link-btn" onClick={() => set({ addOpen: true, addTab: "search" })}><BrandGlyph name="plus" size={20} />{t("添加")}</button>
+    </div>
+    <LibraryShows />
+  </div>;
 }

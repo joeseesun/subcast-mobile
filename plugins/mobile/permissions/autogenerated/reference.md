@@ -8,6 +8,10 @@ Share sheet and now-playing controls
 - `allow-now-playing`
 - `allow-clear-now-playing`
 - `allow-insets`
+- `allow-selection-feedback`
+- `allow-podcast-audio`
+- `allow-update-glass-dock`
+- `allow-present-settings-index`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -101,6 +105,58 @@ Denies the now_playing command without any pre-configured scope.
 <tr>
 <td>
 
+`mobile:allow-podcast-audio`
+
+</td>
+<td>
+
+Enables the podcast_audio command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:deny-podcast-audio`
+
+</td>
+<td>
+
+Denies the podcast_audio command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:allow-present-settings-index`
+
+</td>
+<td>
+
+Enables the present_settings_index command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:deny-present-settings-index`
+
+</td>
+<td>
+
+Denies the present_settings_index command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `mobile:allow-register-listener`
 
 </td>
@@ -153,6 +209,32 @@ Denies the remove_listener command without any pre-configured scope.
 <tr>
 <td>
 
+`mobile:allow-selection-feedback`
+
+</td>
+<td>
+
+Enables the selection_feedback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:deny-selection-feedback`
+
+</td>
+<td>
+
+Denies the selection_feedback command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `mobile:allow-share`
 
 </td>
@@ -172,6 +254,32 @@ Enables the share command without any pre-configured scope.
 <td>
 
 Denies the share command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:allow-update-glass-dock`
+
+</td>
+<td>
+
+Enables the update_glass_dock command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`mobile:deny-update-glass-dock`
+
+</td>
+<td>
+
+Denies the update_glass_dock command without any pre-configured scope.
 
 </td>
 </tr>

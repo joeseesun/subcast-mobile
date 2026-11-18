@@ -51,9 +51,19 @@ export interface CloudAsr { id: string; name: string; note: string; protocol: "d
 export interface ChatMessage { role: "user" | "assistant"; content: string; /** Which model wrote an answer, for display. */ model?: string }
 
 /** An episode saved for offline listening. */
-export interface Saved { episodeId: string; path: string; bytes: number; savedAt: number }
+export interface Saved { episodeId: string; path: string; bytes: number; savedAt: number; cached: boolean }
 
 export interface AsrEvent { episodeId: string; stage: "download" | "transcribe" | "segment" | "done" | "error"; progress: number; message?: string; segment?: Segment }
+
+type EpisodeDetail = { audio?: string; deepRead?: string };
+const detailRequests = new Map<string, Promise<EpisodeDetail>>();
+function qiaomuDetail(episodeId: string) {
+  const pending = detailRequests.get(episodeId);
+  if (pending) return pending;
+  const request = invoke<EpisodeDetail>("qiaomu_detail", { episodeId }).finally(() => detailRequests.delete(episodeId));
+  detailRequests.set(episodeId, request);
+  return request;
+}
 
 export const api = {
   addSubscription: (input: string) => invoke<{ show?: Show; episode?: Episode }>("add_subscription", { input }),
@@ -92,10 +102,10 @@ export const api = {
   /** Saves into the app's Documents/SubCast folder and returns the path. */
   saveImage: (name: string, base64: string) => invoke<string>("save_image", { name, base64 }),
   cachedShow: (input: string) => invoke<{ show: Show; episodes: Episode[]; fetchedAt: number } | null>("cached_show", { input }),
-  qiaomuDetail: (episodeId: string) => invoke<{ audio?: string; deepRead?: string }>("qiaomu_detail", { episodeId }),
+  qiaomuDetail,
   listModels: (provider: Provider) => invoke<string[]>("list_models", { provider }),
   ttsSpeak: (text: string, voice: string, resource?: string) => invoke<string>("tts_speak", { text, voice, resource }),
-  youtubeStream: (videoId: string, mode: "native-hls" | "proxy-hls" | "mp4", fresh = false) => invoke<{ url: string; kind: "hls" | "mp4" }>("youtube_stream", { videoId, mode, fresh }),
+  youtubeStream: (videoId: string, mode: "native-hls" | "proxy-hls" | "relay-hls" | "relay-mp4" | "mp4", fresh = false) => invoke<{ url: string; kind: "hls" | "mp4" }>("youtube_stream", { videoId, mode, fresh }),
   uiReady: () => invoke<{ shell: string; build: number | null }>("ui_ready"),
   shareTranslation: (episodeId: string, engine: string, model: string) => invoke<string>("share_translation", { episodeId, engine, model }),
   exportOpml: () => invoke<string>("export_opml"),
