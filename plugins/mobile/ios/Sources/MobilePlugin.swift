@@ -37,7 +37,8 @@ class MobilePlugin: Plugin {
     // (with UIBackgroundModes = audio in Info.plist) and ignores the mute switch, like any podcast app.
     let session = AVAudioSession.sharedInstance()
     try? session.setCategory(.playback, mode: .spokenAudio, options: [])
-    try? session.setActive(true)
+    // Not activated here: that would stop the music another app is playing as soon as SubCast opens. Playback
+    // activates the session when it starts (PodcastAudio.start, nowPlaying).
     webview.configuration.allowsInlineMediaPlayback = true
     if interruptions.isEmpty {
       let center = NotificationCenter.default
@@ -106,7 +107,7 @@ class MobilePlugin: Plugin {
           return
         }
       default:
-        if command.action == "prepare" || (command.action == "dispose" && self.podcast.session == command.session) {
+        if command.action == "prepare" || command.action == "reset" || (command.action == "dispose" && self.podcast.session == command.session) {
           self.podcastVideo.stop()
         }
         self.podcastVideo.didReturnInline = { [weak self] in self?.podcast.returnedToInlineVideo() }

@@ -19,7 +19,7 @@ import { providerFor, useStore } from "../store";
 import { ASR_SERVICES, CLOUD_ASR_MAIN, type Settings } from "../lib/settings";
 import { lang, t, tk, tr, useLang } from "../lib/i18n";
 
-const SOURCE_LABEL: Record<string, string> = { youtube: tk("YouTube 字幕"), "youtube-auto": tk("YouTube 自动字幕"), rss: tk("节目方文字稿"), whisper: tk("本机识别"), cloud: tk("云端识别"), qiaomu: tk("精读站原文 · 时间为估算"), podscribe: tk("Podscribe 文字稿") };
+const SOURCE_LABEL: Record<string, string> = { youtube: tk("YouTube 字幕"), "youtube-auto": tk("YouTube 自动字幕"), rss: tk("节目方文字稿"), whisper: tk("本机识别"), cloud: tk("云端识别"), qiaomu: tk("精读站原文 · 时间为估算"), "qiaomu-timed": tk("精读站原文"), podscribe: tk("Podscribe 文字稿") };
 
 /** "shared:qwen3" → "共享字幕 · Qwen3"; unknown sources read as plain "字幕" rather than an internal id. */
 function sourceLabel(source: string) {

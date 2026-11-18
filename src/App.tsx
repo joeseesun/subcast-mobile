@@ -4,6 +4,7 @@ import { SelectionTools } from "./components/SelectionTools";
 import { useLayout } from "./lib/layout";
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { api } from "./lib/api";
 import { useReadingSettings } from "./lib/reading";
 import { useRevealOnExpand } from "./lib/reveal";
@@ -41,9 +42,15 @@ export default function App() {
     // Listening time is flushed when playback stops, not only every 20 s.
     const offPlaying = useStore.subscribe((s, prev) => { if (prev.playing && !s.playing && s.current) noteListening(s.current, false); });
     window.addEventListener("beforeunload", () => { const c = useStore.getState().current; if (c) noteListening(c, false); });
-    void init().then(() => { void firstRunSetup(); });
-    // Rendered: tells the app a hot-updated interface works (otherwise it falls back on its own; see ota.rs).
-    void api.uiReady().then((info) => useStore.setState({ uiBuild: info.build })).catch(() => {});
+    // A fresh page owns no native player: one left from before a reload (iOS killed the web content process)
+    // would keep playing, or keep its video layer over the page. Android has no such command.
+    void invoke("plugin:mobile|podcast_audio", { command: { session: "", action: "reset" } }).catch(() => {});
+    // Ready only once the library has loaded: a launch stuck on the boot screen is then reloaded by the app
+    // (uiserver.rs watch_launch / resumed) instead of counting as rendered.
+    void init().then(() => {
+      void firstRunSetup();
+      void api.uiReady().then((info) => useStore.setState({ uiBuild: info.build })).catch(() => {});
+    });
     // Shortcuts come from one registry (lib/shortcuts.ts), so Settings › 快捷键 can change them.
     const onKey = (e: KeyboardEvent) => {
       const combo = comboOf(e);

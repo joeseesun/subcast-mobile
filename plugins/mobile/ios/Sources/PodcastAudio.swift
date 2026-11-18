@@ -47,6 +47,9 @@ final class PodcastAudio {
   var notify: ((JSObject) -> Void)?
 
   func apply(_ command: PodcastCommand) {
+    // A page that just loaded owns no player. After iOS kills the web content process the page loads again with a
+    // new session, and the old player would keep playing with nothing on screen to stop it.
+    if command.action == "reset" { stop(); session = ""; return }
     if command.action == "prepare" {
       guard let raw = command.url, let url = URL(string: raw),
             ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
