@@ -173,6 +173,20 @@ pub async fn detail(link: &str) -> Result<Detail> {
     Ok(Detail { audio, deep_read, transcript })
 }
 
+/// Sentence timestamps the sites' speech recognition saved for an episode's audio (from 2026-11 on; older episodes
+/// have none). Keyed like podcast-ops/doubao_asr.py `timed_key`: the first 32 hex digits of SHA-256 of the URL.
+pub async fn timed_transcript(audio_url: &str) -> Option<Vec<Segment>> {
+    use sha2::{Digest, Sha256};
+    let key = &hex::encode(Sha256::digest(audio_url.trim().as_bytes()))[..32];
+    let v = net::get_json(&format!("https://subcast.qiaomu.ai/tools/timed/{key}.json")).await.ok()?;
+    let segs: Vec<Segment> = v["segments"].as_array()?.iter().filter_map(|s| Some(Segment {
+        start: s[0].as_f64()?,
+        end: s[1].as_f64()?,
+        text: s[2].as_str()?.trim().to_string(),
+    })).filter(|s| !s.text.is_empty() && s.end >= s.start).collect();
+    (segs.len() > 10).then_some(segs)
+}
+
 /// Turns an untimed transcript into segments spread across the episode. Header lines ("Machine transcription by…")
 /// are dropped. Timing is approximate, so the source is marked as such.
 pub fn transcript_segments(text: &str, duration: f64) -> Vec<Segment> {

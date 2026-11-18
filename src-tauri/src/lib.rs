@@ -404,7 +404,16 @@ async fn fetch_official_transcript(state: State<'_, AppState>, episode_id: Strin
     } else {
         None
     };
-    // 乔木精读 episodes carry the original transcript on their page (untimed; spread across the episode).
+    // Newer 精读 episodes have real sentence timings, saved by the sites' speech recognition; prefer them.
+    let t = match t {
+        None if ep.transcript_type.as_deref() == Some("qiaomu") && ep.audio_url.as_deref().is_some_and(|a| a.starts_with("http")) =>
+            qiaomu::timed_transcript(ep.audio_url.as_deref().unwrap()).await.map(|segs| Transcript {
+                episode_id: ep.id.clone(), source: "qiaomu-timed".into(), language: "auto".into(),
+                segments: transcript::resegment(transcript::clean(segs)),
+            }),
+        t => t,
+    };
+    // Otherwise 乔木精读 episodes carry the original transcript on their page (untimed; spread across the episode).
     let t = match t {
         Some(t) => Some(t),
         None if ep.transcript_type.as_deref() == Some("podscribe") && ep.transcript_url.is_some() => {

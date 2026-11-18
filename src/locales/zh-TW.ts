@@ -279,6 +279,7 @@ const dict: Record<string, string> = {
   "本机识别": "本機識別",
   "云端识别": "雲端識別",
   "精读站原文 · 时间为估算": "精讀站原文 · 時間為估算",
+  "精读站原文": "精讀站原文",
   "Podscribe 文字稿": "Podscribe 文字稿",
   "模型下载失败：{error}": "模型下載失敗：{error}",
   "{name}翻译": "{name}翻譯",

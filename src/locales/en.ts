@@ -279,6 +279,7 @@ const dict: Record<string, string> = {
   "本机识别": "On-device transcription",
   "云端识别": "Cloud transcription",
   "精读站原文 · 时间为估算": "Deep-read site transcript · Times are estimated",
+  "精读站原文": "Deep-read site transcript",
   "Podscribe 文字稿": "Podscribe transcript",
   "模型下载失败：{error}": "Model download failed: {error}",
   "{name}翻译": "{name} translation",
