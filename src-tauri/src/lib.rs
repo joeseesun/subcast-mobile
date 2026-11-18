@@ -1072,6 +1072,7 @@ mod live {
             let ep = &ch.episodes[0];
             println!("{id}: {} | cover={:?} | eps={} | zh={} | first={} video={:?}", ch.show.title, ch.show.cover, ch.episodes.len(), ch.zh_titles.len(), ep.title, ep.video_id);
             let d = crate::qiaomu::detail(ep.link.as_ref().unwrap()).await.unwrap();
+            assert!(ep.audio_url.is_some() && ep.audio_url == d.audio, "{id}: episodes.json should carry the page's audio address");
             println!("  audio={:?} deep={} transcript={}", d.audio, d.deep_read.as_ref().map(|h| h.len()).unwrap_or(0), d.transcript.as_ref().map(|t| t.len()).unwrap_or(0));
             if let Some(t) = &d.transcript { let segs = crate::qiaomu::transcript_segments(t, ep.duration.unwrap_or(3600.0)); println!("  segs={} first={:?}", segs.len(), segs.first().map(|s| s.text.chars().take(80).collect::<String>())); }
         }

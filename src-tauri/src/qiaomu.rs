@@ -107,7 +107,8 @@ pub async fn channel(id: &str) -> Result<Channel> {
             title: t,
             published,
             duration: e["du"].as_f64(),
-            audio_url: None,
+            // `a` (added 2026-11): the audio address, so an episode plays without first reading its page.
+            audio_url: e["a"].as_str().filter(|a| a.starts_with("http")).map(String::from),
             cover: e["c"].as_str().map(abs).or_else(|| video.as_ref().map(|y| format!("https://i.ytimg.com/vi/{y}/hqdefault.jpg"))),
             video_id: video,
             link: Some(link),
