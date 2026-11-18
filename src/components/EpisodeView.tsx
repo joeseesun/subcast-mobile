@@ -28,7 +28,7 @@ import { isZh, useZh, useZhParagraphs } from "../lib/zh";
 import { autoTranslate, loadTranscript, useJobs } from "../lib/jobs";
 import { useStore } from "../store";
 import { ChatPanel, SummaryPanel } from "./AiPanels";
-import { Controls, playSoon } from "./Players";
+import { Controls, playSoon, toggleTheater } from "./Players";
 import { VideoSlot } from "./VideoDock";
 import { bytes, cancelDownload, downloadEpisode, isSaved, removeDownload, useOffline } from "../lib/offline";
 import { toggleFavorite, useLibrary } from "../lib/library";
@@ -70,6 +70,40 @@ function pieceAt(text: string, cjk: boolean, progress: number): string {
   let acc = 0;
   for (const p of ps) { acc += p.length; if (acc / total >= progress) return p; }
   return ps[ps.length - 1];
+}
+
+export type Cue = { s: number; e: number; zh: string | null; o: string | null };
+
+/** The whole subtitle timeline as the on-screen overlay shows it (same pieces, same timing), for players that
+ *  draw captions themselves: the native full-screen player and the system's own video full screen. */
+export function buildCues(segments: { start: number; end: number; text: string }[], items: (string | null | undefined)[] | undefined, mode: string): Cue[] {
+  const out: Cue[] = [];
+  segments.forEach((seg, i) => {
+    const next = segments[i + 1];
+    const start = Math.max(0, seg.start - 0.15);
+    const end = Math.max(start + 0.2, Math.min(seg.end + 1.5, next ? next.start - 0.15 : seg.end + 1.5));
+    const span = Math.max(0.5, seg.end - seg.start);
+    const zh = items?.[i] ?? null;
+    const showOrig = mode !== "translation" || !zh;
+    const showZh = !!zh && mode !== "original";
+    const origPs = showOrig ? pieces(seg.text, /[\u4e00-\u9fff]/.test(seg.text)) : [];
+    const zhPs = showZh && zh ? pieces(zh, true) : [];
+    // Each piece covers its share of characters of the block; the cue changes wherever either line changes.
+    const marks = (ps: string[]) => { const total = ps.reduce((n, p) => n + p.length, 0) || 1; let acc = 0; return ps.map((p) => (acc += p.length) / total); };
+    const om = marks(origPs), zm = marks(zhPs);
+    const cuts = [...new Set([...om, ...zm])].filter((x) => x < 1).sort((a, b) => a - b);
+    let from = 0;
+    for (const to of [...cuts, 1]) {
+      const at = (from + to) / 2;
+      const pick = (ps: string[], m: number[]) => ps.length ? ps[Math.max(0, m.findIndex((x) => x >= at))] ?? ps[ps.length - 1] : null;
+      const s = from === 0 ? start : seg.start + from * span;
+      const e = to === 1 ? end : seg.start + to * span;
+      if (e > s) out.push({ s, e, zh: pick(zhPs, zm), o: pick(origPs, om) });
+      from = to;
+    }
+  });
+  // Overlapping source blocks can step back slightly; players look cues up by start time.
+  return out.sort((a, b) => a.s - b.s);
 }
 
 /** Which piece (sentence-sized) of a block is being spoken, assuming speech is spread evenly over it. */
@@ -305,6 +339,15 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const onListScroll = (e: React.UIEvent<HTMLElement>) => {
     if (scrolled && (e.target as HTMLElement).scrollTop < 8) setScrolled(false);
   };
+  // Turning the phone sideways while a video plays fills the screen with it (subtitles included); upright restores the page.
+  useEffect(() => {
+    if (!showVideo || !isCurrent) return;
+    const landscape = window.matchMedia("(orientation: landscape) and (max-height: 560px)");
+    const apply = () => { if (landscape.matches !== useStore.getState().theater) toggleTheater(landscape.matches); };
+    apply();
+    landscape.addEventListener("change", apply);
+    return () => { landscape.removeEventListener("change", apply); if (useStore.getState().theater) toggleTheater(false); };
+  }, [showVideo, isCurrent]);
   const startPlayback = () => {
     if (!isCurrent) load(audioMode ? { ...ep, videoId: undefined } : ep);
     playSoon(ep.id);

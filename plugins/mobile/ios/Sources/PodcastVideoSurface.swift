@@ -35,6 +35,11 @@ final class PodcastVideoSurface: NSObject, AVPlayerViewControllerDelegate {
   private var canShowPicture = false
   private var transitioningFullscreen = false
   private var pictureInPicture = false
+  /// Full screen reads its subtitles from this timeline on the player's own clock: the WebView behind a
+  /// full-screen presentation leaves the window and stops measuring its overlay.
+  private var cues = [PodcastCue]()
+  private var cueObserver: Any?
+  private weak var cuePlayer: AVPlayer?
   var didReturnInline: (() -> Void)?
 
   var isFullscreen: Bool {
@@ -67,6 +72,8 @@ final class PodcastVideoSurface: NSObject, AVPlayerViewControllerDelegate {
   }
 
   func stop() {
+    stopCues()
+    cues = []
     pictureStatus = nil
     fullscreenBounds = nil
     picture.playerLayer.player = nil
@@ -90,6 +97,41 @@ final class PodcastVideoSurface: NSObject, AVPlayerViewControllerDelegate {
     self.layout = layout
     place()
     fullCaption?.configure(layout)
+  }
+
+  func setCues(_ cues: [PodcastCue]) {
+    self.cues = cues
+    guard let caption = fullCaption else { return }
+    caption.cueDriven = !cues.isEmpty
+    if cues.isEmpty, let layout { caption.configure(layout) }
+    if let time = player?.currentTime().seconds { showCue(at: time) }
+  }
+
+  private func startCues() {
+    stopCues()
+    guard let player else { return }
+    cuePlayer = player
+    cueObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.2, preferredTimescale: 600), queue: .main) { [weak self] time in
+      self?.showCue(at: time.seconds)
+    }
+    showCue(at: player.currentTime().seconds)
+  }
+
+  private func stopCues() {
+    if let cueObserver { cuePlayer?.removeTimeObserver(cueObserver) }
+    cueObserver = nil
+    cuePlayer = nil
+  }
+
+  private func showCue(at time: Double) {
+    guard let caption = fullCaption, !cues.isEmpty, time.isFinite else { return }
+    var low = 0, high = cues.count - 1, found = -1
+    while low <= high {
+      let mid = (low + high) / 2
+      if cues[mid].s <= time { found = mid; low = mid + 1 } else { high = mid - 1 }
+    }
+    let cue = found >= 0 && time <= cues[found].e ? cues[found] : nil
+    caption.setText(translated: cue?.zh, original: cue?.o)
   }
 
   func setTransport(playing: Bool, waiting: Bool) {
@@ -123,8 +165,10 @@ final class PodcastVideoSurface: NSObject, AVPlayerViewControllerDelegate {
       caption.frame = overlay.bounds
       caption.autoresizingMask = [.flexibleWidth, .flexibleHeight]
       overlay.addSubview(caption)
+      caption.cueDriven = !self.cues.isEmpty
       if let layout = self.layout { caption.configure(layout) }
       self.fullCaption = caption
+      self.startCues()
       self.fullscreenBounds = controller.observe(\.videoBounds, options: [.initial, .new]) { [weak caption, weak overlay] player, _ in
         DispatchQueue.main.async {
           guard let caption, let overlay else { return }
@@ -167,6 +211,7 @@ final class PodcastVideoSurface: NSObject, AVPlayerViewControllerDelegate {
 
   private func finishFullscreen(_ controller: AVPlayerViewController) {
     guard fullscreen === controller, !pictureInPicture else { return }
+    stopCues()
     fullscreen = nil
     fullCaption = nil
     fullscreenBounds = nil
@@ -263,6 +308,8 @@ private final class PictureMark: UIView {
 
 private final class CaptionOverlay: UIView {
   var isFullscreen = false
+  /// Text comes from the cue timeline (setText) rather than from the page's layout updates.
+  var cueDriven = false
   var didLeaveWindow: (() -> Void)?
   var videoFrame = CGRect.zero { didSet { setNeedsLayout() } }
   private let backing = UIView()
@@ -297,9 +344,18 @@ private final class CaptionOverlay: UIView {
 
   func configure(_ layout: PodcastVideoLayout) {
     style = layout
-    translation.text = layout.translated
-    original.text = layout.original
+    if !cueDriven {
+      translation.text = layout.translated
+      original.text = layout.original
+    }
     backing.backgroundColor = layout.boxed ? UIColor(white: 0, alpha: 0.62) : .clear
+    setNeedsLayout()
+  }
+
+  func setText(translated: String?, original text: String?) {
+    guard translation.text != translated || original.text != text else { return }
+    translation.text = translated
+    original.text = text
     setNeedsLayout()
   }
 

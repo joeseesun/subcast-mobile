@@ -97,6 +97,8 @@ class MobilePlugin: Plugin {
         if self.podcast.session == command.session, let layout = command.layout {
           self.podcastVideo.update(layout)
         }
+      case "video-cues":
+        if self.podcast.session == command.session { self.podcastVideo.setCues(command.cues ?? []) }
       case "video-fullscreen":
         guard self.podcast.session == command.session, let controller = self.manager.viewController,
               self.podcastVideo.showFullscreen(from: controller) else {

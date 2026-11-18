@@ -15,6 +15,8 @@ import { IS_MAC, t, tr } from "../lib/i18n";
 import { audioSrc, useOffline } from "../lib/offline";
 import { playNext } from "../lib/library";
 import { useNativeVideoLayout } from "../lib/nativeVideoLayout";
+import { useJobs } from "../lib/jobs";
+import { buildCues, type Cue } from "./EpisodeView";
 
 const SAVE_EVERY = 10;
 /** Starts an episode as soon as its player exists: right away when it does, or when it appears (a YouTube
@@ -140,6 +142,41 @@ type MediaStatus = {
 type SystemFailure = "bridge" | "source";
 type NativeCommand = (action: string, values?: object) => Promise<void>;
 
+/** The bilingual subtitle timeline for players that draw captions themselves (native and system full screen).
+ *  Rebuilt at most every 2 s while a translation streams in. */
+function useCueTimeline(ep: Episode): Cue[] | null {
+  const transcript = useJobs((s) => s.transcripts[ep.id]);
+  const items = useJobs((s) => s.translations[ep.id]?.items);
+  const mode = useStore((s) => s.settings.subtitleMode);
+  const [cues, setCues] = useState<Cue[] | null>(null);
+  const built = useRef(0);
+  useEffect(() => {
+    if (!transcript) { setCues(null); return; }
+    const wait = Math.max(0, 2000 - (Date.now() - built.current));
+    const timer = window.setTimeout(() => { built.current = Date.now(); setCues(buildCues(transcript.segments, items, mode)); }, wait);
+    return () => window.clearTimeout(timer);
+  }, [transcript, items, mode]);
+  return cues;
+}
+
+const vttTime = (x: number) => {
+  const ms = Math.max(0, Math.round(x * 1000));
+  const h = Math.floor(ms / 3_600_000), m = Math.floor(ms / 60_000) % 60, sec = Math.floor(ms / 1000) % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(ms % 1000).padStart(3, "0")}`;
+};
+const vttText = (x: string) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/** A WebVTT file of the timeline: iOS shows it in its own full-screen video player, where page overlays can't go. */
+function useCueTrack(ep: Episode): string | null {
+  const cues = useCueTimeline(ep);
+  const url = useMemo(() => {
+    if (!cues?.length) return null;
+    const body = cues.map((c, i) => `${i + 1}\n${vttTime(c.s)} --> ${vttTime(c.e)}\n${[c.zh, c.o].filter(Boolean).map((x) => vttText(x!)).join("\n")}`).join("\n\n");
+    return URL.createObjectURL(new Blob([`WEBVTT\n\n${body}\n`], { type: "text/vtt" }));
+  }, [cues]);
+  useEffect(() => () => { if (url) URL.revokeObjectURL(url); }, [url]);
+  return url;
+}
+
 /** Audio and direct video share one AVPlayer session, timeline and transport. */
 function useSystemPlayback(ep: Episode, src: string, video: boolean, onFallback: (failure: SystemFailure) => void) {
   const fallbackRef = useRef(onFallback);
@@ -223,6 +260,8 @@ function SystemVideo({ ep, src, onFallback }: { ep: Episode; src: string; onFall
   const stage = useRef<HTMLDivElement>(null);
   const { playing, loading } = useStore(useShallow((s) => ({ playing: s.playing, loading: !!s.loadingSince })));
   const command = useSystemPlayback(ep, src, true, onFallback);
+  const cues = useCueTimeline(ep);
+  useEffect(() => { if (command && cues) void command("video-cues", { cues }).catch(() => {}); }, [command, cues]);
   const layout = useMemo(() => command ? (value: object) => command("video-layout", { layout: value }) : null, [command]);
   useNativeVideoLayout(stage, layout);
   return <div className="system-video-frame" ref={stage} data-system-video>
@@ -499,6 +538,23 @@ type IOSVideo = HTMLVideoElement & {
 /** `onFail`: the stream can't be played (stale address, or HLS unsupported here); the caller gets another. */
 function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind: "hls" | "mp4"; onFail?: () => void }) {
   const ref = useRef<HTMLVideoElement>(null);
+  // The subtitle track only shows in the system's full screen; inline, the page's own overlay draws the subtitles.
+  const cueTrack = useCueTrack(ep);
+  useEffect(() => {
+    const el = ref.current as IOSVideo | null;
+    if (!el) return;
+    const sync = () => { for (const tt of Array.from(el.textTracks)) tt.mode = el.webkitDisplayingFullscreen ? "showing" : "hidden"; };
+    sync();
+    const tracks = el.textTracks;
+    el.addEventListener("webkitbeginfullscreen", sync);
+    el.addEventListener("webkitendfullscreen", sync);
+    tracks.addEventListener("addtrack", sync);
+    return () => {
+      el.removeEventListener("webkitbeginfullscreen", sync);
+      el.removeEventListener("webkitendfullscreen", sync);
+      tracks.removeEventListener("addtrack", sync);
+    };
+  }, [cueTrack]);
   const rate = useStore((s) => s.settings.playbackRate);
   const priming = useRef(false);
   const quietPause = useRef(false);
@@ -675,7 +731,9 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
             void api.setProgress(ep.id, el.currentTime);
           }
         }}
-        onEnded={(e) => { shouldPlay.current = false; clearStall(); clearRecovery(); void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }} />
+        onEnded={(e) => { shouldPlay.current = false; clearStall(); clearRecovery(); void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }}>
+        {cueTrack && <track key={cueTrack} kind="subtitles" srcLang="zh" label={t("双语字幕")} src={cueTrack} default />}
+      </video>
       {IS_MAC && <>
         <button className="inline-video-toggle" aria-label={playing ? t("暂停") : t("播放")} onClick={() => {
           const player = useStore.getState().player;

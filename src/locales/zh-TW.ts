@@ -1173,6 +1173,7 @@ const dict: Record<string, string> = {
   "全屏播放": "全螢幕播放",
   "共享字幕": "共享字幕",
   "{n} 集未听": "{n} 集未聽",
+  "双语字幕": "雙語字幕",
 };
 
 export default dict;

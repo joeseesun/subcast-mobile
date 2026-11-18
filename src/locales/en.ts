@@ -1113,6 +1113,7 @@ const dict: Record<string, string> = {
   "全屏播放": "Play Full Screen",
   "共享字幕": "Shared subtitles",
   "{n} 集未听": "{n} unplayed",
+  "双语字幕": "Bilingual subtitles",
 };
 
 export default dict;

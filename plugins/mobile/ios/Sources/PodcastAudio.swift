@@ -13,6 +13,15 @@ struct PodcastCommand: Decodable {
   let layout: PodcastVideoLayout?
   let youtubeID: String?
   let youtubeLabels: PodcastYouTubeLabels?
+  let cues: [PodcastCue]?
+}
+
+/// One subtitle line pair on the episode's timeline (seconds), as the page's overlay would show it.
+struct PodcastCue: Decodable {
+  let s: Double
+  let e: Double
+  let zh: String?
+  let o: String?
 }
 
 /// One selected episode. Preparing an item may fetch and decode audio, but never starts the clock.
