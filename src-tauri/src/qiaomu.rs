@@ -140,8 +140,24 @@ fn inner_html(html: &str, class: &str) -> Option<String> {
     None
 }
 
+/// Recently read episode pages. Opening an episode reads its page twice (audio and deep-read, then the transcript),
+/// and a page is 200–300 KB from a server across the Pacific: one download now serves both.
+static PAGES: std::sync::Mutex<Vec<(String, std::time::Instant, std::sync::Arc<String>)>> = std::sync::Mutex::new(Vec::new());
+
+async fn page(link: &str) -> Result<std::sync::Arc<String>> {
+    const KEEP: std::time::Duration = std::time::Duration::from_secs(600);
+    if let Some((_, _, html)) = PAGES.lock().unwrap().iter().find(|(l, at, _)| l == link && at.elapsed() < KEEP) { return Ok(html.clone()); }
+    let html = std::sync::Arc::new(net::get_text(link).await?);
+    let mut pages = PAGES.lock().unwrap();
+    pages.retain(|(l, at, _)| l != link && at.elapsed() < KEEP);
+    if pages.len() >= 4 { pages.remove(0); }
+    pages.push((link.to_string(), std::time::Instant::now(), html.clone()));
+    Ok(html)
+}
+
 pub async fn detail(link: &str) -> Result<Detail> {
-    let html = net::get_text(link).await?;
+    let html = page(link).await?;
+    let html = html.as_str();
     let audio = Regex::new(r#"<audio[^>]+src="([^"]+)""#).unwrap().captures(&html).map(|c| crate::transcript::decode_entities(&c[1]))
         .or_else(|| Regex::new(r#"(?:src|href)="(https://[^"]+\.(?:mp3|m4a)[^"]*)""#).unwrap().captures(&html).map(|c| crate::transcript::decode_entities(&c[1])));
     let deep_read = inner_html(&html, "zh-article").map(|h| {
@@ -275,10 +291,16 @@ pub(crate) async fn borrowable(id: &str, show_name: &str) -> Vec<Borrowable> {
     eps.into_iter().filter_map(|e| Some(Borrowable { audio: e.audio_url?, title: e.title, published: e.published, duration: e.duration })).collect()
 }
 
-pub async fn rss_channel(id: &str) -> Result<Channel> {
+/// How long a refresh waits for the lookups that fill in audio and videos (a publisher's full feed can be several
+/// MB; YouTube is unreachable on many networks). Past it, episodes keep what they had.
+const LOOKUP_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// `known`: GUIDs already stored with audio or a video. When every entry is one of them, the slow lookups are skipped.
+pub async fn rss_channel(id: &str, known: &std::collections::HashSet<String>) -> Result<Channel> {
     let podscribe = id.starts_with("podscribe-");
-    // Everything independent runs at once: the channel list, the entry pages, the original feed (podscribe audio)
-    // and the YouTube uploads. Sequentially this took 5–10 s on the larger channels.
+    // The channel list and the entry pages (Cloudflare, fast) run at once. The slow lookups (the publisher's feed for
+    // podscribe audio, the YouTube uploads) run only for entries not seen before, and only for so long: before, every
+    // refresh waited for a 2–7 MB feed, or 20 s for YouTube where it is blocked.
     let meta_f = async {
         let sources = net::get_json(&format!("{RSS}/api/sources")).await?;
         sources["sources"].as_array().and_then(|a| a.iter().find(|s| s["id"].as_str() == Some(id)).cloned())
@@ -296,13 +318,23 @@ pub async fn rss_channel(id: &str) -> Result<Channel> {
         }
         Ok::<_, anyhow::Error>(entries)
     };
-    let borrow_f = async { if podscribe && original_feed(id).is_some() { borrowable(id, "").await } else { vec![] } };
-    let yt_f = async { match youtube_channel(id) { Some(ch) => youtube_videos(ch).await, None => vec![] } };
-    let (meta, entries, mut borrowed, yt) = tokio::join!(meta_f, pages_f, borrow_f, yt_f);
+    let (meta, entries) = tokio::join!(meta_f, pages_f);
     let (meta, entries) = (meta?, entries?);
     let name = meta["name"].as_str().unwrap_or(id).replace(" · 文稿", "");
     if entries.is_empty() { return Err(anyhow!("这个频道还没有节目")); }
-    if podscribe && original_feed(id).is_none() { borrowed = borrowable(id, &name).await; }
+    // Only the newest entries decide: an old one the publisher's feed never matched would otherwise send every
+    // refresh through the slow lookups again. A new episode is retried until it is no longer among the newest.
+    let mut newest: Vec<&serde_json::Value> = entries.iter().collect();
+    newest.sort_by_key(|e| std::cmp::Reverse(e["publishedTs"].as_i64().unwrap_or(0)));
+    let fresh: Vec<_> = newest.into_iter().take(5).filter(|e| e["id"].as_str().is_some_and(|g| !known.contains(g))).collect();
+    let needs_audio = podscribe && fresh.iter().any(|e| e["audio"]["url"].as_str().is_none());
+    let needs_video = youtube_channel(id).is_some() && !fresh.is_empty();
+    let borrow_f = async { if needs_audio { borrowable(id, if original_feed(id).is_some() { "" } else { &name }).await } else { vec![] } };
+    let yt_f = async { match youtube_channel(id).filter(|_| needs_video) { Some(ch) => youtube_videos(ch).await, None => vec![] } };
+    let (borrowed, yt) = tokio::join!(
+        async { tokio::time::timeout(LOOKUP_WAIT, borrow_f).await.unwrap_or_default() },
+        async { tokio::time::timeout(LOOKUP_WAIT, yt_f).await.unwrap_or_default() },
+    );
     let feed = rss_feed_url(id);
     let show_id = short_hash(&feed, 16);
     let mut zh_titles = vec![];
@@ -419,7 +451,7 @@ mod tests {
     async fn rss_channel_timing() {
         for id in ["podscribe-acquired", "latentspace", "nexttoken"] {
             let t = std::time::Instant::now();
-            let ch = rss_channel(id).await.unwrap();
+            let ch = rss_channel(id, &Default::default()).await.unwrap();
             println!("{id}: {} episodes in {:?}", ch.episodes.len(), t.elapsed());
         }
     }

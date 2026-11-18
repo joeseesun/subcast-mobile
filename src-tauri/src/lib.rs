@@ -64,7 +64,10 @@ fn store(state: &AppState, show: &Show, eps: &[Episode]) -> Res<()> {
 /// into the translation cache so the UI shows them instead of machine translations.
 async fn fetch_any(state: &AppState, feed_url: &str, kind: &str) -> anyhow::Result<(Show, Vec<Episode>)> {
     if kind == "qiaomu" {
-        let ch = if let Some(id) = qiaomu::rss_source_id(feed_url) { qiaomu::rss_channel(&id).await? } else {
+        let ch = if let Some(id) = qiaomu::rss_source_id(feed_url) {
+            let known = db::guids_with_media(&state.db.lock().unwrap(), &short_hash(feed_url, 16)).unwrap_or_default();
+            qiaomu::rss_channel(&id, &known).await?
+        } else {
             let id = qiaomu::site_id(feed_url).ok_or_else(|| anyhow::anyhow!("不是精读频道"))?;
             qiaomu::channel(&id).await?
         };
@@ -1021,12 +1024,27 @@ pub fn run() {
 mod live {
     //! Network tests against real services: `cargo test -- --ignored --nocapture`.
     use super::*;
+    /// A refresh with nothing new skips the publisher's feed and YouTube: it costs the two rss.qiaomu.ai requests.
+    #[tokio::test]
+    #[ignore]
+    async fn qiaomu_rss_refresh_is_quick() {
+        for id in ["podscribe-the-diary-of-a-ceo-with-steven-bartlett", "nexttoken"] {
+            let t = std::time::Instant::now();
+            let first = crate::qiaomu::rss_channel(id, &Default::default()).await.unwrap();
+            let cold = t.elapsed();
+            let known = first.episodes.iter().filter(|e| e.audio_url.is_some() || e.video_id.is_some()).map(|e| e.guid.clone()).collect();
+            let t = std::time::Instant::now();
+            crate::qiaomu::rss_channel(id, &known).await.unwrap();
+            println!("{id}: first {cold:?}, refresh {:?}", t.elapsed());
+        }
+    }
+
     #[tokio::test]
     #[ignore]
     async fn qiaomu_rss_sources() {
         let ids = ["nexttoken", "bannatie", "latentspace", "podscribe-acquired", "podscribe-pivot", "podscribe-freakonomics-radio", "podscribe-invest-like-the-best", "podscribe-the-diary-of-a-ceo-with-steven-bartlett"];
         for id in ids {
-            let ch = crate::qiaomu::rss_channel(id).await.unwrap();
+            let ch = crate::qiaomu::rss_channel(id, &Default::default()).await.unwrap();
             let playable = |x: &Episode| x.audio_url.is_some() || x.video_id.is_some();
             println!("{id}: {} eps={} playable={} video={} deep={} cover={}", ch.show.title, ch.episodes.len(), ch.episodes.iter().filter(|x| playable(x)).count(), ch.episodes.iter().filter(|x| x.video_id.is_some()).count(), ch.episodes.iter().filter(|x| x.deep).count(), ch.show.cover.is_some());
             if id == "nexttoken" { assert!(ch.episodes.iter().filter(|x| x.video_id.is_some()).count() * 2 >= ch.episodes.len(), "nexttoken episodes should mostly have the YouTube video"); }

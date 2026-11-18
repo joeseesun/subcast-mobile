@@ -137,6 +137,13 @@ pub fn recent_episodes(conn: &Connection, limit: i64) -> Result<Vec<Episode>> {
     Ok(rows)
 }
 
+/// GUIDs of a show's episodes that already have something to play (audio or a video).
+pub fn guids_with_media(conn: &Connection, show_id: &str) -> Result<std::collections::HashSet<String>> {
+    let mut st = conn.prepare("SELECT guid FROM episodes WHERE show_id=?1 AND (audio_url IS NOT NULL OR video_id IS NOT NULL)")?;
+    let rows = st.query_map(params![show_id], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<_>>()?;
+    Ok(rows)
+}
+
 pub fn get_episode(conn: &Connection, id: &str) -> Result<Option<Episode>> {
     let sql = format!("SELECT {EPISODE_COLS} FROM episodes e LEFT JOIN shows s ON s.id=e.show_id WHERE e.id=?1");
     Ok(conn.query_row(&sql, [id], episode_from).optional()?)
