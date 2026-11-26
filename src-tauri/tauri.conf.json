@@ -35,7 +35,8 @@
     "category": "Education",
     "iOS": {
       "minimumSystemVersion": "15.0",
-      "developmentTeam": "BRCU3DPFH4"
+      "developmentTeam": "BRCU3DPFH4",
+      "bundleVersion": "1"
     },
     "android": {
       "minSdkVersion": 26
