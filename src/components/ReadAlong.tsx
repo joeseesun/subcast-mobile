@@ -14,14 +14,14 @@ import { ReadAloudSettings } from "./ReadAloud";
 
 /** The header controls. `owner` names the article; `sentences` are its marked sentences. */
 export function ReadAlongControls({ owner, sentences }: { owner: string; sentences: string[] }) {
-  const { active, index, state, error } = useReadAlong(useShallow((s) => ({ active: s.owner === owner, index: s.index, state: s.state, error: s.error })));
+  const { active, index, state, error, errorAt } = useReadAlong(useShallow((s) => ({ active: s.owner === owner, index: s.index, state: s.state, error: s.error, errorAt: s.errorAt })));
   const [setup, setSetup] = useState(false);
   // A missing key opens the voice settings, as the old 朗读 button did.
   useEffect(() => {
-    if (!active || state !== "error" || !error) return;
+    if (!active || state !== "error" || !error || Date.now() - errorAt > 3000) return;
     useStore.getState().notify(tr(error));
     if (error.includes("Key")) setSetup(true);
-  }, [active, state, error]);
+  }, [active, state, error, errorAt]);
   const resume = active ? 0 : resumeIndex(owner, sentences.length);
   const total = sentences.length;
   const busy = state === "loading";

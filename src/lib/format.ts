@@ -14,6 +14,7 @@ export function parseClock(text: string): number | null {
 
 export function duration(seconds?: number): string {
   if (!seconds) return "";
+  if (seconds < 60) return t("{s} 秒", { s: Math.max(1, Math.round(seconds)) });
   const m = Math.round(seconds / 60);
   return m >= 60 ? t("{h} 小时 {m} 分", { h: Math.floor(m / 60), m: m % 60 }) : t("{m} 分钟", { m });
 }

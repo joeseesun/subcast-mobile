@@ -19,9 +19,11 @@ interface ReadAlong {
   /** Characters of the current sentence already spoken (estimated from the audio's length). */
   spoken: number;
   error: string | null;
+  /** When the error happened, so a page opened later doesn't announce an old one. */
+  errorAt: number;
 }
 
-export const useReadAlong = create<ReadAlong>(() => ({ owner: null, sentences: [], index: 0, state: "idle", spoken: 0, error: null }));
+export const useReadAlong = create<ReadAlong>(() => ({ owner: null, sentences: [], index: 0, state: "idle", spoken: 0, error: null, errorAt: 0 }));
 const set = (p: Partial<ReadAlong>) => useReadAlong.setState(p);
 
 let gen = 0;
@@ -78,7 +80,7 @@ async function playFrom(i: number) {
   set({ index: i, spoken: 0, state: "loading", error: null });
   remember(owner, i);
   const text = sentences[i];
-  const fail = (e: unknown) => { if (g === gen) set({ state: "error", error: String((e as Error)?.message ?? e) }); };
+  const fail = (e: unknown) => { if (g === gen) set({ state: "error", error: String((e as Error)?.message ?? e), errorAt: Date.now() }); };
   try {
     const url = await synth(text);
     if (g !== gen) return;
@@ -133,7 +135,7 @@ export function toggleReading() {
       set({ state: "playing" });
       const marks = estimateMarks(sentences[index] ?? "", el.duration);
       ticker(el, () => marks, g);
-    }).catch((e) => set({ state: "error", error: String(e?.message ?? e) }));
+    }).catch((e) => set({ state: "error", error: String(e?.message ?? e), errorAt: Date.now() }));
     return;
   }
   seekReading(state === "ended" ? 0 : index);

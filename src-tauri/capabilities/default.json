@@ -48,6 +48,7 @@
     "allow-ui-ready",
     "allow-refresh-config",
     "allow-youtube-stream",
+    "allow-audio-stream",
     "allow-prepare-youtube",
     "allow-youtube-tracks",
     "allow-use-youtube-track",

@@ -91,6 +91,9 @@ fn system_proxy() -> Option<String> {
     None
 }
 
+/// A client that ignores every proxy, for a second try when the proxied route fails.
+pub fn direct() -> reqwest::Client { DIRECT.clone() }
+
 pub fn client() -> reqwest::Client {
     CLIENT.read().unwrap().1.clone()
 }

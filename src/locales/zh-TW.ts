@@ -365,6 +365,7 @@ const dict: Record<string, string> = {
   "模型没有返回 JSON": "模型沒有回傳 JSON",
   "译文不完整": "譯文不完整",
   "{h} 小时 {m} 分": "{h} 小時 {m} 分",
+  "{s} 秒": "{s} 秒",
   "{m} 分钟": "{m} 分鐘",
   "{days} 天前": "{days} 天前",
   "AI 前沿": "AI 前沿",

@@ -320,7 +320,7 @@ export function LatestView() {
             <section>
               <div className="module-head">
                 <h2 className="module-title">{t("为你推荐")}</h2>
-                <button className="link-btn" onClick={() => go({ kind: "discover" })}>{t("全部")} <ChevronRight size={13} /></button>
+                <button className="link-btn" onClick={() => useStore.setState({ view: { kind: "discover" }, history: [] })}>{t("全部")} <ChevronRight size={13} /></button>
               </div>
               <div className="rec-list">{recs.map((r) => <RecRow key={r.pick.id} r={r} adding={adding === r.pick.input} done={isSubscribed(r.pick, shows)} onAdd={() => void subscribe(r.pick.input, pickName(r.pick))} />)}</div>
             </section>

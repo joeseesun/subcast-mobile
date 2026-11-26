@@ -569,6 +569,10 @@ async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: St
     Ok(VideoStream { url, kind: if is_hls { "hls" } else { "mp4" } })
 }
 
+/// The loopback address that plays a podcast's audio through SubCast, for a host the player couldn't load.
+#[tauri::command]
+async fn audio_stream(url: String) -> Res<String> { hlsproxy::audio(&url).await.map_err(e) }
+
 /// Nothing to prepare on a phone (no yt-dlp); kept so the page's call is harmless.
 #[tauri::command]
 async fn prepare_youtube() -> Res<()> { Ok(()) }
@@ -1018,7 +1022,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             add_subscription, refresh_show, refresh_all, list_shows, list_episodes, recent_episodes, get_episode, remove_show,
             set_progress, search_podcasts, search_show, load_transcript, fetch_official_transcript, transcribe, cancel_job,
-            get_blob, set_blob, get_settings, set_settings, set_api_key, has_api_key, llm_chat, translate_texts, shared_transcript, shared_exists, shared_guide, share_guide, log_listen, listening_stats, export_opml, share_translation, ui_ready, refresh_config, youtube_stream, prepare_youtube, youtube_tracks, use_youtube_track, qiaomu_detail, preview_show, list_models, tts_speak, cached_show, save_image,
+            get_blob, set_blob, get_settings, set_settings, set_api_key, has_api_key, llm_chat, translate_texts, shared_transcript, shared_exists, shared_guide, share_guide, log_listen, listening_stats, export_opml, share_translation, ui_ready, refresh_config, youtube_stream, audio_stream, prepare_youtube, youtube_tracks, use_youtube_track, qiaomu_detail, preview_show, list_models, tts_speak, cached_show, save_image,
             download_episode, list_downloads, delete_download, clear_downloads, storage_info, clear_temp, full_notes
         ])
         .build(tauri::generate_context!())
