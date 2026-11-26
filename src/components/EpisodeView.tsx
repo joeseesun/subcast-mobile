@@ -16,7 +16,7 @@ class PanelBoundary extends Component<{ children: ReactNode }, { error: string |
     ) : this.props.children;
   }
 }
-import { ChevronLeft, ChevronDown, Trash2, Check } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronRight, Trash2, Check } from "lucide-react";
 import { BookArt, EmptyState } from "./Illustrations";
 import { DeepRead } from "./DeepRead";
 import { SkeletonEpisode } from "./Skeleton";
@@ -291,6 +291,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   // Feeds sometimes mark a deep-read that isn't there: then the tab goes away.
   const [noDeep, setNoDeep] = useState<string | null>(null);
   const { current, load } = useStore(useShallow((s) => ({ current: s.current, load: s.load })));
+  const followed = useStore((s) => ep.showId !== "single" && s.shows.some((show) => show.id === ep.showId));
   const titleZh = useZh(ep.title);
   const isCurrent = current?.id === ep.id;
   const [draft, setDraft] = useState("");
@@ -388,7 +389,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
     <div className="episode m-episode">
       <header className="m-episode-nav">
         <button className="m-back" onClick={() => useStore.getState().back()} aria-label={t("返回")}><ChevronLeft size={24} /></button>
-        <span className="clamp1">{ep.showTitle && ep.showId !== "single" ? showName(ep.showTitle) : "SubCast"}</span>
+        <span className="clamp1">{followed && !compact ? "" : ep.showTitle && ep.showId !== "single" ? showName(ep.showTitle) : "SubCast"}</span>
         <button className="m-back" aria-label={t("本集操作")} aria-haspopup="dialog" onClick={() => setSheet("actions")}><BrandGlyph name="more" /></button>
       </header>
       {sheet === "actions" && <EpisodeActions ep={ep} close={() => setSheet(null)} />}
@@ -401,9 +402,12 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
         <div className={`ep-title-block ${showVideo ? "" : "audio-heading"}`}>
           {!showVideo && ep.cover && <img className="episode-artwork" src={ep.cover} alt="" />}
           <div className="ep-title">
-            <p className="meta-line">{[date(ep.published), duration(ep.duration)].filter(Boolean).map((x, i) => <span key={i}>{i > 0 && " · "}{x}</span>)}</p>
             <h1>{titleZh ?? ep.title}</h1>
             {titleZh && titleZh !== ep.title && <p className="orig-line clamp1">{ep.title}</p>}
+            <p className="meta-line ep-byline">
+              {followed && ep.showTitle && <button className="ep-show-link" onClick={() => useStore.getState().go({ kind: "show", id: ep.showId })}>{showName(ep.showTitle)}<ChevronRight size={13} aria-hidden /></button>}
+              <span>{[duration(ep.duration), date(ep.published)].filter(Boolean).join(" · ")}</span>
+            </p>
           </div>
         </div>
         {showVideo ? (

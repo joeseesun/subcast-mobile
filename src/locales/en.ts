@@ -161,6 +161,7 @@ const dict: Record<string, string> = {
   "还剩 {left} 分钟": "{left} min left",
   "继续播放": "Resume",
   "订阅节目": "Your shows",
+  "我的订阅": "Following",
   "最新单集": "Latest episodes",
   "还没有订阅节目": "You haven't subscribed to any shows yet",
   "去发现节目": "Discover shows",
