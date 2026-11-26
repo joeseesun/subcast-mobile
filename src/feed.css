@@ -65,7 +65,7 @@
 .show-page .ep-group-h { padding-inline: 0; }
 /* A wash of the artwork's own colours behind the head of the page. */
 .show-page .show-head { position: relative; isolation: isolate; }
-.show-page .show-head[style]::before { content: ""; position: absolute; z-index: -1; top: -14px; height: 340px; inset-inline: calc(var(--gutter) * -1); background: var(--cover) center / cover; filter: blur(48px) saturate(1.5); opacity: .32; -webkit-mask-image: linear-gradient(#000 35%, transparent); mask-image: linear-gradient(#000 35%, transparent); pointer-events: none; }
+.show-page .show-head[style]::before { content: ""; position: absolute; z-index: -1; top: -14px; height: 340px; inset-inline: calc(var(--gutter) * -1); background: var(--cover) center / cover; filter: blur(48px) saturate(1.5); opacity: .32; -webkit-mask-image: linear-gradient(transparent, #000 22%, #000 45%, transparent); mask-image: linear-gradient(transparent, #000 22%, #000 45%, transparent); pointer-events: none; }
 @media (prefers-color-scheme: dark) { .show-page .show-head[style]::before { opacity: .26; } }
 
 /* Episode page: the show (a link back to it), then length and date, under the title */

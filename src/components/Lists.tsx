@@ -90,7 +90,7 @@ function EpisodeRow({ ep, showShow, hit, query }: { ep: Episode; showShow: boole
   const loading = useOffline((s) => s.active[ep.id]);
   const shared = useSharedHits((s) => !!s.ids[ep.id]);
   const translated = !!zh && zh !== ep.title;
-  const about = translated ? "" : blurb(ep.notes);
+  const about = useMemo(() => (translated ? "" : blurb(ep.notes)), [translated, ep.notes]);
   const left = pct > 0 && pct < 97 ? Math.max(1, Math.round(((ep.duration ?? 0) - ep.progress) / 60)) : 0;
   return (
     <div className={`feed-row ${isCurrent ? "playing" : ""} ${pct >= 97 ? "played" : ""}`} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => e.key === "Enter" && open()}>
