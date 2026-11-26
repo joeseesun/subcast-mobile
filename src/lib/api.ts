@@ -106,6 +106,9 @@ export const api = {
   cachedShow: (input: string) => invoke<{ show: Show; episodes: Episode[]; fetchedAt: number } | null>("cached_show", { input }),
   qiaomuDetail,
   listModels: (provider: Provider) => invoke<string[]>("list_models", { provider }),
+  /** Speech from the chosen voice service (speech.rs), as base64 with its type. */
+  ttsSynthesize: (req: import("./voices").TtsRequest) => invoke<{ data: string; mime: string; seconds: number }>("tts_synthesize", { req }),
+  clearTtsCache: () => invoke<void>("clear_tts_cache"),
   ttsSpeak: (text: string, voice: string, resource?: string) => invoke<string>("tts_speak", { text, voice, resource }),
   /** The loopback address that plays podcast audio through the app (proxy, then direct), for a host the player refused. */
   audioStream: (url: string) => invoke<string>("audio_stream", { url }),

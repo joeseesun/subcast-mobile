@@ -57,6 +57,8 @@
     "allow-preview-show",
     "allow-list-models",
     "allow-tts-speak",
+    "allow-tts-synthesize",
+    "allow-clear-tts-cache",
     "allow-cached-show",
     "allow-save-image",
     "allow-download-episode",

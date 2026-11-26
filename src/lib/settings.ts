@@ -46,6 +46,13 @@ export interface Settings {
   /** "local", or the id of a cloud transcription service. */
   asrEngine: string;
   cloudAsr: Record<string, CloudAsr>;
+  /** The voice service for 朗读 and 精读跟读 (see voices.ts); "" until chosen (then picked on first launch). */
+  ttsEngine: string;
+  /** What the listener changed per voice service: voice, model, address. */
+  ttsServices: Record<string, { voice?: string; model?: string; baseUrl?: string; resource?: string }>;
+  /** Reading speed for 朗读 (0.8–1.5). */
+  ttsRate: number;
+  /** Legacy Doubao fields, carried into ttsServices.doubao. */
   ttsVoice: string;
   ttsResource: string;
   /** The chat model picked in the chat box; "" means the chat provider's own model. */
@@ -177,6 +184,9 @@ export const DEFAULTS: Settings = {
   playbackRate: 1,
   asrEngine: "deepseek",
   cloudAsr: Object.fromEntries(ASR_SERVICES.map((a) => [a.id, a])),
+  ttsEngine: "",
+  ttsServices: {},
+  ttsRate: 1,
   ttsVoice: "zh_female_vv_uranus_bigtts",
   ttsResource: "seed-tts-2.0",
   chatModel: "",

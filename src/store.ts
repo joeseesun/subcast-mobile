@@ -107,6 +107,8 @@ export const useStore = create<State>((set, get) => ({
     const [settings, shows] = await Promise.all([loadSettings(), api.listShows()]);
     setLang(settings.uiLang);
     set({ settings, shows, ready: true });
+    // First launch with the voice services: keep Doubao for whoever set it up, else Edge (voices.ts).
+    void import("./lib/voices").then((m) => m.chooseDefaultEngine()).catch(() => {});
     void get().checkUpdates();
     // Periodically, and when the window comes back after a while (the app may sit in the background for hours).
     window.setInterval(() => void get().checkUpdates(), CHECK_EVERY);
