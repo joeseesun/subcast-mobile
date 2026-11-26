@@ -1190,6 +1190,7 @@ const dict: Record<string, string> = {
   "{n} 句 · 点一句从那里播放": "{n} lines · tap one to play from there",
   "还没有收藏的句子": "No saved lines yet",
   "听到好句子时，按住那句字幕，选「收藏这句」，就会存到这里。": "When you hear a line you like, press and hold it in the subtitles and choose “Save this line”.",
+  "文字": "Text",
 };
 
 export default dict;

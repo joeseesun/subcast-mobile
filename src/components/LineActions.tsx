@@ -60,7 +60,7 @@ function LineSheet({ ep, index }: { ep: Episode; index: number }) {
         try { await navigator.clipboard.writeText(`“${text}”\n${source}`); useStore.getState().notify(t("已复制，带出处")); }
         catch { useStore.getState().notify(t("复制失败")); }
       })}><Copy size={20} aria-hidden /><span>{t("复制")}</span></button>
-      <button className="line-act" onClick={act(() => window.dispatchEvent(new CustomEvent("subcast-poster", { detail: { text, ts: clock(line.start) } })))}>
+      <button className="line-act" onClick={act(() => window.dispatchEvent(new CustomEvent("subcast-poster", { detail: { text, ts: clock(line.start), episodeId: ep.id, zh: line.zh, orig: line.orig } })))}>
         <ImageIcon size={20} aria-hidden /><span>{t("生成海报")}</span>
       </button>
       <button className="line-act" onClick={act(() => window.dispatchEvent(new CustomEvent("subcast-ask-selection", { detail: line.orig || line.zh })))}>

@@ -12,6 +12,8 @@ import logoUrl from "../assets/logo.png";
 const ZONES = ".deep-body, .lines, .notes-body, .chat-scroll, .summary";
 
 interface Sel { text: string; x: number; y: number; below: boolean; ts?: string }
+/** A poster asked for: selected text, or a whole subtitle line with its two languages kept apart (LineActions). */
+interface PosterRequest { text: string; ts?: string; episodeId?: string; zh?: string; orig?: string }
 
 
 const toSeconds = (t?: string) => (t ? t.split(":").reduce((n, p) => n * 60 + Number(p), 0) : 0);
@@ -20,7 +22,7 @@ const toSeconds = (t?: string) => (t ? t.split(":").reduce((n, p) => n * 60 + Nu
 export function SelectionTools() {
   const [sel, setSel] = useState<Sel | null>(null);
   const [tr, setTr] = useState<string | null>(null);
-  const [poster, setPoster] = useState<{ text: string; ts?: string } | null>(null);
+  const [poster, setPoster] = useState<PosterRequest | null>(null);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => {
     const read = () => {
@@ -39,7 +41,7 @@ export function SelectionTools() {
     const onChange = () => { window.clearTimeout(timer.current); timer.current = window.setTimeout(read, 220); };
     document.addEventListener("selectionchange", onChange);
     // A held subtitle line asks for a poster of itself (LineActions).
-    const onPoster = (e: Event) => { const d = (e as CustomEvent<{ text: string; ts?: string }>).detail; if (d?.text) setPoster({ text: d.text, ts: d.ts }); };
+    const onPoster = (e: Event) => { const d = (e as CustomEvent<PosterRequest>).detail; if (d?.text) setPoster(d); };
     window.addEventListener("subcast-poster", onPoster);
     return () => { document.removeEventListener("selectionchange", onChange); window.removeEventListener("subcast-poster", onPoster); };
   }, []);
@@ -75,15 +77,16 @@ export function SelectionTools() {
           {tr && <div className="sel-tr">{tr === "…" ? <Loader2 size={13} className="spin" /> : tr}</div>}
         </div>
       )}
-      {poster && <PosterDialog text={poster.text} ts={poster.ts} getEpisode={episode} onClose={() => setPoster(null)} />}
+      {poster && <PosterDialog text={poster.text} ts={poster.ts} lineZh={poster.zh} lineOrig={poster.orig} getEpisode={poster.episodeId ? () => api.getEpisode(poster.episodeId!).then((e) => e ?? null) : episode} onClose={() => setPoster(null)} />}
     </>
   );
 }
 
 const PREF = "subcast-poster";
-const readPref = (): { theme?: string; font?: string } => { try { return JSON.parse(localStorage.getItem(PREF) ?? "{}"); } catch { return {}; } };
+type PosterLang = "both" | "zh" | "orig";
+const readPref = (): { theme?: string; font?: string; lang?: PosterLang } => { try { return JSON.parse(localStorage.getItem(PREF) ?? "{}"); } catch { return {}; } };
 
-function PosterDialog({ text, ts, getEpisode, onClose }: { text: string; ts?: string; getEpisode: () => Promise<Episode | null>; onClose: () => void }) {
+function PosterDialog({ text, ts, lineZh, lineOrig, getEpisode, onClose }: { text: string; ts?: string; lineZh?: string; lineOrig?: string; getEpisode: () => Promise<Episode | null>; onClose: () => void }) {
   const [url, setUrl] = useState<string | null>(null);
   const [name, setName] = useState(() => t("SubCast 摘句"));
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +94,8 @@ function PosterDialog({ text, ts, getEpisode, onClose }: { text: string; ts?: st
   const [themeId, setThemeId] = useState(() => readPref().theme ?? POSTER_THEMES[0].id);
   const [fontId, setFontId] = useState(() => readPref().font ?? POSTER_FONTS[0].id);
   const [fontBusy, setFontBusy] = useState(false);
+  // With a translation there are two languages: print both, only the Chinese, or only the original.
+  const [lang, setLang] = useState<PosterLang>(() => readPref().lang ?? "both");
   const logo = useRef<HTMLImageElement | null>(null);
   // Translate and gather the source once; the drawing is redone on every theme or font change.
   useEffect(() => {
@@ -105,7 +110,9 @@ function PosterDialog({ text, ts, getEpisode, onClose }: { text: string; ts?: st
         const enPart = lines.filter((l) => !CJK.test(l)).join(" ");
         const cjk = !!zhPart && !/[a-z]{6}/i.test(zhPart);
         let zh = zhPart, en = enPart;
-        if (!cjk) { en = lines.join(" "); try { zh = (await api.translateTexts([en], "zh-CN"))[0] ?? ""; } catch { zh = ""; } }
+        // A subtitle line comes with its translation already: no guessing which part is which.
+        if (lineZh || lineOrig) { zh = lineZh ?? ""; en = lineOrig && lineOrig !== lineZh ? lineOrig : ""; if (!zh && en) { try { zh = (await api.translateTexts([en], "zh-CN"))[0] ?? ""; } catch { zh = ""; } } }
+        else if (!cjk) { en = lines.join(" "); try { zh = (await api.translateTexts([en], "zh-CN"))[0] ?? ""; } catch { zh = ""; } }
         const titleZh = ep ? (await api.translateTexts([ep.title], "zh-CN").catch(() => [ep.title]))[0] || ep.title : "";
         const secs = toSeconds(ts);
         const link = ep?.videoId ? `https://www.youtube.com/watch?v=${ep.videoId}${secs ? `&t=${Math.floor(secs)}s` : ""}` : ep?.link;
@@ -126,22 +133,23 @@ function PosterDialog({ text, ts, getEpisode, onClose }: { text: string; ts?: st
   useEffect(() => {
     if (!input) return;
     let live = true;
-    try { localStorage.setItem(PREF, JSON.stringify({ theme: themeId, font: fontId })); } catch { /* private mode */ }
+    try { localStorage.setItem(PREF, JSON.stringify({ theme: themeId, font: fontId, lang })); } catch { /* private mode */ }
+    const shown = input.zh && input.en ? { ...input, zh: lang === "orig" ? "" : input.zh, en: lang === "zh" ? "" : input.en } : input;
     (async () => {
       const theme = POSTER_THEMES.find((x) => x.id === themeId) ?? POSTER_THEMES[0];
       let font = POSTER_FONTS.find((x) => x.id === fontId) ?? POSTER_FONTS[0];
       if (font.css) {
         setFontBusy(true);
-        const ok = await loadPosterFont(font, [input.zh, input.title, input.show].join(""));
+        const ok = await loadPosterFont(font, [shown.zh, shown.title, shown.show].join(""));
         if (!live) return;
         setFontBusy(false);
         if (!ok) { useStore.getState().notify(t("字体没有加载成功，先用系统字体")); font = POSTER_FONTS[0]; }
       }
-      const c = await drawPoster(input, logo.current ?? undefined, theme, font);
+      const c = await drawPoster(shown, logo.current ?? undefined, theme, font);
       if (live) setUrl(c.toDataURL("image/png"));
     })();
     return () => { live = false; };
-  }, [input, themeId, fontId]);
+  }, [input, themeId, fontId, lang]);
   const save = async () => { if (!url) return; try { const p = await api.saveImage(name, url); await shareFile(p, "image/png", name); } catch (e) { useStore.getState().notify(String(e)); } };
   const copyImg = async () => {
     if (!url) return;
@@ -156,6 +164,14 @@ function PosterDialog({ text, ts, getEpisode, onClose }: { text: string; ts?: st
           {fontBusy && url && <span className="poster-busy"><Loader2 className="spin" size={13} /> {t("正在加载字体…")}</span>}
         </div>
         <div className="poster-side">
+          {input?.zh && input.en && <>
+            <p className="poster-label">{t("文字")}</p>
+            <div className="seg-control poster-lang" role="radiogroup">
+              {([["both", t("双语")], ["zh", t("中文")], ["orig", t("原文")]] as const).map(([k, label]) => (
+                <button key={k} type="button" role="radio" aria-checked={lang === k} className={lang === k ? "on" : ""} onClick={() => setLang(k)}>{label}</button>
+              ))}
+            </div>
+          </>}
           <p className="poster-label">{t("主题")}</p>
           <div className="poster-themes">
             {POSTER_THEMES.map((th) => (
