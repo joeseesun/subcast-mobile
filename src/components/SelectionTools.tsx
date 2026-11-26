@@ -38,7 +38,10 @@ export function SelectionTools() {
     };
     const onChange = () => { window.clearTimeout(timer.current); timer.current = window.setTimeout(read, 220); };
     document.addEventListener("selectionchange", onChange);
-    return () => document.removeEventListener("selectionchange", onChange);
+    // A held subtitle line asks for a poster of itself (LineActions).
+    const onPoster = (e: Event) => { const d = (e as CustomEvent<{ text: string; ts?: string }>).detail; if (d?.text) setPoster({ text: d.text, ts: d.ts }); };
+    window.addEventListener("subcast-poster", onPoster);
+    return () => { document.removeEventListener("selectionchange", onChange); window.removeEventListener("subcast-poster", onPoster); };
   }, []);
 
   const episode = async (): Promise<Episode | null> => {

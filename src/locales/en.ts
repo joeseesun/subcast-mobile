@@ -1180,6 +1180,16 @@ const dict: Record<string, string> = {
   "音频地址无效": "Invalid audio address",
   "这个版本只用 YouTube 官方播放器播放视频": "This edition plays videos only in YouTube's own player",
   "播放视频": "Play video",
+  "已收藏 · 点按取消": "Saved · tap to remove",
+  "收藏这句": "Save this line",
+  "从这里播放": "Play from here",
+  "问问这句": "Ask about this line",
+  "已收藏这句": "Line saved",
+  "查看收藏的句子": "See saved lines",
+  "收藏的句子": "Saved lines",
+  "{n} 句 · 点一句从那里播放": "{n} lines · tap one to play from there",
+  "还没有收藏的句子": "No saved lines yet",
+  "听到好句子时，按住那句字幕，选「收藏这句」，就会存到这里。": "When you hear a line you like, press and hold it in the subtitles and choose “Save this line”.",
 };
 
 export default dict;
