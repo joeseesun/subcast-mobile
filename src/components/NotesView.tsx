@@ -1,4 +1,4 @@
-// 笔记: the lines saved with 划线, grouped by episode, newest first. A line plays from where it was said; the whole
+// 收藏的句子: lines saved by pressing and holding a subtitle, grouped by episode, newest first. A line plays from where it was said; the whole
 // list exports as Markdown through the share sheet.
 import { useMemo } from "react";
 import { Share, Trash2 } from "lucide-react";
@@ -54,12 +54,12 @@ export function NotesView() {
     return [...map.values()];
   }, [notes]);
   return <div className="page collection-page notes-page">
-    <PageHeading title={t("我的划线")}>
+    <PageHeading title={t("收藏的句子")}>
       {notes.length > 0 && <button className="heading-tool" aria-label={t("导出为 Markdown")} onClick={() => void shareText(notesMarkdown(notes), t("声渡笔记"))}><Share size={20} /></button>}
     </PageHeading>
-    {notes.length > 0 && <p className="muted page-sub">{t("{n} 条划线 · 点一条从那里播放", { n: notes.length })}</p>}
+    {notes.length > 0 && <p className="muted page-sub">{t("{n} 句 · 点一句从那里播放", { n: notes.length })}</p>}
     {!notes.length
-      ? <EmptyState art={<BookmarkArt />} title={t("还没有划线")} note={t("听到好句子时，点播放器下方的「划线」，这句就会存到这里。")} />
+      ? <EmptyState art={<BookmarkArt />} title={t("还没有收藏的句子")} note={t("听到好句子时，按住那句字幕，选「收藏这句」，就会存到这里。")} />
       : groups.map((g) => <NoteGroup key={g[0].episodeId} notes={g} />)}
   </div>;
 }

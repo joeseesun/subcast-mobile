@@ -120,8 +120,6 @@
 .m-ep-tools { display: flex; align-items: center; gap: 8px; }
 .m-ep-tools .chapter-chip { flex: 1; min-width: 0; }
 .m-ep-tools .spacer { flex: 1; }
-.note-btn { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 40px; padding: 0 14px; border: 0; border-radius: 12px; background: var(--accent-soft); color: var(--accent-text); font: inherit; font-size: 14px; font-weight: 650; }
-@media (prefers-reduced-motion: no-preference) { .m-app .note-btn:active { transform: scale(.94); opacity: 1; } .note-btn { transition: transform .18s cubic-bezier(.2,.8,.3,1); } }
 
 /* 笔记 page */
 .note-group { margin-top: 18px; }
@@ -143,7 +141,6 @@
   text-decoration-line: underline; text-decoration-color: color-mix(in srgb, var(--accent) 32%, transparent);
   text-decoration-thickness: .42em; text-underline-offset: -.18em; text-decoration-skip-ink: none;
 }
-.note-btn.on { background: var(--accent); color: #fff; }
 
 /* After 划线: the saved line, undo, and the way to all of them */
 .note-flash { position: fixed; z-index: 60; left: 12px; right: 12px; bottom: calc(var(--safe-bottom) + 14px); padding: 12px 14px 6px; border-radius: 18px; background: var(--ink); color: var(--on-ink); box-shadow: 0 14px 40px -12px #0008; animation: note-flash-in .28s cubic-bezier(.2,.8,.3,1) both; }
@@ -154,7 +151,6 @@
 .note-flash-actions .go { opacity: 1; color: color-mix(in srgb, var(--accent) 55%, var(--on-ink)); }
 @keyframes note-flash-in { from { transform: translateY(16px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .note-flash { animation: none; } }
-.m-ep-top .controls > .note-btn { grid-area: mode; justify-self: start; height: 36px; padding: 0 11px 0 9px; gap: 4px; font-size: 13.5px; border-radius: 18px; }
 .ep-show-name { color: var(--text-2); font-weight: 650; }
 
 /* Settings pickers: the value sits against the right edge, next to its chevrons */
@@ -299,3 +295,40 @@
 /* Store edition: YouTube opens in its own player sheet; the inline frame is a poster with quiet secondary actions. */
 .video .video-sheet-actions { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 8px; z-index: 2; }
 .video .video-sheet-actions .btn { background: rgba(0,0,0,.55); color: #fff; border: 0; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+
+/* Press and hold a subtitle line for its actions: no system text callout on lines, a soft pressed tint. */
+.lines .line, .mobile-caption .asub { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.lines .line { transition: background-color .25s ease; }
+.lines .line.pressing, .mobile-caption .asub.pressing { background: color-mix(in srgb, var(--accent) 10%, transparent); border-radius: 12px; }
+.mobile-caption .asub { transition: background-color .25s ease; }
+
+.line-sheet .line-quote { margin: 4px 0 14px; padding: 14px 16px; border-radius: 14px; background: color-mix(in srgb, var(--accent) 7%, var(--panel, transparent)); }
+.line-sheet .line-quote p { margin: 0; }
+.line-sheet .line-quote .zh { font-size: 17px; line-height: 1.55; font-weight: 600; color: var(--text); }
+.line-sheet .line-quote .orig { margin-top: 6px; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.line-sheet .line-acts { display: grid; grid-template-columns: 1fr; gap: 2px; }
+.line-sheet .line-act { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 50px; padding: 0 6px; border: 0; background: none; color: var(--text); font-size: 16px; text-align: left; border-radius: 12px; }
+.line-sheet .line-act svg { color: var(--muted); flex: none; }
+.line-sheet .line-act:active { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.line-sheet .line-act.primary { margin-bottom: 6px; justify-content: center; background: var(--accent); color: #fff; font-weight: 600; }
+.line-sheet .line-act.primary svg { color: #fff; }
+.line-sheet .line-act.primary.on { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.line-sheet .line-act.primary.on svg { color: var(--accent); }
+
+.poster-side .poster-lang { display: grid; grid-template-columns: repeat(3, 1fr); margin-bottom: 14px; }
+
+/* Poster sheet on a phone: the sheet scrolls as one page (preview, then options), never wider than the screen;
+   themes are a row of small swatches that scrolls sideways inside its own width, the selected ring not clipped. */
+@media (max-width: 760px) {
+  .modal.wide:has(.poster-layout), .modal-body:has(> .poster-layout) { min-width: 0; max-width: 100vw; }
+  .modal-body:has(> .poster-layout) { overflow-x: hidden; overflow-y: auto; }
+  .poster-layout, .poster-layout > * { min-width: 0; max-width: 100%; }
+  .poster-layout { flex: none; }
+  .poster-layout .poster-pv { flex: none; height: 44vh; }
+  .poster-layout .poster-side { flex: none; overflow: visible; padding: 0 2px 8px; }
+  .poster-side > * { flex: none; }
+  .poster-side .poster-themes { display: flex; gap: 12px; width: 100%; overflow-x: auto; padding: 4px; margin: 0 -4px; box-sizing: content-box; scrollbar-width: none; }
+  .poster-side .poster-themes::-webkit-scrollbar { display: none; }
+  .poster-side .poster-theme { flex: 0 0 72px; font-size: 11px; white-space: nowrap; }
+  .poster-side .poster-theme .swatch { width: 72px; }
+}

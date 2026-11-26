@@ -1,3 +1,5 @@
+import { useLongPress } from "../lib/longPress";
+import { openLineActions } from "./LineActions";
 import { STORE, youtubeOnly } from "../lib/edition";
 import { seekEpisode } from "./Players";
 import { useShallow } from "zustand/react/shallow";
@@ -49,11 +51,11 @@ function highlight(text: string, query: string) {
   return i < 0 ? text : <>{text.slice(0, i)}<mark>{text.slice(i, i + query.length)}</mark>{text.slice(i + query.length)}</>;
 }
 
-const Row = memo(function Row({ seg, zh, active, mode, pending, onSeek, query, current, noted }: { seg: Segment; zh?: string | null; active: boolean; mode: string; pending: boolean; onSeek: (t: number) => void; query: string; current: boolean; noted?: boolean }) {
+const Row = memo(function Row({ index, seg, zh, active, mode, pending, onSeek, query, current, noted }: { index: number; seg: Segment; zh?: string | null; active: boolean; mode: string; pending: boolean; onSeek: (t: number) => void; query: string; current: boolean; noted?: boolean }) {
   const showZh = mode !== "original";
   const showOrig = mode !== "translation" || (!zh && !pending);
   return (
-    <div className={`line ${active ? "active" : ""} ${current ? "hit" : ""} ${noted ? "noted" : ""}`} data-active={active || undefined} data-hit={current || undefined} aria-current={active ? "time" : undefined} role="button" tabIndex={0} onClick={() => onSeek(seg.start)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSeek(seg.start); } }}>
+    <div className={`line ${active ? "active" : ""} ${current ? "hit" : ""} ${noted ? "noted" : ""}`} data-i={index} data-active={active || undefined} data-hit={current || undefined} aria-current={active ? "time" : undefined} role="button" tabIndex={0} onClick={() => onSeek(seg.start)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSeek(seg.start); } }}>
       <span className="line-time">{clock(seg.start)}</span>
       <div className="line-text">
         {showZh && (zh ? <p className="zh">{highlight(zh, query)}</p> : pending ? <span className="skeleton" /> : null)}
@@ -105,6 +107,8 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const { settings, saveSettings, current, openSettings } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings, current: s.current, openSettings: s.openSettings })));
   const isCurrent = current?.id === ep.id;
   const list = useRef<HTMLDivElement>(null);
+  // Press and hold a line for its actions (save, play from, copy, poster, ask).
+  useLongPress(list, ".line", (el) => openLineActions(ep, Number(el.dataset.i)));
   const [following, setFollowing] = useState(true);
   const [cueVisible, setCueVisible] = useState(true);
   const scrollBeforeSearch = useRef(0);
@@ -235,7 +239,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
             if (!searching && ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(event.key)) setFollowing(false);
           }}>
           {rows.map((i, k) => (
-            <Row key={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} mode={mode} pending={pending} onSeek={seek} query={query} current={!!matches && k === hit} noted={isNoted(notedLines, segments[i].start)} />
+            <Row key={i} index={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} mode={mode} pending={pending} onSeek={seek} query={query} current={!!matches && k === hit} noted={isNoted(notedLines, segments[i].start)} />
           ))}
           {!matches && total > 0 && (
             <div className={`lines-end ${active === total - 1 ? "reached" : ""}`}>
