@@ -1,13 +1,13 @@
-// 朗读: one button for reading Chinese text aloud (精读, 导读) with its voice and key in a small popover next to it,
-// instead of a settings page. The key is the same keychain entry as Doubao speech recognition.
-import { useState } from "react";
+// 朗读: one button for reading text aloud (精读, 导读), and the voice settings: which service (the phone's own voices,
+// Edge, Doubao, DeepSeek, MiMo, Qwen, OpenAI-compatible, MiniMax, ElevenLabs), its voice, speed and key, with a preview.
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Modal } from "./Chrome";
 import { useShallow } from "zustand/react/shallow";
 import { ExternalLink, Settings2, Square, Volume2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { speak, stopSpeaking } from "../lib/tts";
-import { VOICES } from "../lib/settings";
+import { keyAccount, SERVICES, serviceOf, systemVoices, type TtsService } from "../lib/voices";
 import { useStore } from "../store";
 import { t, tr } from "../lib/i18n";
 import { KeyField, SettingGroup, SettingSelect, SettingsSwitch, SettingText } from "./SettingRows";
@@ -29,26 +29,64 @@ export function ReadAloud({ text, title }: { text: () => string; title?: string 
 
 export function ReadAloudSettings() {
   const { settings, saveSettings } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings })));
-  const [custom, setCustom] = useState(!VOICES.some(([id]) => id === settings.ttsVoice));
-  const voices = VOICES.map(([id, name]) => [id, t(name)] as const);
+  const speaking = useStore((s) => s.speaking);
+  const svc = serviceOf(settings);
+  const own = settings.ttsServices?.[svc.id] ?? {};
+  const patch = (p: { voice?: string; model?: string; baseUrl?: string; resource?: string }) =>
+    void saveSettings({ ttsServices: { ...settings.ttsServices, [svc.id]: { ...own, ...p } } });
+  // The phone's voices arrive a moment after the page loads.
+  const [sysVoices, setSysVoices] = useState(systemVoices);
+  useEffect(() => {
+    if (typeof speechSynthesis === "undefined") return;
+    const update = () => setSysVoices(systemVoices());
+    speechSynthesis.addEventListener("voiceschanged", update);
+    return () => speechSynthesis.removeEventListener("voiceschanged", update);
+  }, []);
+  const known = svc.voices.some((v) => v.id === svc.voice);
+  const [custom, setCustom] = useState(svc.protocol !== "system" && !!svc.voice && !known);
+  useEffect(() => { setCustom(svc.protocol !== "system" && !!svc.voice && !svc.voices.some((v) => v.id === svc.voice)); }, [svc.id]);
+  const voiceOptions: [string, string][] = svc.protocol === "system"
+    ? [["", t("自动（推荐）")], ...sysVoices.map((v) => [v.voiceURI, `${v.name} · ${v.lang}`] as [string, string])]
+    : [...svc.voices.map((v) => [v.id, t(v.name)] as [string, string]), ["custom", t("自定义音色")]];
+  const free = (x: TtsService) => !x.needsKey;
+  const preview = () => {
+    if (speaking) { stopSpeaking(); return; }
+    void speak(t("你好，这是朗读的声音。Hello, this is how I sound."), (m) => useStore.getState().notify(tr(m)));
+  };
   return (
     <div className="voice-settings">
-      <SettingGroup title={t("音色")}>
-        <SettingSelect label={t("音色")} value={custom ? "custom" : settings.ttsVoice} options={[...voices, ["custom", t("自定义音色")]]}
-          onChange={(voice) => {
-            setCustom(voice === "custom");
-            if (voice !== "custom") void saveSettings({ ttsVoice: voice, ttsResource: "seed-tts-2.0" });
-          }} />
-        {custom && <>
-          <SettingText label={t("自定义音色")} value={settings.ttsVoice} onCommit={(ttsVoice) => void saveSettings({ ttsVoice })} placeholder={t("复刻音色或其他音色的 ID")} />
-          <SettingsSwitch label={t("这是我复刻的声音")} value={settings.ttsResource === "seed-icl-2.0"}
-            onChange={(cloned) => void saveSettings({ ttsResource: cloned ? "seed-icl-2.0" : "seed-tts-2.0" })} />
+      <SettingGroup title={t("朗读服务")} footer={t(svc.note)}>
+        <SettingSelect label={t("服务")} value={svc.id} options={SERVICES.map((x) => [x.id, free(x) ? `${t(x.name)} · ${t("免费")}` : t(x.name)] as const)}
+          onChange={(ttsEngine) => { stopSpeaking(); void saveSettings({ ttsEngine }); }} />
+        {(svc.voices.length > 0 || svc.protocol === "system") && (
+          <SettingSelect label={t("音色")} value={custom ? "custom" : svc.voice} options={voiceOptions}
+            onChange={(voice) => { setCustom(voice === "custom"); if (voice !== "custom") patch({ voice }); }} />
+        )}
+        {(custom || (svc.voices.length === 0 && svc.protocol !== "system")) && (
+          <SettingText label={t("自定义音色")} value={svc.voice} onCommit={(voice) => patch({ voice })} placeholder={t("音色 ID")} />
+        )}
+        {svc.id === "doubao" && custom && (
+          <SettingsSwitch label={t("这是我复刻的声音")} value={svc.resource === "seed-icl-2.0"} onChange={(cloned) => patch({ resource: cloned ? "seed-icl-2.0" : "seed-tts-2.0" })} />
+        )}
+        {svc.models.length > 1 && (
+          <SettingSelect label={t("模型")} value={svc.model} options={svc.models.map((m) => [m, m] as const)} onChange={(model) => patch({ model })} />
+        )}
+        {svc.id === "custom" && <>
+          <SettingText label={t("接口地址")} value={svc.baseUrl} onCommit={(baseUrl) => patch({ baseUrl })} placeholder="https://…/v1" />
+          <SettingText label={t("模型")} value={svc.model} onCommit={(model) => patch({ model })} placeholder="tts-1" />
         </>}
+        <SettingSelect label={t("语速")} value={settings.ttsRate || 1} options={RATES.map((r) => [r, r === 1 ? t("正常") : `${r}×`] as const)}
+          onChange={(ttsRate) => void saveSettings({ ttsRate })} />
+        <button className="ios-setting-action" onClick={preview}>{speaking ? t("停止试听") : t("试听")}{speaking ? <Square size={14} fill="currentColor" /> : <Volume2 size={16} />}</button>
       </SettingGroup>
-      <SettingGroup title={t("豆包语音 Key")} footer={t("朗读时文字会发送到豆包语音。")}>
-        <div className="ios-setting-field"><KeyField account="tts.doubao" placeholder={t("填过豆包语音识别的可以留空")} /></div>
-        <button className="ios-setting-action" onClick={() => void openUrl("https://console.volcengine.com/speech/new/setting/apikeys?projectName=default")}>{t("获取 Key")}<ExternalLink size={16} /></button>
-      </SettingGroup>
+      {svc.needsKey && (
+        <SettingGroup title={t("{name} Key", { name: t(svc.name) })} footer={keyAccount(svc.id).startsWith("tts.") ? t("朗读时文字会发送到{name}。Key 只保存在本机钥匙串。", { name: t(svc.name) }) : t("和「AI 模型」里的 {name} 是同一个 Key，填一处两边都能用。朗读时文字会发送到{name}。", { name: t(svc.name) })}>
+          <div className="ios-setting-field"><KeyField account={keyAccount(svc.id)} placeholder={svc.id === "doubao" && svc.sharedKeyHint ? t(svc.sharedKeyHint) : t("粘贴 API Key")} /></div>
+          {svc.keyUrl && <button className="ios-setting-action" onClick={() => void openUrl(svc.keyUrl!)}>{t("获取 Key")}<ExternalLink size={16} /></button>}
+        </SettingGroup>
+      )}
     </div>
   );
 }
+
+const RATES = [0.8, 1, 1.15, 1.25, 1.5];

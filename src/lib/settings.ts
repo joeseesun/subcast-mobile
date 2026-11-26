@@ -46,6 +46,13 @@ export interface Settings {
   /** "local", or the id of a cloud transcription service. */
   asrEngine: string;
   cloudAsr: Record<string, CloudAsr>;
+  /** The voice service for 朗读 and 精读跟读 (see voices.ts); "" until chosen (then picked on first launch). */
+  ttsEngine: string;
+  /** What the listener changed per voice service: voice, model, address. */
+  ttsServices: Record<string, { voice?: string; model?: string; baseUrl?: string; resource?: string }>;
+  /** Reading speed for 朗读 (0.8–1.5). */
+  ttsRate: number;
+  /** Legacy Doubao fields, carried into ttsServices.doubao. */
   ttsVoice: string;
   ttsResource: string;
   /** The chat model picked in the chat box; "" means the chat provider's own model. */
@@ -69,13 +76,16 @@ export interface Settings {
 export interface QuickPrompt { id: string; title: string; body: string; enabled: boolean }
 
 export const BUILTIN_PROMPTS: QuickPrompt[] = ([
+  ["oneline", tk("一句话总结"), tk("用一句话（不超过 40 字）说清这期最核心的结论，再用一句话说明为什么值得听。")],
   ["brief", tk("三分钟看懂这期"), tk("用三分钟能读完的篇幅讲清这期节目：主要聊了什么、得出了什么结论、为什么值得关注。最后推荐 3 个最值得听的片段，附时间戳。")],
   ["insights", tk("最有价值的观点"), tk("列出这期最有信息量的 5–8 个观点，按重要性排序。每条写：一句加粗的观点、嘉宾给出的理由、原话时间戳。")],
-  ["guest", tk("嘉宾是谁"), tk("嘉宾是谁？结合节目内容介绍他的身份、经历和代表作，说明他为什么有资格谈这个话题。节目里没提到、属于常识补充的内容请标出来。")],
   ["debate", tk("反直觉和有争议的地方"), tk("这期有哪些反直觉或有争议的观点？逐条说明：通常大家怎么看、嘉宾怎么说、他的理由站不站得住、可能漏掉了什么。")],
   ["numbers", tk("数据和预测"), tk("把节目里出现的具体数字、时间表和对未来的预测整理成表格，列：内容、谁说的、时间戳、可信度和理由。")],
   ["resources", tk("提到的书和资源"), tk("整理节目里提到的书、论文、公司、产品、工具和人物，按类别列出，每项一句话说明，并附时间戳。")],
   ["action", tk("我能用上什么"), tk("站在普通从业者的角度，这期有哪些马上能用到工作或生活里的方法和建议？写成具体可做的动作，每条附出处时间戳。")],
+  ["timeline", tk("按时间线梳理"), tk("按节目进行的顺序，把讨论分成 5–8 段，每段写：小标题、两三句要点、起始时间戳。")],
+  ["explain", tk("讲给外行听"), tk("假设我完全不懂这个领域，用通俗的比方讲清这期最重要的 3 个概念或判断，每个附时间戳。")],
+  ["quotes", tk("金句摘录"), tk("摘出 5–8 句最有分量的原话：保留原文，外语附中文翻译，注明是谁说的和时间戳。")],
   ["terms", tk("术语和黑话"), tk("列出节目里出现的专业术语、缩写和圈内说法，给出英文原文、通俗的中文解释和出现的时间戳。")],
   ["followup", tk("值得追问的问题"), tk("如果我能采访这位嘉宾，最值得追问的 3 个问题是什么？说明为什么要问，以及节目里哪里没讲透。")],
   ["share", tk("写一段分享"), tk("把这期的精华写成一段适合发朋友圈的分享，200 字以内，口语化，突出一个最有冲击力的观点。")],
@@ -83,7 +93,9 @@ export const BUILTIN_PROMPTS: QuickPrompt[] = ([
 
 export const PROMPT_HINTS = [tk("先给结论，再展开"), tk("简洁，不说套话"), tk("多用列表和表格"), tk("术语保留英文原文"), tk("讲给外行听，多打比方")];
 
-export const quickPrompts = (s: Settings) => s.quickPrompts ?? BUILTIN_PROMPTS.map((p) => ({ ...p, title: t(p.title), body: t(p.body) }));
+/** Built-ins that were taken out (a saved list may still have them). */
+const RETIRED = new Set(["builtin-guest"]);
+export const quickPrompts = (s: Settings) => (s.quickPrompts ?? BUILTIN_PROMPTS.map((p) => ({ ...p, title: t(p.title), body: t(p.body) }))).filter((p) => !RETIRED.has(p.id));
 
 // The model catalogue, ported from Capwise. Model names are suggestions; every field stays editable because providers
 // rename models often, and 「获取模型列表」 reads the live list from the provider.
@@ -177,6 +189,9 @@ export const DEFAULTS: Settings = {
   playbackRate: 1,
   asrEngine: "deepseek",
   cloudAsr: Object.fromEntries(ASR_SERVICES.map((a) => [a.id, a])),
+  ttsEngine: "",
+  ttsServices: {},
+  ttsRate: 1,
   ttsVoice: "zh_female_vv_uranus_bigtts",
   ttsResource: "seed-tts-2.0",
   chatModel: "",

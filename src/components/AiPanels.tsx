@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Plus, ChevronDown, Loader2, PenLine, RefreshCw, Settings2, Sparkles, Square, SquarePen } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, ChevronRight, Loader2, PenLine, RefreshCw, Settings2, Sparkles, Square, SquarePen } from "lucide-react";
 import { api, errorText, rawErrorText, type ChatMessage, type Episode } from "../lib/api";
 import { askEpisode, summaryPrompt, transcriptForModel, writeArticle } from "../lib/ai";
 import { t, tk } from "../lib/i18n";
@@ -15,6 +15,8 @@ import { ReadAloud } from "./ReadAloud";
 import { ReadPrefsButton } from "./ReadPrefs";
 import { AnswerActions, HistoryMenu, QuestionActions, type ArchivedChat } from "./ChatActions";
 import { AskArt, PageArt, PlugArt } from "./Illustrations";
+import { MobileSheet } from "./MobileSheet";
+import type { QuickPrompt } from "../lib/settings";
 
 /** Whether a model is connected for Q&A; re-checked whenever settings change or the settings window closes. */
 function useConnected() {
@@ -99,10 +101,11 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
   const scroller = useRef<HTMLDivElement>(null);
 
   const box = useRef<HTMLTextAreaElement>(null);
-  // The four the listener uses most (the first four by default) are shown; the rest open with "More".
-  const [allPrompts, setAllPrompts] = useState(false);
+  // Quick questions, most used first. A tap asks right away (no editing step); all of them are one tap away in a
+  // sheet during a conversation.
+  const [promptSheet, setPromptSheet] = useState(false);
   const prompts = byUse(quickPrompts(settings).filter((p) => p.enabled));
-  const shownPrompts = allPrompts ? prompts : prompts.slice(0, 4);
+  const askPrompt = (p: QuickPrompt) => { countUse(p.id); setPromptSheet(false); send(p.body); };
 
   useEffect(() => {
     setArchive([]);
@@ -187,21 +190,20 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
                 <p className="lead">{t("问问这期节目")}</p>
               </div>
             </div>
-            <div className="prompt-list">
-              {shownPrompts.map((p) => {
+            <div className="prompt-grid">
+              {prompts.map((p) => {
                 const Icon = promptIcon(p.id);
                 return (
-                  <button key={p.id} type="button" className="prompt-row" title={p.body} disabled={blocked} onClick={() => { countUse(p.id); setInput(p.body); box.current?.focus(); }}>
-                    <Icon size={15} className="pr-icon" />
-                    <span className="pr-text"><span className="pr-title">{p.title}</span></span>
+                  <button key={p.id} type="button" className="prompt-card" disabled={blocked} onClick={() => askPrompt(p)}>
+                    <Icon size={17} className="pc-icon" aria-hidden />
+                    <span className="pc-title">{p.title}</span>
                   </button>
                 );
               })}
             </div>
             <div className="prompt-foot">
-              {prompts.length > 4 && <button type="button" className="link-btn" aria-expanded={allPrompts} onClick={() => setAllPrompts(!allPrompts)}>{allPrompts ? t("收起") : t("更多 {n} 个", { n: prompts.length - 4 })}<ChevronDown size={12} className={allPrompts ? "flip" : ""} /></button>}
               <span className="spacer" />
-            <button type="button" className="link-btn" onClick={() => setPrefsOpen(true)}><Settings2 size={13} /> {t("自定义提示词和回答偏好")}</button>
+              <button type="button" className="link-btn" onClick={() => setPrefsOpen(true)}><Settings2 size={13} /> {t("自定义提示词和回答偏好")}</button>
             </div>
           </div>
         )}
@@ -229,16 +231,17 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
       {!atBottom && (messages.length > 0 || streaming != null) && <button type="button" className="to-bottom" title={t("回到底部")} aria-label={t("回到底部")} onClick={toBottom}><ArrowDown size={16} /></button>}
       {(!blocked || streaming != null) && <form className="composer phone-composer" onSubmit={(e) => { e.preventDefault(); void send(input); }} onClick={(e) => { if (e.target === e.currentTarget) box.current?.focus(); }}>
         {toolsOpen && <div className="composer-tools">          <ModelPicker disabled={connected === false} />
-          <PromptMenu onPick={(b) => { setInput(b); setToolsOpen(false); box.current?.focus(); }} onManage={() => setPrefsOpen(true)} disabled={blocked || streaming != null} />
+          <PromptMenu onPick={(b) => { setToolsOpen(false); send(b); }} onManage={() => setPrefsOpen(true)} disabled={blocked || streaming != null} />
           <span className="spacer" />
           <HistoryMenu archive={archive} ep={ep} current={messages} onRestore={restore} onDelete={(id) => saveArchive(archive.filter((x) => x.id !== id))} />
           {messages.length > 0 && streaming == null && <button type="button" className="btn ghost sm new-chat" title={t("开始新对话，当前对话存进历史")} onClick={newChat}><SquarePen size={14} /> {t("新对话")}</button>}
         </div>}
         {messages.length > 0 && streaming == null && !toolsOpen && <div className="prompt-chips" role="group" aria-label={t("快捷提问")}>
-          {prompts.slice(0, 8).map((p) => {
+          {prompts.slice(0, 6).map((p) => {
             const Icon = promptIcon(p.id);
-            return <button key={p.id} type="button" className="prompt-chip" disabled={blocked} onClick={() => { countUse(p.id); void send(p.body); }}><Icon size={13} aria-hidden />{p.title}</button>;
+            return <button key={p.id} type="button" className="prompt-chip" disabled={blocked} onClick={() => askPrompt(p)}><Icon size={13} aria-hidden />{p.title}</button>;
           })}
+          {prompts.length > 6 && <button type="button" className="prompt-chip more" onClick={() => setPromptSheet(true)}>{t("全部 {n} 个", { n: prompts.length })}<ChevronRight size={13} aria-hidden /></button>}
         </div>}
         <div className="composer-entry"><button type="button" className="icon-btn" aria-label={t("更多")} aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}><Plus size={22} /></button>
           <textarea ref={box} value={input} rows={1} placeholder={t("问问这期节目")} disabled={blocked} onChange={(e) => setInput(e.target.value)}
@@ -249,6 +252,18 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
         </div>
       </form>}
       {prefsOpen && <ChatPrefsDialog onClose={() => setPrefsOpen(false)} />}
+      {promptSheet && <MobileSheet title={t("快捷提问")} onClose={() => setPromptSheet(false)} className="prompt-sheet">
+        <div className="ps-list">
+          {prompts.map((p) => {
+            const Icon = promptIcon(p.id);
+            return <button key={p.id} type="button" className="ps-row" disabled={blocked} onClick={() => askPrompt(p)}>
+              <Icon size={18} className="ps-icon" aria-hidden />
+              <span className="ps-text"><span className="ps-title">{p.title}</span><span className="ps-body">{p.body}</span></span>
+            </button>;
+          })}
+        </div>
+        <button type="button" className="ps-manage" onClick={() => { setPromptSheet(false); setPrefsOpen(true); }}><Settings2 size={15} /> {t("管理提示词")}</button>
+      </MobileSheet>}
     </div>
   );
 }

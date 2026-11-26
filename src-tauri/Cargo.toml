@@ -44,6 +44,11 @@ dirs = "5"
 flate2 = "1"
 tar = "0.4"
 base64 = "0.22"
+# Edge Read Aloud speaks over its own TLS WebSocket (edge_tts.rs), as on the desktop.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "tls12", "std"] }
+rustls-pki-types = "1"
+webpki-roots = "1"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
