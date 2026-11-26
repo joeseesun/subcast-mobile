@@ -8,6 +8,9 @@ export const SUB_SCALE = { s: 0.86, m: 1, l: 1.18, xl: 1.38 } as const;
 /** Subtitle fonts: the system's, or the poster's open-source ones (loaded from a CDN when picked). */
 export const SUB_FONTS = { system: "", serif: "serif", kai: "kai", sans: "sans" } as const;
 
+export const READ_LEADING = { tight: 1.7, normal: 1.95, loose: 2.25 } as const;
+export const READ_SIZE = { min: 14, max: 24, base: 17 } as const;
+
 export function useReadingSettings() {
   const s = useStore((x) => x.settings);
   useEffect(() => {
@@ -19,5 +22,12 @@ export function useReadingSettings() {
     root.setProperty("--sub-font", f ? `${f.family}, var(--font, system-ui)` : "inherit");
     document.documentElement.dataset.subLook = s.subtitleLook ?? "outline";
     document.documentElement.dataset.nextLine = s.audioNextLine ? "on" : "off";
-  }, [s.subtitleSize, s.subtitleFont, s.subtitleLook, s.chatSize, s.audioNextLine]);
+    // 精读 articles (乔木精读 and AI 精读).
+    const rf = POSTER_FONTS.find((x) => x.id === s.readFont);
+    if (rf?.css) void loadCss(rf.css).catch(() => {});
+    root.setProperty("--read-font", rf ? `${rf.family}, var(--font, system-ui)` : "var(--font, system-ui)");
+    root.setProperty("--read-size", `${s.readSize ?? READ_SIZE.base}px`);
+    root.setProperty("--read-leading", String(READ_LEADING[s.readLeading ?? "normal"]));
+    document.documentElement.dataset.readPaper = s.readPaper ?? "plain";
+  }, [s.subtitleSize, s.subtitleFont, s.subtitleLook, s.chatSize, s.audioNextLine, s.readFont, s.readSize, s.readLeading, s.readPaper]);
 }

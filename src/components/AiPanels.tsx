@@ -12,6 +12,7 @@ import { warmAgent } from "../lib/agents";
 import { providerFor, useStore } from "../store";
 import { Markdown } from "./Markdown";
 import { ReadAloud } from "./ReadAloud";
+import { ReadPrefsButton } from "./ReadPrefs";
 import { AnswerActions, HistoryMenu, QuestionActions, type ArchivedChat } from "./ChatActions";
 import { AskArt, PageArt, PlugArt } from "./Illustrations";
 
@@ -389,7 +390,7 @@ export function ArticlePanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: ()
   const title = /^#\s+/.test(first) ? first.replace(/^#\s+/, "") : null;
   return (
     <div className="summary ai-article">
-      <span className="deep-badge ai"><PenLine size={13} /> {t("AI 精读")}</span>
+      <div className="article-head"><span className="deep-badge ai"><PenLine size={13} /> {t("AI 精读")}</span><ReadPrefsButton /></div>
       {title && <h1 className="article-title">{title}</h1>}
       <Markdown text={title ? rest.join("\n") : text} onSeek={seek} />
       {streaming == null && (

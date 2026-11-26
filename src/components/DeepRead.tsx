@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, ExternalLink } from "lucide-react";
 import { SkeletonArticle } from "./Skeleton";
 import { ReadAlongControls, useReadAlongPage } from "./ReadAlong";
+import { ReadPrefsButton } from "./ReadPrefs";
 import { markSentences } from "../lib/sentences";
 import { useReadAlong } from "../lib/readAlong";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -61,6 +62,7 @@ export function DeepRead({ ep, children, onMissing }: { ep: Episode; children?: 
         <span className="deep-badge" title={t("AI 基于完整访谈改写的中文长文，不是逐字翻译")}><BookOpen size={13} /><span className="deep-badge-text">{t("乔木精读")}</span></span>
         <span className="spacer" />
         <ReadAlongControls owner={owner} sentences={marked.sentences} />
+        <ReadPrefsButton />
         {ep.link && <button className="icon-btn" title={t("在网页中打开")} onClick={() => openUrl(ep.link!)}><ExternalLink size={14} /></button>}
       </div>
       <article

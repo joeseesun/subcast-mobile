@@ -27,6 +27,11 @@ export interface Settings {
   subtitleFont?: "system" | "serif" | "kai" | "sans";
   subtitleLook?: "box" | "outline";
   chatSize?: "m" | "l";
+  /** 精读 reading: typeface (a poster font id, or "system" for the system sans), size in px, line spacing, paper. */
+  readFont?: "system" | "sys" | "serif" | "kai" | "song" | "sans";
+  readSize?: number;
+  readLeading?: "tight" | "normal" | "loose";
+  readPaper?: "plain" | "paper";
   audioNextLine?: boolean;
   skipBack?: number;
   /** The speed last chosen for each show (show id → rate), applied when one of its episodes loads. */

@@ -352,7 +352,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [videoRecovery, setVideoRecovery] = useState(false);
-  const reading = tab === "summary" || tab === "chat";
+  const reading = tab === "summary" || tab === "chat" || tab === "deep";
   const showingRecovery = isCurrent && !!current.videoId && videoRecovery;
   // Reading the transcript of an audio episode: once the list scrolls, the player folds into one row.
   const [scrolled, setScrolled] = useState(false);
