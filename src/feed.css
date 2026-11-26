@@ -136,3 +136,29 @@
 .note-orig { margin-top: 3px !important; font-size: 13.5px; line-height: 1.5; color: var(--text-2); }
 .note-del { display: grid; place-items: center; width: 36px; height: 36px; margin-top: -6px; border: 0; background: transparent; color: var(--muted); border-radius: 50%; }
 .library-collections > button:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/* 划线 shows as a highlighter stroke under the line, in the transcript and in the live caption */
+.line.noted .line-text p, .asub.noted .asub-line.now p {
+  text-decoration-line: underline; text-decoration-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  text-decoration-thickness: .42em; text-underline-offset: -.18em; text-decoration-skip-ink: none;
+}
+.note-btn.on { background: var(--accent); color: #fff; }
+
+/* After 划线: the saved line, undo, and the way to all of them */
+.note-flash { position: fixed; z-index: 60; left: 12px; right: 12px; bottom: calc(var(--safe-bottom) + 14px); padding: 12px 14px 6px; border-radius: 18px; background: var(--ink); color: var(--on-ink); box-shadow: 0 14px 40px -12px #0008; animation: note-flash-in .28s cubic-bezier(.2,.8,.3,1) both; }
+.note-flash-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 650; opacity: .75; }
+.note-flash-text { margin: 6px 0 2px; font-size: 15px; line-height: 1.5; font-weight: 550; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.note-flash-actions { display: flex; justify-content: space-between; }
+.note-flash-actions button { display: inline-flex; align-items: center; gap: 2px; min-height: 40px; padding: 0 2px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 14px; font-weight: 600; opacity: .8; }
+.note-flash-actions .go { opacity: 1; color: color-mix(in srgb, var(--accent) 55%, var(--on-ink)); }
+@keyframes note-flash-in { from { transform: translateY(16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .note-flash { animation: none; } }
+.m-ep-top .controls > .note-btn { grid-area: mode; justify-self: start; height: 36px; padding: 0 11px 0 9px; gap: 4px; font-size: 13.5px; border-radius: 18px; }
+.ep-show-name { color: var(--text-2); font-weight: 650; }
+
+/* Settings pickers: the value sits against the right edge, next to its chevrons */
+.ios-setting-row.select-row { position: relative; }
+.ios-setting-row.select-row > span:first-child { flex: 1 1 auto; min-width: 0; }
+.select-row .select-value { flex: 0 1 auto; min-width: 0; margin-inline-start: auto; color: var(--text-2); text-align: end; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.select-row > select { position: absolute; inset: 0; width: 100% !important; max-width: none !important; height: 100%; opacity: 0; margin: 0; z-index: 1; }
+.select-row .select-hint { margin-inline-start: 0 !important; }

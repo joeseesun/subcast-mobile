@@ -53,7 +53,7 @@ export function LibraryView() {
       <button onClick={() => go({ kind: "recent", saved: true })}><BrandGlyph name="saved" /><span>{t("收藏")}</span>{saved > 0 && <small>{saved}</small>}</button>
       <button onClick={() => go({ kind: "downloads" })}><BrandGlyph name="cache" /><span>{t("离线音频")}</span>{cached > 0 && <small>{cached}</small>}</button>
       <button onClick={() => go({ kind: "recent" })}><BrandGlyph name="history" /><span>{t("最近播放")}</span></button>
-      <button onClick={() => go({ kind: "notes" })}><Highlighter size={22} strokeWidth={1.7} /><span>{t("笔记")}</span>{noted > 0 && <small>{noted}</small>}</button>
+      <button onClick={() => go({ kind: "notes" })}><Highlighter size={22} strokeWidth={1.7} /><span>{t("划线")}</span>{noted > 0 && <small>{noted}</small>}</button>
       <button onClick={() => go({ kind: "stats" })}><BrandGlyph name="stats" /><span>{t("收听统计")}</span></button>
     </div>
     <div className="module-head">

@@ -37,23 +37,41 @@ function lineAt(segments: { start: number }[], time: number): number {
   return found;
 }
 
-/** Saves the line playing now in `ep` (or just the moment, when there are no subtitles yet). */
-export function noteCurrentLine(ep: Episode) {
+const keyOf = (time: number) => Math.round(time * 10);
+
+/** The line playing now in `ep`: its start, text and translation (null text when there are no subtitles yet). */
+function lineNow(ep: Episode) {
   const { time } = useStore.getState();
   const transcript = useJobs.getState().transcripts[ep.id];
   const items = useJobs.getState().translations[ep.id]?.items;
   const i = transcript ? lineAt(transcript.segments, time) : -1;
   const seg = i >= 0 ? transcript!.segments[i] : null;
-  const at = seg ? seg.start : Math.max(0, time - 5);
-  const { notes } = useNotes.getState();
-  if (notes.some((n) => n.episodeId === ep.id && Math.abs(n.time - at) < 1)) { useStore.getState().notify(t("这句已经划过了")); return; }
-  const note: Note = {
-    id: `${ep.id}-${Math.round(at * 10)}`, episodeId: ep.id, episodeTitle: ep.title, showTitle: ep.showTitle,
-    cover: ep.cover, time: at, orig: seg?.text.trim() ?? "", zh: (seg && items?.[i]?.trim()) || undefined, at: Date.now(),
-  };
-  save([note, ...notes]);
-  useStore.getState().notify(seg ? t("已划线，在资料库 › 笔记里") : t("已记下这个时间点，在资料库 › 笔记里"));
+  return { start: seg ? seg.start : Math.max(0, time - 5), orig: seg?.text.trim() ?? "", zh: (seg && items?.[i]?.trim()) || undefined };
 }
+
+/** The note on the line playing now, if it has one. */
+export function noteOnLineNow(ep: Episode): Note | undefined {
+  const at = lineNow(ep).start;
+  return useNotes.getState().notes.find((n) => n.episodeId === ep.id && Math.abs(n.time - at) < 1);
+}
+
+/** 划线 on the line playing now, or takes it off when it is already there. Returns the note added, or null. */
+export function toggleNoteOnLineNow(ep: Episode): Note | null {
+  const existing = noteOnLineNow(ep);
+  if (existing) { removeNote(existing.id); return null; }
+  const line = lineNow(ep);
+  const note: Note = {
+    id: `${ep.id}-${keyOf(line.start)}`, episodeId: ep.id, episodeTitle: ep.title, showTitle: ep.showTitle,
+    cover: ep.cover, time: line.start, orig: line.orig, zh: line.zh, at: Date.now(),
+  };
+  save([note, ...useNotes.getState().notes]);
+  return note;
+}
+
+/** Start times (×10, rounded) of the lines with 划线 in an episode, as a stable string for selectors. */
+export const notedKeys = (episodeId: string) => (s: { notes: Note[] }) =>
+  s.notes.filter((n) => n.episodeId === episodeId).map((n) => keyOf(n.time)).join(",");
+export const isNoted = (keys: string, time: number) => !!keys && keys.split(",").includes(String(keyOf(time)));
 
 export function removeNote(id: string) {
   save(useNotes.getState().notes.filter((n) => n.id !== id));

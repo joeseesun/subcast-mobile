@@ -17,7 +17,9 @@ class PanelBoundary extends Component<{ children: ReactNode }, { error: string |
   }
 }
 import { ChevronLeft, ChevronDown, ChevronRight, Highlighter, ListOrdered, Trash2, Check } from "lucide-react";
-import { noteCurrentLine } from "../lib/notes";
+import { isNoted, notedKeys, removeNote, toggleNoteOnLineNow, useNotes, type Note } from "../lib/notes";
+import { createPortal } from "react-dom";
+import { clock } from "../lib/format";
 import { BookArt, EmptyState } from "./Illustrations";
 import { DeepRead } from "./DeepRead";
 import { SkeletonEpisode } from "./Skeleton";
@@ -124,6 +126,7 @@ function AudioSubtitles({ ep }: { ep: Episode }) {
   const time = useStore((s) => s.time);
   const mode = useStore((s) => s.settings.subtitleMode);
   const showNext = useStore((s) => s.settings.audioNextLine === true);
+  const notedLines = useNotes(notedKeys(ep.id));
   if (!transcript) return null;
   const segs = transcript.segments;
   const i = Math.max(0, activeIndex(segs, time));
@@ -149,7 +152,7 @@ function AudioSubtitles({ ep }: { ep: Episode }) {
       {(mode !== "translation" || !l.zh) && <p className="sub-orig">{l.orig}</p>}
     </div>
   );
-  return <div className="asub" aria-live="off">{line(nowLine, "now", `${i}-${k}`)}{showNext && nextLine && line(nextLine, "next", `${i}-${k}-n`)}</div>;
+  return <div className={`asub ${isNoted(notedLines, seg.start) ? "noted" : ""}`} aria-live="off">{line(nowLine, "now", `${i}-${k}`)}{showNext && nextLine && line(nextLine, "next", `${i}-${k}-n`)}</div>;
 }
 
 function SubtitleOverlay({ ep }: { ep: Episode }) {
@@ -312,6 +315,34 @@ function ChapterSheet({ ep, chapters, onClose }: { ep: Episode; chapters: Chapte
   </MobileSheet>;
 }
 
+/** 划线 for the line playing now: shows whether that line already has one, and takes it off on a second tap. */
+function NoteButton({ ep, onNoted }: { ep: Episode; onNoted: (note: Note | null) => void }) {
+  const keys = useNotes(notedKeys(ep.id));
+  const start = useStore((s) => {
+    const segs = useJobs.getState().transcripts[ep.id]?.segments;
+    if (!segs?.length) return -1;
+    const i = activeIndex(segs, s.time);
+    return i >= 0 ? segs[i].start : -1;
+  });
+  const on = start >= 0 && isNoted(keys, start);
+  return <button className={`note-btn ${on ? "on" : ""}`} aria-pressed={on} onClick={() => { selectionFeedback(); onNoted(toggleNoteOnLineNow(ep)); }}>
+    {on ? <Check size={16} aria-hidden /> : <Highlighter size={16} aria-hidden />}{on ? t("已划线") : t("划线")}
+  </button>;
+}
+
+/** What was just saved, for a few seconds: the line itself, undo, and the way to all of them. */
+function NoteFlash({ note, onClose }: { note: Note; onClose: () => void }) {
+  useEffect(() => { const timer = window.setTimeout(onClose, 4500); return () => window.clearTimeout(timer); }, [note.id]);
+  return createPortal(<div className="note-flash" role="status">
+    <div className="note-flash-head"><Highlighter size={15} aria-hidden /><span>{t("已划线")} · {clock(note.time)}</span></div>
+    {(note.zh || note.orig) ? <p className="note-flash-text">{note.zh ?? note.orig}</p> : <p className="note-flash-text muted">{t("这一集还没有字幕，先记下这个时间点")}</p>}
+    <div className="note-flash-actions">
+      <button onClick={() => { removeNote(note.id); onClose(); }}>{t("撤销")}</button>
+      <button className="go" onClick={() => { onClose(); useStore.getState().go({ kind: "notes" }); }}>{t("查看全部划线")}<ChevronRight size={15} aria-hidden /></button>
+    </div>
+  </div>, document.body);
+}
+
 function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; setTab: (t: Tab) => void; startAudio: boolean }) {
   // Feeds sometimes mark a deep-read that isn't there: then the tab goes away.
   const [noDeep, setNoDeep] = useState<string | null>(null);
@@ -339,6 +370,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
     return () => window.removeEventListener("subcast-ask-selection", askSelection);
   }, [ep.id, setTab]);
   const [sheet, setSheet] = useState<"actions" | "media" | "chapters" | null>(null);
+  const [flash, setFlash] = useState<Note | null>(null);
   const chapters = useMemo(() => parseChapters(ep.notes, ep.duration), [ep.notes, ep.duration]);
   // Translate foreign-language subtitles whichever tab is open: the video's subtitles need the Chinese too.
   const transcript = useJobs((s) => s.transcripts[ep.id]);
@@ -410,12 +442,14 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const modeButton = both && <button className="media-mode" aria-label={t("切换播放方式")} aria-haspopup="dialog" onClick={(e) => void chooseMedia(e.currentTarget)}>
     {audioMode ? <BrandGlyph name="sound" size={21} /> : <BrandGlyph name="film" size={21} />}<span>{audioMode ? t("音频") : t("视频")}</span><ChevronDown size={12} />
   </button>;
+  // 划线 sits at the left of the transport (where 音频/视频 goes when an episode has both; then it moves below).
+  const noteButton = <NoteButton ep={ep} onNoted={(note) => { setFlash(note); if (!note) useStore.getState().notify(t("已取消划线")); }} />;
   // Phone layout: the player stays on top (title, picture or cover, controls); the tabs fill the rest.
   return (
     <div className="episode m-episode">
       <header className="m-episode-nav">
         <button className="m-back" onClick={() => useStore.getState().back()} aria-label={t("返回")}><ChevronLeft size={24} /></button>
-        <span className="clamp1">{followed && !compact ? "" : ep.showTitle && ep.showId !== "single" ? showName(ep.showTitle) : "SubCast"}</span>
+        <span className="clamp1">{compact && ep.showTitle && ep.showId !== "single" ? showName(ep.showTitle) : ""}</span>
         <button className="m-back" aria-label={t("本集操作")} aria-haspopup="dialog" onClick={() => setSheet("actions")}><BrandGlyph name="more" /></button>
       </header>
       {sheet === "actions" && <EpisodeActions ep={ep} close={() => setSheet(null)} />}
@@ -432,7 +466,8 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
             <h1>{titleZh ?? ep.title}</h1>
             {titleZh && titleZh !== ep.title && <p className="orig-line clamp1">{ep.title}</p>}
             <p className="meta-line ep-byline">
-              {followed && ep.showTitle && <button className="ep-show-link" onClick={() => useStore.getState().go({ kind: "show", id: ep.showId })}>{showName(ep.showTitle)}<ChevronRight size={13} aria-hidden /></button>}
+              {followed && ep.showTitle ? <button className="ep-show-link" onClick={() => useStore.getState().go({ kind: "show", id: ep.showId })}>{showName(ep.showTitle)}<ChevronRight size={13} aria-hidden /></button>
+                : ep.showTitle && ep.showId !== "single" ? <span className="ep-show-name">{showName(ep.showTitle)}</span> : null}
               <span>{[duration(ep.duration), date(ep.published)].filter(Boolean).join(" · ")}</span>
             </p>
           </div>
@@ -445,13 +480,14 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
         ) : tab !== "transcript" && (
           <div className="audio-sub mobile-caption"><AudioSubtitles ep={ep} /></div>
         )}
-        {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton} /></div> : (
+        {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton || noteButton} /></div> : (
           <div className="m-start-row">{modeButton}<button className="btn primary m-play" onClick={startPlayback}><BrandGlyph name="play" size={22} /> {t("播放这一集")}</button></div>
         )}
-        {(chapters.length > 0 || isCurrent) && <div className="m-ep-tools">
+        {(chapters.length > 0 || (isCurrent && modeButton)) && <div className="m-ep-tools">
           {chapters.length > 0 ? <ChapterChip ep={ep} chapters={chapters} onOpen={() => setSheet("chapters")} /> : <span className="spacer" />}
-          {isCurrent && <button className="note-btn" onClick={() => { selectionFeedback(); noteCurrentLine(ep); }}><Highlighter size={16} aria-hidden />{t("划线")}</button>}
+          {isCurrent && modeButton && noteButton}
         </div>}
+        {flash && <NoteFlash note={flash} onClose={() => setFlash(null)} />}
         {collapsible && isCurrent && !showingRecovery && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
       </section>
       <section className="ep-right m-ep-tabs">

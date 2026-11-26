@@ -54,12 +54,12 @@ export function NotesView() {
     return [...map.values()];
   }, [notes]);
   return <div className="page collection-page notes-page">
-    <PageHeading title={t("笔记")}>
+    <PageHeading title={t("我的划线")}>
       {notes.length > 0 && <button className="heading-tool" aria-label={t("导出为 Markdown")} onClick={() => void shareText(notesMarkdown(notes), t("声渡笔记"))}><Share size={20} /></button>}
     </PageHeading>
     {notes.length > 0 && <p className="muted page-sub">{t("{n} 条划线 · 点一条从那里播放", { n: notes.length })}</p>}
     {!notes.length
-      ? <EmptyState art={<BookmarkArt />} title={t("还没有笔记")} note={t("听到好句子时，点单集页播放器下方的「划线」。")} />
+      ? <EmptyState art={<BookmarkArt />} title={t("还没有划线")} note={t("听到好句子时，点播放器下方的「划线」，这句就会存到这里。")} />
       : groups.map((g) => <NoteGroup key={g[0].episodeId} notes={g} />)}
   </div>;
 }
