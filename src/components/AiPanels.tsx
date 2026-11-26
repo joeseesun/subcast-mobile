@@ -1,9 +1,9 @@
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Plus, ChevronDown, Loader2, RefreshCw, Settings2, Square, SquarePen } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, ChevronDown, Loader2, PenLine, RefreshCw, Settings2, Sparkles, Square, SquarePen } from "lucide-react";
 import { api, errorText, rawErrorText, type ChatMessage, type Episode } from "../lib/api";
-import { askEpisode, summaryPrompt, transcriptForModel } from "../lib/ai";
+import { askEpisode, summaryPrompt, transcriptForModel, writeArticle } from "../lib/ai";
 import { t, tk } from "../lib/i18n";
 import { quickPrompts } from "../lib/settings";
 import { ChatPrefsDialog, ModelPicker, PromptMenu, promptIcon, shortModel } from "./ChatTools";
@@ -233,6 +233,12 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
           <HistoryMenu archive={archive} ep={ep} current={messages} onRestore={restore} onDelete={(id) => saveArchive(archive.filter((x) => x.id !== id))} />
           {messages.length > 0 && streaming == null && <button type="button" className="btn ghost sm new-chat" title={t("开始新对话，当前对话存进历史")} onClick={newChat}><SquarePen size={14} /> {t("新对话")}</button>}
         </div>}
+        {messages.length > 0 && streaming == null && !toolsOpen && <div className="prompt-chips" role="group" aria-label={t("快捷提问")}>
+          {prompts.slice(0, 8).map((p) => {
+            const Icon = promptIcon(p.id);
+            return <button key={p.id} type="button" className="prompt-chip" disabled={blocked} onClick={() => { countUse(p.id); void send(p.body); }}><Icon size={13} aria-hidden />{p.title}</button>;
+          })}
+        </div>}
         <div className="composer-entry"><button type="button" className="icon-btn" aria-label={t("更多")} aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}><Plus size={22} /></button>
           <textarea ref={box} value={input} rows={1} placeholder={t("问问这期节目")} disabled={blocked} onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) { e.preventDefault(); send(input); } }} />
@@ -326,6 +332,71 @@ export function SummaryPanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: ()
           <span className="muted small">{job?.shared ? t("来自共享导读，没有花你的额度") : `${provider ? t(provider.name) : ""} · ${provider?.model ?? ""}`}</span>
           <ReadAloud text={() => plainText(text)} />
           <button className="btn ghost sm" onClick={run}><RefreshCw size={13} /> {t("重新生成")}</button>
+        </div>
+      )}
+      {error && <p className="error-text">{error}</p>}
+    </div>
+  );
+}
+
+/** AI 精读 runs per episode outside the panel, like 导读. */
+const useArticles = create<Record<string, GuideJob>>(() => ({}));
+const putArticle = (id: string, p: Partial<GuideJob>) => useArticles.setState((s) => ({ [id]: { ...(s[id] ?? { streaming: null, error: null, needsSetup: false }), ...p } }));
+
+/** For an episode without a 乔木精读 article: a readable Chinese article written from the full subtitles in the
+ *  乔木写作 style, kept with the episode. Section headings carry the time they start, so they play from there. */
+export function ArticlePanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: () => void }) {
+  const { transcript, provider, context, check } = useReady(ep);
+  const connected = useConnected();
+  const seek = useSeek(ep);
+  const job = useArticles((s) => s[ep.id]);
+  const article = job?.summary ?? null;
+  const streaming = job?.streaming ?? null;
+  const error = job?.error ?? null;
+  useEffect(() => {
+    if (useArticles.getState()[ep.id]?.streaming != null) return;
+    void api.getBlob(ep.id, "article").then((v) => { if (v && useArticles.getState()[ep.id]?.streaming == null) putArticle(ep.id, { summary: v }); });
+  }, [ep.id]);
+  const run = async () => {
+    if (useArticles.getState()[ep.id]?.streaming != null) return;
+    putArticle(ep.id, { error: null, needsSetup: false });
+    try {
+      await check();
+      putArticle(ep.id, { streaming: "" });
+      const text = await writeArticle({ provider: provider!, title: ep.title, show: ep.showTitle ?? "", transcript: context(), onDelta: (d) => putArticle(ep.id, { streaming: d }) });
+      const out = text.trim() ? text : (useArticles.getState()[ep.id]?.streaming ?? "");
+      if (!out.trim()) throw new Error(t("模型没有返回内容，请重试或换一个模型"));
+      putArticle(ep.id, { summary: out });
+      await api.setBlob(ep.id, "article", out);
+    } catch (e) { putArticle(ep.id, { error: errorText(e), needsSetup: Boolean((e as { setup?: boolean })?.setup) || /设置|API Key/.test(rawErrorText(e)) }); }
+    finally { putArticle(ep.id, { streaming: null }); }
+  };
+  const text = streaming ?? article;
+  if (!text && !transcript) return <div className="panel-empty"><PageArt /><p className="es-title">{t("这一集还没有精读")}</p><p className="muted small">{t("有了字幕，就能用 AI 写一篇精读。")}</p><button className="btn primary" onClick={onSubtitles}>{t("查看字幕")}</button></div>;
+  if (!text && connected === false) return <div className="panel-empty"><ConnectCard what={tk("精读")} /></div>;
+  if (!text && streaming != null) return <div className="panel-empty guide-wait" role="status"><PageArt writing /><p className="es-title">{t("正在读完整期，写成一篇文章")}</p><p className="muted small">{t("长节目要一两分钟")}</p></div>;
+  if (!text) return (
+    <div className="panel-empty article-offer">
+      <PageArt />
+      <p className="es-title">{t("这一集还没有精读")}</p>
+      <p className="muted small">{t("用全文字幕写一篇好读的中文文章：有钩子、有小标题、每节能点回原处播放。")}</p>
+      {error && <p className="error-text">{error}</p>}
+      {error && job?.needsSetup && <button className="btn" onClick={() => useStore.getState().openSettings("model")}>{t("去设置")}</button>}
+      <button className="btn primary" onClick={run}><Sparkles size={16} /> {t("用 AI 写一篇精读")}</button>
+    </div>
+  );
+  const [first, ...rest] = text.split("\n");
+  const title = /^#\s+/.test(first) ? first.replace(/^#\s+/, "") : null;
+  return (
+    <div className="summary ai-article">
+      <span className="deep-badge ai"><PenLine size={13} /> {t("AI 精读")}</span>
+      {title && <h1 className="article-title">{title}</h1>}
+      <Markdown text={title ? rest.join("\n") : text} onSeek={seek} />
+      {streaming == null && (
+        <div className="summary-foot">
+          <span className="muted small">{t("按乔木写作风格，由 {model} 根据全文字幕写成", { model: provider?.model ?? "AI" })}</span>
+          <ReadAloud text={() => plainText(text)} />
+          <button className="btn ghost sm" onClick={run}><RefreshCw size={13} /> {t("重写")}</button>
         </div>
       )}
       {error && <p className="error-text">{error}</p>}

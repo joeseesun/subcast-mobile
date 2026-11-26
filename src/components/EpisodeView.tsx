@@ -20,7 +20,6 @@ import { ChevronLeft, ChevronDown, ChevronRight, Highlighter, ListOrdered, Trash
 import { isNoted, notedKeys, removeNote, toggleNoteOnLineNow, useNotes, type Note } from "../lib/notes";
 import { createPortal } from "react-dom";
 import { clock } from "../lib/format";
-import { BookArt, EmptyState } from "./Illustrations";
 import { DeepRead } from "./DeepRead";
 import { SkeletonEpisode } from "./Skeleton";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -30,7 +29,7 @@ import { showName } from "../lib/picks";
 import { isZh, useZh, useZhParagraphs } from "../lib/zh";
 import { autoTranslate, loadTranscript, useJobs } from "../lib/jobs";
 import { useStore } from "../store";
-import { ChatPanel, SummaryPanel } from "./AiPanels";
+import { ArticlePanel, ChatPanel, SummaryPanel } from "./AiPanels";
 import { Controls, playSoon, seekEpisode, toggleTheater } from "./Players";
 import { chapterAt, parseChapters, type Chapter } from "../lib/chapters";
 import { VideoSlot } from "./VideoDock";
@@ -426,9 +425,8 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const onUnplayable = useMemo(() => () => { switchRef.current(true); playSoon(ep.id); }, [ep.id]);
 
   const tabs: [Tab, string][] = [["transcript", t("字幕")]];
-  if (ep.deep && noDeep !== ep.id) tabs.push(["deep", t("精读")]);
+  tabs.push(["deep", t("精读")]);
   tabs.push(["summary", t("导读")], ["chat", t("问答")]);
-  if (notes) tabs.push(["notes", t("简介")]);
   const mediaOptions = [
     { id: "video", title: t("视频"), glyph: "film", symbol: "film", selected: !audioMode },
     { id: "audio", title: t("仅音频"), glyph: "sound", symbol: "waveform", selected: audioMode },
@@ -501,13 +499,13 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
           <PanelBoundary key={tab}>
             {tab === "transcript" && <TranscriptPanel ep={ep} />}
             {tab === "chat" && <ChatPanel ep={ep} input={draft} setInput={setDraft} onSubtitles={() => setTab("transcript")} />}
-            {tab === "summary" && <SummaryPanel ep={ep} onSubtitles={() => setTab("transcript")} />}
-            {tab === "deep" && <DeepRead ep={ep} onMissing={() => { setNoDeep(ep.id); setTab("transcript"); }}><EmptyState art={<BookArt />} title={t("这一集还没有精读")} /></DeepRead>}
-            {tab === "notes" && notes && (
-              <div className="m-notes">
-                <Notes ep={ep} text={notes} defaultOpen />
-              </div>
-            )}
+            {tab === "summary" && <div className="guide-tab">
+              <SummaryPanel ep={ep} onSubtitles={() => setTab("transcript")} />
+              {notes && <div className="guide-notes"><Notes ep={ep} text={notes} /></div>}
+            </div>}
+            {tab === "deep" && (ep.deep && noDeep !== ep.id
+              ? <DeepRead ep={ep} onMissing={() => setNoDeep(ep.id)}><ArticlePanel ep={ep} onSubtitles={() => setTab("transcript")} /></DeepRead>
+              : <ArticlePanel ep={ep} onSubtitles={() => setTab("transcript")} />)}
           </PanelBoundary>
         </div>
       </section>

@@ -35,7 +35,8 @@
 .play-ring .track { stroke: transparent; }
 .play-ring .fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .4s ease; }
 .play-ring > :not(.ring) { position: relative; }
-.play-ring:not(.on) > :not(.ring):not(.spin) { margin-inline-start: 2px; }
+/* The play triangle's box is already right of centre (its point is thin), which reads as centred; no extra nudge. */
+.play-ring:not(.on) > :not(.ring):not(.spin) { margin-inline-start: 0; }
 .play-ring.on { background: var(--accent); color: var(--on-accent, #fff); }
 .play-ring.on .fill { stroke: color-mix(in srgb, #fff 70%, transparent); }
 @media (prefers-reduced-motion: no-preference) { .m-app .play-ring:active { transform: scale(.9); opacity: 1; } .play-ring { transition: transform .18s cubic-bezier(.2,.8,.3,1), background-color .16s ease; } }
@@ -203,3 +204,25 @@
 .m-episode .prompt-list .prompt-row { display: flex; align-items: center; height: auto; min-height: 52px; padding: 8px 14px; }
 .m-episode .prompt-row .pr-icon { width: 15px; height: 15px; }
 .m-episode .prompt-row .pr-text { display: flex; align-items: center; min-width: 0; }
+
+/* 导读 tab: the guide, then the show notes folded underneath (one tab fewer) */
+.m-episode .guide-tab { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(var(--safe-bottom) + 72px); }
+.m-episode .guide-tab > .summary { flex: none; overflow: visible; padding-bottom: 8px; }
+.m-episode .guide-tab > .panel-empty { min-height: 0; padding-block: 32px 12px; }
+.guide-notes { margin: 8px var(--gutter) 0; }
+.guide-notes .notes { border: 0; border-radius: 16px; background: var(--soft); }
+.guide-notes .notes-head { min-height: 48px; font-size: 15px; }
+.guide-notes .notes-body { max-height: none; }
+.guide-notes .notes-body p { font-size: 14.5px; }
+
+/* AI 精读 */
+.ai-article .deep-badge.ai { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text); font-size: 12.5px; font-weight: 650; }
+.ai-article .article-title { margin: 14px 0 6px; font-family: var(--display); font-size: clamp(23px, 6.2vw, 27px); line-height: 1.38; font-weight: 800; letter-spacing: .005em; }
+.m-episode .ai-article .markdown p { margin: 12px 0; }
+.m-episode .ai-article .markdown h3 .stamp { margin-inline-start: auto; font-family: var(--font); }
+.article-offer .btn.primary { display: inline-flex; align-items: center; gap: 6px; }
+/* 问答: quick prompts stay one tap away during a conversation */
+.prompt-chips { display: flex; gap: 8px; margin: 0 -8px; padding: 2px 8px 8px; overflow-x: auto; scrollbar-width: none; }
+.prompt-chips::-webkit-scrollbar { display: none; }
+.prompt-chip { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 12px; border: 0; border-radius: 17px; background: var(--accent-soft); color: var(--accent-text); font: inherit; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.prompt-chip:disabled { opacity: .5; }
