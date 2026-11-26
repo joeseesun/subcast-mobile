@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, ExternalLink } from "lucide-react";
 import { SkeletonArticle } from "./Skeleton";
-import { ReadAloud } from "./ReadAloud";
+import { ReadAlongControls, useReadAlongPage } from "./ReadAlong";
+import { markSentences } from "../lib/sentences";
+import { useReadAlong } from "../lib/readAlong";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, type Episode } from "../lib/api";
 import { useStore } from "../store";
@@ -45,26 +47,28 @@ export function DeepRead({ ep, children, onMissing }: { ep: Episode; children?: 
     return () => { live = false; };
   }, [ep.id]);
   useEffect(() => { if (html === null) onMissing?.(); }, [html]);
-  const clean = useMemo(() => (html ? sanitize(html) : ""), [html]);
-  const readText = () => {
-    const doc = new DOMParser().parseFromString(clean, "text/html");
-    doc.querySelectorAll("[data-t]").forEach((n) => n.remove());
-    return Array.from(doc.body.querySelectorAll("p, h2, h3, h4, li, blockquote")).map((n) => n.textContent?.trim()).filter(Boolean).join("\n");
-  };
+  // Each sentence marked, so 朗读 can highlight it and a tap can read from it.
+  const marked = useMemo(() => (html ? markSentences(sanitize(html)) : { html: "", sentences: [] }), [html]);
+  const owner = `deep:${ep.id}`;
+  const article = useRef<HTMLElement>(null);
+  const reading = useReadAlongPage(owner, article);
+  const readingHere = useReadAlong((s) => s.owner === owner);
   if (html === undefined) return <SkeletonArticle />;
   if (!html) return <>{children}</>;
   return (
     <div className="deep-read">
-      <div className="deep-head">
-        <span className="deep-badge" title={t("AI 基于完整访谈改写的中文长文，不是逐字翻译")}><BookOpen size={13} /> {t("乔木精读")}</span>
+      <div className={`deep-head ${readingHere ? "ra-on" : ""}`}>
+        <span className="deep-badge" title={t("AI 基于完整访谈改写的中文长文，不是逐字翻译")}><BookOpen size={13} /><span className="deep-badge-text">{t("乔木精读")}</span></span>
         <span className="spacer" />
-        <ReadAloud text={readText} title={t("用豆包语音朗读精读全文")} />
+        <ReadAlongControls owner={owner} sentences={marked.sentences} />
         {ep.link && <button className="icon-btn" title={t("在网页中打开")} onClick={() => openUrl(ep.link!)}><ExternalLink size={14} /></button>}
       </div>
       <article
+        ref={article}
         className="deep-body"
-        dangerouslySetInnerHTML={{ __html: clean }}
+        dangerouslySetInnerHTML={{ __html: marked.html }}
         onClick={(e) => {
+          if (reading.onClick(e)) return;
           const el = e.target as HTMLElement;
           const ts = el.closest<HTMLElement>("[data-t]");
           if (ts) { useStore.getState().player?.seek(seconds(ts.dataset.t!)); return; }
@@ -72,6 +76,7 @@ export function DeepRead({ ep, children, onMissing }: { ep: Episode; children?: 
           if (a?.href) { e.preventDefault(); void openUrl(a.href); }
         }}
       />
+      {reading.backToReading}
     </div>
   );
 }

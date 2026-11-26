@@ -16,7 +16,8 @@ class PanelBoundary extends Component<{ children: ReactNode }, { error: string |
     ) : this.props.children;
   }
 }
-import { ChevronLeft, ChevronDown, ChevronRight, Trash2, Check } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronRight, Highlighter, ListOrdered, Trash2, Check } from "lucide-react";
+import { noteCurrentLine } from "../lib/notes";
 import { BookArt, EmptyState } from "./Illustrations";
 import { DeepRead } from "./DeepRead";
 import { SkeletonEpisode } from "./Skeleton";
@@ -28,7 +29,8 @@ import { isZh, useZh, useZhParagraphs } from "../lib/zh";
 import { autoTranslate, loadTranscript, useJobs } from "../lib/jobs";
 import { useStore } from "../store";
 import { ChatPanel, SummaryPanel } from "./AiPanels";
-import { Controls, playSoon, toggleTheater } from "./Players";
+import { Controls, playSoon, seekEpisode, toggleTheater } from "./Players";
+import { chapterAt, parseChapters, type Chapter } from "../lib/chapters";
 import { VideoSlot } from "./VideoDock";
 import { bytes, cancelDownload, downloadEpisode, isSaved, removeDownload, useOffline } from "../lib/offline";
 import { toggleFavorite, useLibrary } from "../lib/library";
@@ -287,6 +289,29 @@ function EpisodeActions({ ep, close }: { ep: Episode; close: () => void }) {
   </MobileSheet>;
 }
 
+const chapterClock = (s: number) => { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = Math.floor(s % 60); return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
+const chapterTitle = (c: Chapter) => c.title || t("开场");
+
+/** The chapter playing now, as a line that opens the list of chapters. */
+function ChapterChip({ ep, chapters, onOpen }: { ep: Episode; chapters: Chapter[]; onOpen: () => void }) {
+  const index = useStore((s) => chapterAt(chapters, s.current?.id === ep.id ? s.time : ep.progress));
+  return <button className="chapter-chip" aria-haspopup="dialog" onClick={onOpen}>
+    <ListOrdered size={15} aria-hidden />
+    <span className="chapter-count">{t("第 {n}/{total} 章", { n: index + 1, total: chapters.length })}</span>
+    <span className="chapter-name">{chapterTitle(chapters[index])}</span>
+    <ChevronRight size={15} aria-hidden />
+  </button>;
+}
+
+function ChapterSheet({ ep, chapters, onClose }: { ep: Episode; chapters: Chapter[]; onClose: () => void }) {
+  const index = useStore((s) => chapterAt(chapters, s.current?.id === ep.id ? s.time : ep.progress));
+  return <MobileSheet title={t("章节")} onClose={onClose}>
+    {chapters.map((c, i) => <button key={c.start} className="chapter-row" aria-pressed={i === index} onClick={() => {
+      onClose(); selectionFeedback(); seekEpisode(ep, c.start);
+    }}><span className="chapter-time">{chapterClock(c.start)}</span><span className="chapter-row-title">{chapterTitle(c)}</span>{i === index && <Check className="row-check" />}</button>)}
+  </MobileSheet>;
+}
+
 function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; setTab: (t: Tab) => void; startAudio: boolean }) {
   // Feeds sometimes mark a deep-read that isn't there: then the tab goes away.
   const [noDeep, setNoDeep] = useState<string | null>(null);
@@ -313,7 +338,8 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
     window.addEventListener("subcast-ask-selection", askSelection);
     return () => window.removeEventListener("subcast-ask-selection", askSelection);
   }, [ep.id, setTab]);
-  const [sheet, setSheet] = useState<"actions" | "media" | null>(null);
+  const [sheet, setSheet] = useState<"actions" | "media" | "chapters" | null>(null);
+  const chapters = useMemo(() => parseChapters(ep.notes, ep.duration), [ep.notes, ep.duration]);
   // Translate foreign-language subtitles whichever tab is open: the video's subtitles need the Chinese too.
   const transcript = useJobs((s) => s.transcripts[ep.id]);
   const mode = useStore((s) => s.settings.subtitleMode);
@@ -393,6 +419,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
         <button className="m-back" aria-label={t("本集操作")} aria-haspopup="dialog" onClick={() => setSheet("actions")}><BrandGlyph name="more" /></button>
       </header>
       {sheet === "actions" && <EpisodeActions ep={ep} close={() => setSheet(null)} />}
+      {sheet === "chapters" && <ChapterSheet ep={ep} chapters={chapters} onClose={() => setSheet(null)} />}
       {sheet === "media" && <MobileSheet title={t("播放方式")} onClose={() => setSheet(null)}>
         {mediaOptions.map(({ id, title, glyph, selected }) => <button key={id} aria-pressed={selected} onClick={() => {
           setSheet(null); if (!selected) { selectionFeedback(); switchTo(id === "audio"); }
@@ -421,6 +448,10 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
         {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton} /></div> : (
           <div className="m-start-row">{modeButton}<button className="btn primary m-play" onClick={startPlayback}><BrandGlyph name="play" size={22} /> {t("播放这一集")}</button></div>
         )}
+        {(chapters.length > 0 || isCurrent) && <div className="m-ep-tools">
+          {chapters.length > 0 ? <ChapterChip ep={ep} chapters={chapters} onOpen={() => setSheet("chapters")} /> : <span className="spacer" />}
+          {isCurrent && <button className="note-btn" onClick={() => { selectionFeedback(); noteCurrentLine(ep); }}><Highlighter size={16} aria-hidden />{t("划线")}</button>}
+        </div>}
         {collapsible && isCurrent && !showingRecovery && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
       </section>
       <section className="ep-right m-ep-tabs">

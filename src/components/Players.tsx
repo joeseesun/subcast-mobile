@@ -761,7 +761,10 @@ function PlaybackRate({ rate }: { rate: number }) {
     const state = useStore.getState();
     if (state.settings.playbackRate === value) return;
     state.player?.setRate(value);
-    void state.saveSettings({ playbackRate: value });
+    const show = state.current?.showId;
+    void state.saveSettings(show && show !== "single"
+      ? { playbackRate: value, showRates: { ...state.settings.showRates, [show]: value } }
+      : { playbackRate: value });
   };
   const open = async (trigger: HTMLButtonElement) => {
     const choice = await presentNativeChoices(t("播放速度"),

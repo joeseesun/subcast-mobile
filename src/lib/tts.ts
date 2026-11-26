@@ -18,7 +18,11 @@ export function chunks(text: string, max = 900): string[] {
   return out.filter(Boolean);
 }
 
+/** Called when anything starts speaking, so a read-along in progress stops (see readAlong.ts). */
+export const stopHooks = new Set<() => void>();
+
 export function stopSpeaking() {
+  for (const hook of stopHooks) hook();
   session++;
   audio?.pause();
   audio = null;

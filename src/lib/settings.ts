@@ -29,6 +29,8 @@ export interface Settings {
   chatSize?: "m" | "l";
   audioNextLine?: boolean;
   skipBack?: number;
+  /** The speed last chosen for each show (show id → rate), applied when one of its episodes loads. */
+  showRates?: Record<string, number>;
   skipForward?: number;
   autoNext?: boolean;
   shortcuts?: Partial<Record<import("./shortcuts").ActionId, string[]>>;
