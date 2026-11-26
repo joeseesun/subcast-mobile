@@ -11,7 +11,7 @@ import { ArrowDownToLine, BookOpen, Check, ChevronDown, ChevronRight, Loader2, P
 import { bytes, clearDownloads, useOffline } from "../lib/offline";
 import { api, errorText, type Episode, type Show, type ShowHit } from "../lib/api";
 import { date, duration, monthLabel, notesText } from "../lib/format";
-import { PICKS, TOPICS, deepPickFor, isSubscribed, pickName, pickSub, sameFeed, showName, type Pick, type Topic } from "../lib/picks";
+import { PICKS, TOPICS, deepPickFor, isSubscribed, pickName, pickSub, sameFeed, showArt, showName, unboxYoutube, ytFallback, type Pick, type Topic } from "../lib/picks";
 import { isChineseUi, t } from "../lib/i18n";
 import { useShowName, useZh } from "../lib/zh";
 import { useStore, type ShowFinder } from "../store";
@@ -95,7 +95,7 @@ function EpisodeRow({ ep, showShow, hit, query }: { ep: Episode; showShow: boole
   return (
     <div className={`feed-row ${isCurrent ? "playing" : ""} ${pct >= 97 ? "played" : ""}`} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => e.key === "Enter" && open()}>
       <div className="feed-art">
-        {ep.cover ? <img src={ep.cover} alt="" loading="lazy" onError={(e) => {
+        {ep.cover ? <img src={unboxYoutube(ep.cover)} alt="" loading="lazy" onError={(e) => {
           const i = e.currentTarget;
           if (ep.videoId && !i.dataset.f) { i.dataset.f = "1"; i.src = `https://i.ytimg.com/vi/${ep.videoId}/mqdefault.jpg`; } else i.style.visibility = "hidden";
         }} /> : <div className="cover-fallback" />}
@@ -489,6 +489,7 @@ export function ShowView({ id, finder }: { id: string; finder?: ShowFinder }) {
   // "Play all" follows the list as filtered, newest first, skipping finished and unplayable episodes.
   const playable = (shown ?? []).filter((e) => (e.audioUrl || e.videoId) && !(e.duration && e.progress >= e.duration * 0.97));
   if (!show) return <><MobileBack /><div className="page" /></>;
+  const art = showArt(show);
   const refresh = async () => {
     setBusy(true);
     try { await api.refreshShow(id); setEps(await api.listEpisodes(id)); await reloadShows(); } catch (e) { notify(errorText(e)); } finally { setBusy(false); }
@@ -504,8 +505,8 @@ export function ShowView({ id, finder }: { id: string; finder?: ShowFinder }) {
   return (<>
     <MobileBack trailing={<button onClick={() => setMenu(true)} aria-haspopup="dialog" aria-label={t("更多")}><BrandGlyph name="more" /></button>} />
     <div className="page show-page">
-      <div className="show-head" style={show.cover ? { "--cover": `url("${show.cover}")` } as React.CSSProperties : undefined}>
-        {show.cover ? <img src={show.cover} alt="" /> : <div className="cover-fallback" />}
+      <div className={`show-head ${art.video ? "video-art" : ""}`} style={art.src ? { "--cover": `url("${art.src}")` } as React.CSSProperties : undefined}>
+        {art.src ? <img src={art.src} alt="" onError={ytFallback} /> : <div className="cover-fallback" />}
         <div className="show-info">
           <p className="meta-line">{show.kind === "youtube" ? t("YouTube 频道") : show.kind === "xiaoyuzhou" ? t("小宇宙") : t("播客")}{show.author && show.author !== show.title ? ` · ${show.author}` : ""}</p>
           <h1 className="show-title-h">{names.zh ?? names.orig}</h1>
@@ -676,13 +677,14 @@ export function ChannelView({ input }: { input: string }) {
       if (r.show) { notify(t("已订阅「{name}」", { name: pick ? pickName(pick) : r.show.title })); go({ kind: "show", id: r.show.id }); }
     } catch (e) { notify(errorText(e)); } finally { setBusy(false); }
   };
-  const cover = pick?.cover ?? data?.show.cover;
+  const art = pick?.cover ? { src: pick.cover, video: false } : data ? showArt(data.show) : { src: undefined, video: false };
+  const cover = art.src;
 
   const desc = pick ? t(pick.intro) : (data?.show.description ?? "").replace(/<[^>]+>/g, "").trim().slice(0, 300);
   return (
     <div className="page show-page">
-      <div className="show-head" style={cover ? { "--cover": `url("${cover}")` } as React.CSSProperties : undefined}>
-        {cover ? <img src={cover} alt="" /> : <div className="cover-fallback" />}
+      <div className={`show-head ${art.video ? "video-art" : ""}`} style={cover ? { "--cover": `url("${cover}")` } as React.CSSProperties : undefined}>
+        {cover ? <img src={cover} alt="" onError={ytFallback} /> : <div className="cover-fallback" />}
         <div className="show-info">
           <p className="meta-line">{pick?.deep ? t("乔木精读 · 中文标题、精读长文与原文文稿") : pick?.by ?? data?.show.author ?? t("频道")}</p>
           <h1 className="show-title-h">{pick ? pickName(pick) : names.zh ?? names.orig}</h1>
@@ -712,5 +714,6 @@ export function ChannelView({ input }: { input: string }) {
 }
 
 export function showIcon(show: Show) {
-  return show.cover ? <img src={show.cover} alt="" loading="lazy" /> : <div className="cover-fallback">{show.title.slice(0, 1)}</div>;
+  const art = showArt(show);
+  return art.src ? <img src={art.src} alt="" loading="lazy" onError={ytFallback} /> : <div className="cover-fallback">{show.title.slice(0, 1)}</div>;
 }

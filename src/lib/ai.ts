@@ -278,12 +278,20 @@ const ARTICLE_TASK = (title: string, show: string, transcript: string) => `待�
 - 正文用「## 小标题」分节，4 到 8 节。每个小标题末尾附上这一节内容在节目里开始的时间戳，格式严格为 [mm:ss] 或 [h:mm:ss]，必须是文字稿里真实存在的时间。
 - 引用嘉宾原话时说清是谁说的。
 - 只输出文章本身，不要开场白，不要结尾客套。
+- 先想清楚结构就动笔，思考尽量简短，把篇幅留给正文。
 
 <transcript>
 ${transcript}
 </transcript>`;
 // i18n-ignore-end
 
-export function writeArticle(opts: { provider: Provider; title: string; show: string; transcript: string; onDelta: (t: string) => void; signal?: AbortSignal }) {
-  return llmChat({ provider: opts.provider, system: ARTICLE_SYSTEM, messages: [{ role: "user", content: ARTICLE_TASK(opts.title, opts.show, opts.transcript) }], maxTokens: 12000, onDelta: opts.onDelta, signal: opts.signal });
+/** A long transcript makes a reasoning model think for a long time before it writes, so the article gets a large
+ *  output budget; if the thinking still used all of it, once more with the most a provider usually allows. */
+export async function writeArticle(opts: { provider: Provider; title: string; show: string; transcript: string; onDelta: (t: string) => void; signal?: AbortSignal }) {
+  const ask = (maxTokens: number) => llmChat({ provider: opts.provider, system: ARTICLE_SYSTEM, messages: [{ role: "user", content: ARTICLE_TASK(opts.title, opts.show, opts.transcript) }], maxTokens, onDelta: opts.onDelta, signal: opts.signal });
+  try { return await ask(32000); }
+  catch (e) {
+    if (opts.signal?.aborted || !/思考/.test(String((e as Error)?.message ?? e))) throw e;
+    return ask(64000);
+  }
 }

@@ -111,3 +111,24 @@ export function deepPickFor(showTitle: string): Pick | undefined {
   const short = shortName(showTitle);
   return PICKS.find((p) => p.deep && (p.title === showTitle || shortName(p.title) === short));
 }
+
+/** YouTube's hqdefault / sddefault thumbnails are 4:3 with black bars; hq720 is the same frame at 16:9 without them. */
+export const unboxYoutube = (url?: string) => url?.replace(/(i\d?\.ytimg\.com\/vi(?:_webp)?\/[^/]+\/)(?:hqdefault|sddefault|0)\.jpg/, "$1hq720.jpg");
+
+/** Artwork for a show: a YouTube channel's feed only has its latest video's thumbnail, so a known channel uses the
+ *  pick's own artwork; otherwise the thumbnail without its black bars. */
+export function showArt(show: { kind?: string; title: string; author?: string; cover?: string }): { src?: string; video: boolean } {
+  const youtube = show.kind === "youtube" || !!show.cover?.includes("ytimg.com");
+  if (!youtube) return { src: show.cover, video: false };
+  const pick = PICKS.find((p) => !p.deep && (p.title === show.title || p.by === show.title || p.channel === show.title || (!!show.author && p.by === show.author) || shortName(p.title) === shortName(show.title)));
+  if (pick?.cover) return { src: pick.cover, video: false };
+  return { src: unboxYoutube(show.cover), video: true };
+}
+
+/** When hq720 doesn't exist for an old video, falls back to the 16:9 medium thumbnail. */
+export function ytFallback(e: { currentTarget: HTMLImageElement }) {
+  const img = e.currentTarget;
+  if (img.dataset.fb || !img.src.includes("hq720")) { img.style.visibility = "hidden"; return; }
+  img.dataset.fb = "1";
+  img.src = img.src.replace("hq720.jpg", "mqdefault.jpg");
+}
