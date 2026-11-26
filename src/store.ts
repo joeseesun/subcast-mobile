@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import { api, type Episode, type Show } from "./lib/api";
 import { DEFAULTS, loadSettings, type Settings } from "./lib/settings";
-import { setLang, t } from "./lib/i18n";
+import { IS_MAC, setLang, t } from "./lib/i18n";
+import { STORE } from "./lib/edition";
 
 export interface ShowFinder {
   searchOpen: boolean;
@@ -146,6 +147,9 @@ export const useStore = create<State>((set, get) => ({
   load(ep) {
     const s = get();
     if (s.current?.id === ep.id) return;
+    // Store edition on iPhone: YouTube only plays in its own player sheet, so an episode that also has podcast audio
+    // plays that audio right here, with its subtitles; the video stays one tap away (音频/视频).
+    if (STORE && IS_MAC && ep.videoId && ep.audioUrl) ep = { ...ep, videoId: undefined };
     const requested = s.playWhenReady === ep.id;
     set({
       current: ep, bufferedUntil: 0, time: ep.progress || 0, length: ep.duration || 0, playing: false,

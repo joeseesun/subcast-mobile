@@ -231,6 +231,9 @@ async fn refresh_all(state: State<'_, AppState>) -> Res<Refreshed> {
 fn list_shows(state: State<'_, AppState>) -> Res<Vec<Show>> { db::list_shows(&state.db.lock().unwrap()).map_err(e) }
 
 #[tauri::command]
+fn mark_show_seen(state: State<'_, AppState>, show_id: String) -> Res<()> { db::mark_show_seen(&state.db.lock().unwrap(), &show_id).map_err(e) }
+
+#[tauri::command]
 fn list_episodes(state: State<'_, AppState>, show_id: Option<String>, limit: Option<i64>) -> Res<Vec<Episode>> {
     db::list_episodes(&state.db.lock().unwrap(), show_id.as_deref(), limit.unwrap_or(300)).map_err(e)
 }
@@ -1021,7 +1024,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            add_subscription, refresh_show, refresh_all, list_shows, list_episodes, recent_episodes, get_episode, remove_show,
+            add_subscription, refresh_show, refresh_all, list_shows, mark_show_seen, list_episodes, recent_episodes, get_episode, remove_show,
             set_progress, search_podcasts, search_show, load_transcript, fetch_official_transcript, transcribe, cancel_job,
             get_blob, set_blob, get_settings, set_settings, set_api_key, has_api_key, llm_chat, translate_texts, shared_transcript, shared_exists, shared_guide, share_guide, log_listen, listening_stats, export_opml, share_translation, ui_ready, refresh_config, youtube_stream, audio_stream, prepare_youtube, youtube_tracks, use_youtube_track, qiaomu_detail, preview_show, list_models, tts_speak, cached_show, save_image,
             download_episode, list_downloads, delete_download, clear_downloads, storage_info, clear_temp, full_notes
