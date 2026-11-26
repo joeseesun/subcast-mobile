@@ -1,8 +1,9 @@
-import { api } from "./api";
 import { useStore } from "../store";
 import { t } from "./i18n";
+import { speakSystem, synthesize, type Spoken } from "./voices";
 
-/** Reads text aloud with Doubao TTS, a sentence-aligned chunk (≤ 900 chars) at a time, prefetching the next. */
+/** Reads text aloud with the chosen voice service (voices.ts), a sentence-aligned chunk (≤ 900 chars) at a time,
+ *  prefetching the next; the phone's own voice speaks it directly. */
 let session = 0;
 let audio: HTMLAudioElement | null = null;
 
@@ -26,24 +27,27 @@ export function stopSpeaking() {
   session++;
   audio?.pause();
   audio = null;
+  if (typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
   useStore.getState().set({ speaking: false });
 }
 
 export async function speak(text: string, onError?: (m: string) => void) {
   stopSpeaking();
   const id = ++session;
-  const { settings, player, playing } = useStore.getState();
+  const { player, playing } = useStore.getState();
   if (playing) player?.toggle();
   useStore.getState().set({ speaking: true });
   const parts = chunks(text);
-  const fetchPart = (i: number) => (i < parts.length ? api.ttsSpeak(parts[i], settings.ttsVoice, settings.ttsResource) : Promise.resolve(null));
+  const fetchPart = (i: number): Promise<Spoken | null> => (i < parts.length ? synthesize(parts[i]) : Promise.resolve(null));
   let next = fetchPart(0);
   try {
     for (let i = 0; i < parts.length; i++) {
-      const b64 = await next;
-      if (id !== session || !b64) return;
+      const spoken = await next;
+      if (id !== session || !spoken) return;
+      if (spoken.kind === "system") { next = fetchPart(i + 1); await speakSystem(parts[i]); if (id !== session) return; continue; }
       next = fetchPart(i + 1);
-      const el = new Audio(`data:audio/wav;base64,${b64}`);
+      const el = new Audio(spoken.url);
+      el.playbackRate = spoken.playbackRate;
       audio = el;
       await new Promise<void>((resolve, reject) => { el.onended = () => resolve(); el.onerror = () => reject(new Error(t("音频播放失败"))); void el.play().catch(reject); });
       if (id !== session) return;

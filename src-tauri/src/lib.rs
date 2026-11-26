@@ -2,6 +2,7 @@ mod asr;
 mod asr_context;
 mod cloud;
 mod db;
+mod edge_tts;
 mod feeds;
 mod hlsproxy;
 mod import;
@@ -13,6 +14,7 @@ mod offline;
 mod ota;
 mod qiaomu;
 mod shared;
+mod speech;
 mod transcript;
 mod translate;
 #[cfg(not(debug_assertions))]
@@ -229,6 +231,9 @@ async fn refresh_all(state: State<'_, AppState>) -> Res<Refreshed> {
 
 #[tauri::command]
 fn list_shows(state: State<'_, AppState>) -> Res<Vec<Show>> { db::list_shows(&state.db.lock().unwrap()).map_err(e) }
+
+#[tauri::command]
+fn mark_show_seen(state: State<'_, AppState>, show_id: String) -> Res<()> { db::mark_show_seen(&state.db.lock().unwrap(), &show_id).map_err(e) }
 
 #[tauri::command]
 fn list_episodes(state: State<'_, AppState>, show_id: Option<String>, limit: Option<i64>) -> Res<Vec<Episode>> {
@@ -480,6 +485,24 @@ fn save_image(app: AppHandle, name: String, base64: String) -> Res<String> {
 
 #[tauri::command]
 async fn list_models(provider: llm::Provider) -> Res<Vec<String>> { cloud::list_models(&provider).await.map_err(e) }
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SpokenAudio { data: String, mime: &'static str, seconds: f64 }
+
+/// Speech from any of the voice services (Edge, Doubao, DeepSeek, MiMo, Qwen, OpenAI-compatible, MiniMax,
+/// ElevenLabs), cached on disk, returned as base64 so the page plays it whatever origin it is served from.
+#[tauri::command]
+async fn tts_synthesize(state: State<'_, AppState>, req: speech::TtsRequest) -> Res<SpokenAudio> {
+    use base64::Engine;
+    let out = speech::synthesize(&state.data, req).await.map_err(e)?;
+    let bytes = tokio::fs::read(&out.path).await.map_err(e)?;
+    let mime = if bytes.starts_with(b"RIFF") { "audio/wav" } else if bytes.starts_with(b"OggS") { "audio/ogg" } else { "audio/mpeg" };
+    Ok(SpokenAudio { data: base64::engine::general_purpose::STANDARD.encode(bytes), mime, seconds: out.seconds })
+}
+
+#[tauri::command]
+fn clear_tts_cache(state: State<'_, AppState>) -> Res<()> { speech::clear_cache(&state.data).map_err(e) }
 
 /// Doubao TTS: a base64 WAV for up to 1,000 characters.
 #[tauri::command]
@@ -1028,9 +1051,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            add_subscription, refresh_show, refresh_all, list_shows, list_episodes, recent_episodes, get_episode, remove_show,
+            add_subscription, refresh_show, refresh_all, list_shows, mark_show_seen, list_episodes, recent_episodes, get_episode, remove_show,
             set_progress, search_podcasts, search_show, load_transcript, fetch_official_transcript, transcribe, cancel_job,
-            get_blob, set_blob, get_settings, set_settings, set_api_key, has_api_key, llm_chat, translate_texts, shared_transcript, shared_exists, shared_guide, share_guide, log_listen, listening_stats, export_opml, share_translation, ui_ready, refresh_config, youtube_stream, audio_stream, prepare_youtube, youtube_tracks, use_youtube_track, qiaomu_detail, preview_show, list_models, tts_speak, cached_show, save_image,
+            get_blob, set_blob, get_settings, set_settings, set_api_key, has_api_key, llm_chat, translate_texts, shared_transcript, shared_exists, shared_guide, share_guide, log_listen, listening_stats, export_opml, share_translation, ui_ready, refresh_config, youtube_stream, audio_stream, prepare_youtube, youtube_tracks, use_youtube_track, qiaomu_detail, preview_show, list_models, tts_speak, tts_synthesize, clear_tts_cache, cached_show, save_image,
             download_episode, list_downloads, delete_download, clear_downloads, storage_info, clear_temp, full_notes
         ])
         .build(tauri::generate_context!())

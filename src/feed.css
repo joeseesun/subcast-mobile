@@ -332,3 +332,23 @@
   .poster-side .poster-theme { flex: 0 0 72px; font-size: 11px; white-space: nowrap; }
   .poster-side .poster-theme .swatch { width: 72px; }
 }
+
+/* 问答 quick questions: a grid of cards before the first question (a tap asks it), a scrolling chip row during a
+   conversation, and a sheet with all of them. */
+.chat-intro .prompt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.chat-intro .prompt-card { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-height: 84px; padding: 14px; border: 0; border-radius: 16px; background: var(--panel); box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 7%, transparent); color: var(--text); font: inherit; text-align: left; }
+.chat-intro .prompt-card .pc-icon { color: var(--accent); }
+.chat-intro .prompt-card .pc-title { font-size: 15px; font-weight: 600; line-height: 1.35; }
+.chat-intro .prompt-card:active { transform: scale(.97); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+.chat-intro .prompt-card:disabled { opacity: .5; }
+@media (prefers-reduced-motion: no-preference) { .chat-intro .prompt-card { transition: transform .15s ease, background-color .15s ease; } }
+.prompt-chip.more { background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); }
+
+.prompt-sheet .ps-list { display: flex; flex-direction: column; }
+.prompt-sheet .ps-row { display: flex; gap: 14px; align-items: flex-start; padding: 14px 4px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--text) 7%, transparent); background: none; color: var(--text); font: inherit; text-align: left; }
+.prompt-sheet .ps-row:active { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.prompt-sheet .ps-icon { flex: none; margin-top: 2px; color: var(--accent); }
+.prompt-sheet .ps-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.prompt-sheet .ps-title { font-size: 16px; font-weight: 600; }
+.prompt-sheet .ps-body { font-size: 13px; line-height: 1.45; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.prompt-sheet .ps-manage { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 12px; padding: 12px; border: 0; border-radius: 12px; background: color-mix(in srgb, var(--text) 5%, transparent); color: var(--text); font: inherit; font-size: 15px; }

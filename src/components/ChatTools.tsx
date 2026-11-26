@@ -1,6 +1,6 @@
 import { agentProviderId, useAgents } from "../lib/agents";
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Check, ChevronsUpDown, Clock, Languages, Lightbulb, MessageCircleQuestion, MessageSquareText, Pencil, Plus, Scale, Search, Settings2, Share2, Trash2, TrendingUp, User, Wrench } from "lucide-react";
+import { BookOpen, Check, ChevronsUpDown, Clock, GraduationCap, Languages, Lightbulb, ListOrdered, MessageCircleQuestion, MessageSquareText, Pencil, Plus, Quote, Scale, Search, Settings2, Share2, Trash2, TrendingUp, Wrench, Zap } from "lucide-react";
 import { api, type Provider } from "../lib/api";
 import { PROMPT_HINTS, quickPrompts, type QuickPrompt } from "../lib/settings";
 import { providerFor, useStore } from "../store";
@@ -10,7 +10,7 @@ import { t } from "../lib/i18n";
 const MAX_PROMPTS = 30;
 
 export const PROMPT_ICONS: Record<string, typeof Clock> = {
-  "builtin-brief": Clock, "builtin-insights": Lightbulb, "builtin-guest": User, "builtin-debate": Scale, "builtin-numbers": TrendingUp,
+  "builtin-oneline": Zap, "builtin-brief": Clock, "builtin-insights": Lightbulb, "builtin-timeline": ListOrdered, "builtin-explain": GraduationCap, "builtin-quotes": Quote, "builtin-debate": Scale, "builtin-numbers": TrendingUp,
   "builtin-resources": BookOpen, "builtin-action": Wrench, "builtin-terms": Languages, "builtin-followup": MessageCircleQuestion, "builtin-share": Share2,
 };
 export const promptIcon = (id: string) => PROMPT_ICONS[id] ?? MessageSquareText;

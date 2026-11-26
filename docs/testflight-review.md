@@ -22,10 +22,10 @@ videos play in YouTube's official player. AI features are optional and use the l
 ## What to Test (build notes)
 
 **English:** Subscribe to a podcast from Discover, play an episode and check the bilingual subtitles, the 导读
-(guide) and 精读 (article) tabs, highlights (划线), offline downloads of podcast audio, and the listening stats.
-Please report anything that doesn't play.
+(guide) and 精读 (article) tabs. Press and hold a subtitle line to save it, copy it or make a poster. Also try
+offline downloads of podcast audio and the listening stats. Please report anything that doesn't play.
 
-**简体中文：** 在「发现」里订阅一个播客，播放一集，看看双语字幕、导读和精读是否正常；试试划线、离线下载播客音频和收听统计。遇到播放不了的节目请反馈给我们。
+**简体中文：** 在「发现」里订阅一个播客，播放一集，看看双语字幕、导读和精读是否正常；按住一句字幕可以收藏、复制或生成海报；也试试离线下载播客音频和收听统计。遇到播放不了的节目请反馈给我们。
 
 ## Beta App Review information
 

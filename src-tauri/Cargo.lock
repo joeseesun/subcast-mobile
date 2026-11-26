@@ -4062,6 +4062,8 @@ dependencies = [
  "reqwest 0.12.28",
  "roxmltree",
  "rusqlite",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "sha1",
@@ -4074,8 +4076,10 @@ dependencies = [
  "tauri-plugin-opener",
  "tiny_http",
  "tokio",
+ "tokio-rustls",
  "urlencoding",
  "uuid",
+ "webpki-roots",
  "zip",
 ]
 

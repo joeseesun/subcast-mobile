@@ -1,12 +1,12 @@
-// Read-along (after the desktop app's lib/readAlong.ts): reads an article aloud a sentence at a time with Doubao
-// speech, says which sentence and which characters are being spoken so the page can highlight them, jumps to any
+// Read-along (after the desktop app's lib/readAlong.ts): reads an article aloud a sentence at a time with the
+// chosen voice service (voices.ts), says which sentence and which characters are being spoken so the page can highlight them, jumps to any
 // sentence, and picks up where the reader left off. The next sentence is made while this one plays.
 import { create } from "zustand";
-import { api } from "./api";
 import { useStore } from "../store";
 import { stopHooks, stopSpeaking } from "./tts";
 import { estimateMarks, spokenChars, type Mark } from "./sentences";
 import { t } from "./i18n";
+import { serviceOf, speakSystem, synthesize, type Spoken } from "./voices";
 
 export type ReadState = "idle" | "loading" | "playing" | "paused" | "ended" | "error";
 
@@ -28,8 +28,10 @@ const set = (p: Partial<ReadAlong>) => useReadAlong.setState(p);
 
 let gen = 0;
 let audio: HTMLAudioElement | null = null;
+/** The phone's own voice is speaking the current sentence (no audio element then). */
+let system = false;
 let raf = 0;
-const cache = new Map<string, Promise<string>>();
+const cache = new Map<string, Promise<Spoken>>();
 
 const progressKey = (owner: string) => `subcast-read:${owner}`;
 /** Where the reader stopped last time, if inside the article. */
@@ -40,12 +42,13 @@ function remember(owner: string, index: number | null) {
   try { if (index == null) localStorage.removeItem(progressKey(owner)); else localStorage.setItem(progressKey(owner), String(index)); } catch { /* private mode */ }
 }
 
-function synth(text: string): Promise<string> {
-  const { ttsVoice, ttsResource } = useStore.getState().settings;
-  const key = `${ttsVoice}|${ttsResource}|${text}`;
+function synth(text: string): Promise<Spoken> {
+  const s = useStore.getState().settings;
+  const svc = serviceOf(s);
+  const key = `${svc.id}|${svc.voice}|${svc.model}|${s.ttsRate}|${text}`;
   let p = cache.get(key);
   if (!p) {
-    p = api.ttsSpeak(text, ttsVoice, ttsResource).then((b64) => `data:audio/wav;base64,${b64}`);
+    p = synthesize(text);
     p.catch(() => cache.delete(key));
     cache.set(key, p);
     if (cache.size > 60) cache.delete(cache.keys().next().value!);
@@ -58,6 +61,7 @@ function halt() {
   gen++;
   cancelAnimationFrame(raf);
   if (audio) { audio.onended = null; audio.onerror = null; audio.pause(); audio = null; }
+  if (system) { system = false; speechSynthesis.cancel(); }
 }
 
 function ticker(el: HTMLAudioElement, marks: () => Mark[], g: number) {
@@ -82,10 +86,22 @@ async function playFrom(i: number) {
   const text = sentences[i];
   const fail = (e: unknown) => { if (g === gen) set({ state: "error", error: String((e as Error)?.message ?? e), errorAt: Date.now() }); };
   try {
-    const url = await synth(text);
+    const spoken = await synth(text);
     if (g !== gen) return;
+    if (spoken.kind === "system") {
+      // The phone's voice says where it is word by word, so the spoken part is exact here.
+      system = true;
+      set({ state: "playing" });
+      await speakSystem(text, (char) => { if (g === gen) set({ spoken: char }); });
+      if (g !== gen) return;
+      system = false;
+      set({ spoken: text.length });
+      void playFrom(i + 1);
+      return;
+    }
     if (i + 1 < sentences.length) synth(sentences[i + 1]).catch(() => {});
-    const el = new Audio(url);
+    const el = new Audio(spoken.url);
+    el.playbackRate = spoken.playbackRate;
     audio = el;
     let marks: Mark[] = [];
     el.onloadedmetadata = () => { marks = estimateMarks(text, el.duration); };
@@ -122,11 +138,13 @@ export function seekReading(i: number) {
 export function toggleReading() {
   const { state, index, sentences } = useReadAlong.getState();
   if (state === "playing" || state === "loading") {
+    if (system && state === "playing") { speechSynthesis.pause(); set({ state: "paused" }); return; }
     if (audio && state === "playing") { audio.pause(); cancelAnimationFrame(raf); set({ state: "paused" }); return; }
     halt();
     set({ state: "paused", spoken: 0 });
     return;
   }
+  if (state === "paused" && system) { pauseEpisode(); speechSynthesis.resume(); set({ state: "playing" }); return; }
   if (state === "paused" && audio) {
     pauseEpisode();
     const el = audio, g = gen;
