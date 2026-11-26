@@ -105,14 +105,14 @@
 .ra-play.busy { background: var(--accent-soft); color: var(--accent-text); }
 .ra-pos { min-width: 0; padding: 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .deep-head { gap: 6px; }
-.deep-head.ra-on { position: sticky; top: -16px; z-index: 5; margin-inline: -8px; padding: 6px 8px; border-radius: 16px; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); box-shadow: 0 6px 20px -12px color-mix(in srgb, var(--text) 40%, transparent); }
+.deep-head.ra-on { position: sticky; top: calc(var(--deep-pad, 16px) * -1); z-index: 5; margin-inline: -8px; padding: 6px 8px; border-radius: 16px; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); box-shadow: 0 6px 20px -12px color-mix(in srgb, var(--text) 40%, transparent); }
 .deep-head.ra-on .deep-badge-text { display: none; }
 .deep-head.ra-on .deep-badge { padding-inline: 7px; }
 .deep-head.ra-on > .icon-btn { display: none; }
 .deep-body .ra-s { border-radius: 4px; transition: background-color .2s ease; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .deep-body .ra-s.on { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 ::highlight(ra-spoken) { color: var(--accent-text); }
-.ra-return { position: sticky; bottom: calc(var(--safe-bottom) + 84px); display: flex; align-items: center; gap: 6px; margin: 8px auto 0; padding: 0 14px; min-height: 40px; border: 0; border-radius: 20px; background: var(--ink); color: var(--on-ink); font: inherit; font-size: 13.5px; font-weight: 600; box-shadow: 0 8px 24px -10px #0006; }
+.ra-return { position: sticky; bottom: calc(var(--safe-bottom) + 16px); display: flex; align-items: center; gap: 6px; margin: 8px auto 0; padding: 0 14px; min-height: 40px; border: 0; border-radius: 20px; background: var(--ink); color: var(--on-ink); font: inherit; font-size: 13.5px; font-weight: 600; box-shadow: 0 8px 24px -10px #0006; }
 @media (prefers-reduced-motion: reduce) { .deep-body .ra-s { transition: none; } }
 
 /* Under the controls: the chapter on the left, 划线 on the right */

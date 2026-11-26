@@ -156,7 +156,7 @@ export const useStore = create<State>((set, get) => ({
     const rate = ep.showId !== "single" ? s.settings.showRates?.[ep.showId] : undefined;
     if (rate && rate !== s.settings.playbackRate) {
       void get().saveSettings({ playbackRate: rate });
-      get().notify(t("本节目按 {rate}× 播放", { rate }));
+      if (requested) get().notify(t("本节目按 {rate}× 播放", { rate }));
     }
   },
   notify(text, kind) {
