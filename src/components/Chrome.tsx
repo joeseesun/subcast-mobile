@@ -25,7 +25,7 @@ export function LibraryShows() {
         {shows.map((s) => (
           <button key={s.id} className="show-item" onClick={() => go({ kind: "show", id: s.id })}>
             <span className="show-cover">{showIcon(s)}</span><SideName title={s.title} />
-            {s.unplayed > 0 && s.unplayed <= 99 && <span className="unplayed" aria-label={t("{n} 集未听", { n: s.unplayed })}>{s.unplayed}</span>}
+            {s.unplayed > 0 && s.unplayed <= 99 && <span className="unplayed" aria-label={t("{n} 集新单集", { n: s.unplayed })}>{s.unplayed}</span>}
             <ChevronRight size={18} aria-hidden />
           </button>
         ))}

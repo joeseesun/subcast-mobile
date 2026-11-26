@@ -70,6 +70,8 @@ export const api = {
   refreshShow: (id: string) => invoke<Show>("refresh_show", { id }),
   refreshAll: () => invoke<{ shows: number; newEpisodes: number; skipped: boolean }>("refresh_all"),
   listShows: () => invoke<Show[]>("list_shows"),
+  /** The show was opened: its new episodes (red dot) are seen. */
+  markShowSeen: (showId: string) => invoke<void>("mark_show_seen", { showId }),
   listEpisodes: (showId?: string, limit?: number) => invoke<Episode[]>("list_episodes", { showId, limit }),
   recentEpisodes: () => invoke<Episode[]>("recent_episodes"),
   getEpisode: (id: string) => invoke<Episode | null>("get_episode", { id }),

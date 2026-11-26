@@ -238,7 +238,7 @@ function SubscribedStrip() {
     </div>
     <div className="sub-strip">
       {ordered.slice(0, 20).map((s) => <button key={s.id} className="sub-tile" onClick={() => go({ kind: "show", id: s.id })}
-        aria-label={s.unplayed > 0 ? `${showName(s.title)} · ${t("{n} 集未听", { n: s.unplayed })}` : showName(s.title)}>
+        aria-label={s.unplayed > 0 ? `${showName(s.title)} · ${t("{n} 集新单集", { n: s.unplayed })}` : showName(s.title)}>
         <span className="sub-cover">{showIcon(s)}{s.unplayed > 0 && <i className="sub-dot" aria-hidden />}</span>
         <span className="sub-name"><ShowName title={s.title} /></span>
       </button>)}
@@ -404,6 +404,9 @@ export function ShowView({ id, finder }: { id: string; finder?: ShowFinder }) {
   const { shows, reloadShows, notify, go } = useStore(useShallow((s) => ({ shows: s.shows, reloadShows: s.reloadShows, notify: s.notify, go: s.go })));
   const show = shows.find((s) => s.id === id);
   const [eps, setEps] = useState<Episode[] | null>(null);
+  // Opening a show clears its red dot.
+  const hadNew = (show?.unplayed ?? 0) > 0;
+  useEffect(() => { if (hadNew) void api.markShowSeen(id).then(reloadShows).catch(() => {}); }, [id, hadNew]);
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<Filter>(finder?.filter ?? "all");
   const [expanded, setExpanded] = useState(false);

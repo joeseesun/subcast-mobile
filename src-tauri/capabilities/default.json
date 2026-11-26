@@ -18,6 +18,7 @@
     "allow-refresh-show",
     "allow-refresh-all",
     "allow-list-shows",
+    "allow-mark-show-seen",
     "allow-list-episodes",
     "allow-recent-episodes",
     "allow-get-episode",

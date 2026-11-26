@@ -13,6 +13,7 @@ pub struct Show {
     pub link: Option<String>,
     pub description: Option<String>,
     pub updated_at: i64,
+    /// Unplayed episodes published since the show was last opened (its red dot).
     #[serde(default)]
     pub unplayed: i64,
 }

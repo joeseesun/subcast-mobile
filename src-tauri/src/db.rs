@@ -29,6 +29,12 @@ pub fn open(path: &Path) -> Result<Connection> {
     if !has_deep {
         conn.execute_batch("ALTER TABLE episodes ADD COLUMN deep INTEGER NOT NULL DEFAULT 0; UPDATE episodes SET deep=1 WHERE transcript_type='qiaomu';")?;
     }
+    // When each show was last opened: its red dot and count are the episodes published after that. Existing
+    // subscriptions start from now, so the back catalogue doesn't light up.
+    let has_seen: bool = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('shows') WHERE name='seen_at'", [], |r| r.get::<_, i64>(0))? > 0;
+    if !has_seen {
+        conn.execute_batch("ALTER TABLE shows ADD COLUMN seen_at INTEGER; UPDATE shows SET seen_at=CAST(strftime('%s','now') AS INTEGER)*1000;")?;
+    }
     // Repair pre-existing episodes immediately, including before the first network refresh.
     let show = short_hash(&crate::qiaomu::rss_feed_url("nexttoken"), 16);
     let tx = conn.unchecked_transaction()?;
@@ -42,7 +48,7 @@ pub fn open(path: &Path) -> Result<Connection> {
 
 pub fn upsert_show(conn: &Connection, s: &Show) -> Result<()> {
     conn.execute(
-        "INSERT INTO shows(id,kind,title,author,cover,feed_url,link,description,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+        "INSERT INTO shows(id,kind,title,author,cover,feed_url,link,description,updated_at,seen_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,CAST(strftime('%s','now') AS INTEGER)*1000)
          ON CONFLICT(id) DO UPDATE SET title=excluded.title, author=excluded.author, cover=COALESCE(excluded.cover, shows.cover),
          link=excluded.link, description=excluded.description, updated_at=excluded.updated_at",
         params![s.id, s.kind, s.title, s.author, s.cover, s.feed_url, s.link, s.description, s.updated_at],
@@ -81,10 +87,16 @@ fn show_from(r: &rusqlite::Row) -> rusqlite::Result<Show> {
 pub fn list_shows(conn: &Connection) -> Result<Vec<Show>> {
     let mut st = conn.prepare(
         "SELECT s.id,s.kind,s.title,s.author,s.cover,s.feed_url,s.link,s.description,s.updated_at,
-         (SELECT COUNT(*) FROM episodes e WHERE e.show_id=s.id AND e.progress=0) FROM shows s WHERE s.kind != 'single' ORDER BY s.title COLLATE NOCASE",
+         (SELECT COUNT(*) FROM episodes e WHERE e.show_id=s.id AND e.progress=0 AND e.published > COALESCE(s.seen_at, 0)) FROM shows s WHERE s.kind != 'single' ORDER BY s.title COLLATE NOCASE",
     )?;
     let rows = st.query_map([], show_from)?.collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(rows)
+}
+
+/// The show was opened now: its new episodes are seen.
+pub fn mark_show_seen(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("UPDATE shows SET seen_at=CAST(strftime('%s','now') AS INTEGER)*1000 WHERE id=?1", [id])?;
+    Ok(())
 }
 
 pub fn get_show(conn: &Connection, id: &str) -> Result<Option<Show>> {
@@ -235,6 +247,27 @@ pub fn listens_since(conn: &Connection, since: &str) -> Result<Vec<serde_json::V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn red_dot_counts_only_episodes_since_the_show_was_opened() {
+        let path = std::env::temp_dir().join(format!("subcast-seen-{}.sqlite", uuid::Uuid::new_v4()));
+        let mut db = open(&path).unwrap();
+        let show = Show { id: "s".into(), kind: "podcast".into(), title: "S".into(), feed_url: "https://x/feed".into(), ..Default::default() };
+        upsert_show(&db, &show).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let ep = |id: &str, at: i64| Episode { id: id.into(), show_id: "s".into(), guid: id.into(), title: id.into(), published: Some(at), ..Default::default() };
+        // The back catalogue from subscribing doesn't count; a later episode does.
+        upsert_episodes(&mut db, &[ep("old", now - 86_400_000), ep("new", now + 60_000)]).unwrap();
+        assert_eq!(list_shows(&db).unwrap()[0].unplayed, 1);
+        // Re-subscribing (an upsert) keeps the seen time; opening the show clears the dot.
+        upsert_show(&db, &show).unwrap();
+        assert_eq!(list_shows(&db).unwrap()[0].unplayed, 1);
+        db.execute("UPDATE shows SET seen_at=?1", [now + 120_000]).unwrap();
+        assert_eq!(list_shows(&db).unwrap()[0].unplayed, 0);
+        mark_show_seen(&db, "s").unwrap();
+        drop(db);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn restores_missing_curated_video_without_overwriting_progress_or_newer_links() {

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-mark-show-seen"
+description = "Enables the mark_show_seen command without any pre-configured scope."
+commands.allow = ["mark_show_seen"]
+
+[[permission]]
+identifier = "deny-mark-show-seen"
+description = "Denies the mark_show_seen command without any pre-configured scope."
+commands.deny = ["mark_show_seen"]
