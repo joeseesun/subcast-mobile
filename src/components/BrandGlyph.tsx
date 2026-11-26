@@ -39,11 +39,14 @@ export function BrandGlyph({ name, size = 24, interval }: { name: Glyph; size?: 
       break;
     case "back":
     case "next":
+      // lucide Undo2 / Redo2, shrunk into the top of the box, with the interval written underneath.
       drawing = <>
-        <g transform={name === "next" ? "translate(24 0) scale(-1 1)" : undefined}>
-          <path d="M3.6 4.8v5.1h5.2M4 9a8.45 8.45 0 1 1 .5 9.3"/>
+        <g transform="translate(3.6 -1.4) scale(.7)" strokeWidth="2.5">
+          {name === "back"
+            ? <><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></>
+            : <><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></>}
         </g>
-        <text x="12.1" y="15.65" textAnchor="middle" fill="currentColor" stroke="none" fontSize="7.6" fontWeight="700" fontFamily="system-ui, sans-serif">{interval}</text>
+        <text x="12" y="22.6" textAnchor="middle" fill="currentColor" stroke="none" fontSize="8.2" fontWeight="650" fontFamily="system-ui, sans-serif" style={{ fontVariantNumeric: "tabular-nums" }}>{interval}</text>
       </>;
       break;
     case "more":

@@ -6,6 +6,8 @@ The iOS / Android build of SubCast (desktop: `../subcast`). Read README.md first
   Interface text goes through `t("中文")` with translations in `src/locales/{en,ja,zh-TW}.ts`.
 - **Git**: short branch → PR → merge commit; never push to `main`.
 - **Shipping** is a store build (TestFlight / Play or a signed APK). There is no updater and no interface hot update.
+  TestFlight: `scripts/testflight.sh <build-number>` (bump the number every upload; key and IDs live in
+  `~/.appstoreconnect/`, never in the repo). New builds go to the internal group 内部测试 automatically.
 - **Phones have no local ASR, no yt-dlp, no local AI agents.** Transcription is cloud only (`cloud.rs`); YouTube
   audio and streams come from InnerTube (`youtube.rs::streams`, chunked `download_stream`).
 - **Tauri commands**: Rust function + `invoke_handler` + `src-tauri/build.rs` COMMANDS + `capabilities/default.json`.

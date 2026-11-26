@@ -10,8 +10,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, BookOpen, Check, ChevronDown, ChevronRight, Loader2, Play, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { bytes, clearDownloads, useOffline } from "../lib/offline";
 import { api, errorText, type Episode, type Show, type ShowHit } from "../lib/api";
-import { date, duration, monthLabel } from "../lib/format";
-import { PICKS, TOPICS, deepPickFor, isSubscribed, pickName, pickSub, sameFeed, showName, type Pick, type Topic } from "../lib/picks";
+import { date, duration, monthLabel, notesText } from "../lib/format";
+import { PICKS, TOPICS, deepPickFor, isSubscribed, pickName, pickSub, sameFeed, showArt, showName, unboxYoutube, ytFallback, type Pick, type Topic } from "../lib/picks";
 import { isChineseUi, t } from "../lib/i18n";
 import { useShowName, useZh } from "../lib/zh";
 import { useStore, type ShowFinder } from "../store";
@@ -33,8 +33,6 @@ function ShowName({ title }: { title?: string }) {
   return <span className="show-name">{zh ?? orig}</span>;
 }
 
-/** One episode, built for scanning: who and when on a small first line, the title in full (up to two lines),
- *  the original title muted underneath, and status only when it means something. */
 /** The query's words marked in a piece of text. */
 function Marked({ text, query }: { text: string; query: string }) {
   const words = query.split(/\s+/).filter(Boolean).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -49,52 +47,81 @@ function openAt(ep: Episode, time: number) {
   seekEpisode(ep, Math.max(0, time - 1));
 }
 
+/** The first line or two of the show notes, as plain text. */
+function blurb(notes?: string) {
+  if (!notes) return "";
+  return notesText(notes.slice(0, 1600)).replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+/** A round play button whose ring fills as the episode is heard; it pauses the episode that is playing. */
+export function PlayRing({ ep }: { ep: Episode }) {
+  const { isCurrent, playing, loading, player } = useStore(useShallow((s) => ({
+    isCurrent: s.current?.id === ep.id, playing: s.current?.id === ep.id && s.playing,
+    loading: s.current?.id === ep.id && !!s.loadingSince, player: s.player,
+  })));
+  const live = useStore((s) => (s.current?.id === ep.id && s.length > 0 ? s.time / s.length : null));
+  const done = live ?? (ep.duration && ep.progress > 5 ? Math.min(1, ep.progress / ep.duration) : 0);
+  const r = 15.5, c = 2 * Math.PI * r;
+  const busy = playing || loading;
+  const press = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    selectionFeedback();
+    if (isCurrent && player) player.toggle();
+    else playAll([ep]);
+  };
+  return <button type="button" className={`play-ring ${busy ? "on" : ""}`} aria-label={busy ? t("暂停") : t("播放")} onClick={press}>
+    <svg className="ring" viewBox="0 0 36 36" aria-hidden>
+      <circle className="track" cx="18" cy="18" r={r} />
+      {done > 0 && <circle className="fill" cx="18" cy="18" r={r} strokeDasharray={c} strokeDashoffset={c * (1 - done)} />}
+    </svg>
+    {loading ? <Loader2 size={15} className="spin" /> : playing ? <BrandGlyph name="pause" size={15} /> : <BrandGlyph name="play" size={15} />}
+  </button>;
+}
+
+/** One episode, the way a podcast app lists it: artwork, a two-line title, a line of what it is about, then
+ *  length and date, with a play button at the end of the row. */
 function EpisodeRow({ ep, showShow, hit, query }: { ep: Episode; showShow: boolean; hit?: ShowHit; query?: string }) {
   const openEpisode = useStore((s) => s.openEpisode);
   const open = () => (hit?.time != null ? openAt(ep, hit.time) : openEpisode(ep));
-  const current = useStore((s) => s.current);
+  const isCurrent = useStore((s) => s.current?.id === ep.id);
   const zh = useZh(ep.title);
   const pct = ep.duration && ep.progress > 5 ? Math.min(100, (ep.progress / ep.duration) * 100) : 0;
-  const deep = !!ep.deep;
   const saved = useOffline((s) => s.saved[ep.id]);
   const loading = useOffline((s) => s.active[ep.id]);
+  const shared = useSharedHits((s) => !!s.ids[ep.id]);
+  const translated = !!zh && zh !== ep.title;
+  const about = useMemo(() => (translated ? "" : blurb(ep.notes)), [translated, ep.notes]);
+  const left = pct > 0 && pct < 97 ? Math.max(1, Math.round(((ep.duration ?? 0) - ep.progress) / 60)) : 0;
   return (
-    <div className={`ep-item ${current?.id === ep.id ? "playing" : ""} ${pct >= 97 ? "played" : ""}`} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => e.key === "Enter" && open()}>
-      <div className={`ep-thumb ${ep.videoId ? "video" : "square"}`}>
-        {ep.cover && !ep.videoId && <img className="thumb-bg" src={ep.cover} alt="" aria-hidden loading="lazy" />}
-        {ep.cover ? <img className="thumb-img" src={ep.cover} alt="" loading="lazy" onError={(e) => {
+    <div className={`feed-row ${isCurrent ? "playing" : ""} ${pct >= 97 ? "played" : ""}`} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => e.key === "Enter" && open()}>
+      <div className="feed-art">
+        {ep.cover ? <img src={unboxYoutube(ep.cover)} alt="" loading="lazy" onError={(e) => {
           const i = e.currentTarget;
           if (ep.videoId && !i.dataset.f) { i.dataset.f = "1"; i.src = `https://i.ytimg.com/vi/${ep.videoId}/mqdefault.jpg`; } else i.style.visibility = "hidden";
         }} /> : <div className="cover-fallback" />}
-        {ep.videoId && ep.duration ? <span className="thumb-dur">{clockShort(ep.duration)}</span> : null}
-        {pct > 0 && <span className="thumb-bar"><span style={{ width: `${pct}%` }} /></span>}
+        {ep.videoId && <span className="feed-art-badge"><BrandGlyph name="film" size={11} /></span>}
       </div>
-      <div className="ep-body-col">
-        <p className="ep-kicker">
-          {showShow && ep.showId !== "single" && <ShowName title={ep.showTitle} />}
-          <span>{date(ep.published)}</span>
-          {ep.duration ? <span>{duration(ep.duration)}</span> : null}
-        </p>
-        <p className="ep-title2">{query ? <Marked text={zh ?? ep.title} query={query} /> : zh ?? ep.title}</p>
-        {zh && zh !== ep.title && <p className="ep-orig">{query ? <Marked text={ep.title} query={query} /> : ep.title}</p>}
+      <div className="feed-body">
+        {showShow && ep.showId !== "single" && ep.showTitle && <p className="feed-show"><ShowName title={ep.showTitle} /></p>}
+        <p className="feed-title">{query ? <Marked text={zh ?? ep.title} query={query} /> : zh ?? ep.title}</p>
+        {translated && <p className="feed-desc one">{query ? <Marked text={ep.title} query={query} /> : ep.title}</p>}
+        {about && !hit && <p className="feed-desc">{about}</p>}
         {hit && hit.field !== "title" && (
           <p className="ep-hit">
             <span className="ep-hit-where">{hit.field === "transcript" ? <><Play size={10} /> {t("字幕")} {clockShort(hit.time ?? 0)}</> : t("简介")}</span>
             <span className="ep-hit-text"><Marked text={hit.snippet} query={query ?? ""} /></span>
           </p>
         )}
-        {(deep || ep.hasTranscript || ep.videoId || pct > 0 || saved || loading !== undefined) && (
-          <p className="ep-tags">
-            {saved && <span className="tag saved"><ArrowDownToLine size={11} />{saved.cached ? t("已缓存") : t("已下载")}</span>}
-            {loading !== undefined && <span className="tag saved">{loading == null ? t("缓存中") : t("缓存中 {pct}%", { pct: Math.round(loading * 100) })}</span>}
-            {deep && <span className="tag deep">{t("精读")}</span>}
-            {ep.hasTranscript && <span className="tag">{t("字幕")}</span>}
-            {ep.videoId && <span className="tag">{t("视频")}</span>}
-            {pct > 0 && pct < 97 && <span className="tag progress"><span className="mini-bar"><span style={{ width: `${pct}%` }} /></span>{t("剩 {n} 分钟", { n: Math.max(1, Math.round(((ep.duration ?? 0) - ep.progress) / 60)) })}</span>}
-            {pct >= 97 && <span className="tag">{t("已听完")}</span>}
-          </p>
-        )}
+        <p className="feed-meta">
+          {left ? <span className="feed-left">{t("剩 {n} 分钟", { n: left })}</span> : pct >= 97 ? <span>{t("已听完")}</span> : ep.duration ? <span>{duration(ep.duration)}</span> : null}
+          {ep.published ? <span>{date(ep.published)}</span> : null}
+          {ep.deep && <span className="feed-flag deep">{t("精读")}</span>}
+          {!ep.deep && (ownSubs(ep) || shared) && <span className="feed-flag">{t("字幕")}</span>}
+          {saved && <span className="feed-flag"><ArrowDownToLine size={10} />{saved.cached ? t("已缓存") : t("已下载")}</span>}
+          {loading !== undefined && <span className="feed-flag">{loading == null ? t("缓存中") : t("缓存中 {pct}%", { pct: Math.round(loading * 100) })}</span>}
+        </p>
       </div>
+      {(ep.audioUrl || ep.videoId || saved) && <PlayRing ep={ep} />}
     </div>
   );
 }
@@ -182,30 +209,6 @@ function checkShared(eps: Episode[]) {
   }).catch(() => {});
 }
 
-function EpisodeCard({ ep, wide }: { ep: Episode; wide?: boolean }) {
-  const openEpisode = useStore((s) => s.openEpisode);
-  const zh = useZh(ep.title);
-  const pct = ep.duration && ep.progress > 5 ? Math.min(100, (ep.progress / ep.duration) * 100) : 0;
-  const shared = useSharedHits((s) => !!s.ids[ep.id]);
-  const left = ep.duration && pct > 0 ? Math.max(1, Math.round((ep.duration - ep.progress) / 60)) : 0;
-  const play = (e: React.MouseEvent) => { e.stopPropagation(); playAll([ep]); };
-  const playButton = <button type="button" className="card-play" title={t("播放")} aria-label={t("播放")} onClick={play}><BrandGlyph name="play" size={20} /></button>;
-  return (
-    <div className={`ep-card ${wide ? "wide" : ""}`} role="button" tabIndex={0} onClick={() => openEpisode(ep)} onKeyDown={(e) => e.key === "Enter" && openEpisode(ep)}>
-      <div className={`ep-thumb ${ep.videoId ? "video" : "square"}`}>
-        {ep.cover && !ep.videoId && <img className="thumb-bg" src={ep.cover} alt="" aria-hidden loading="lazy" />}
-        {ep.cover ? <img className="thumb-img" src={ep.cover} alt="" loading="lazy" /> : <div className="cover-fallback" />}
-        {pct > 0 && <span className="thumb-bar"><span style={{ width: `${pct}%` }} /></span>}
-        {(ownSubs(ep) || shared) && <span className="thumb-subs">{t("有字幕")}</span>}
-        {!wide && playButton}
-      </div>
-      <p className="ep-kicker">{ep.showId !== "single" && <ShowName title={ep.showTitle} />}<span>{left ? t("剩 {n} 分钟", { n: left }) : date(ep.published)}</span></p>
-      <p className="card-title">{zh ?? ep.title}</p>
-      {wide && playButton}
-    </div>
-  );
-}
-
 /** One recommended show in the side column. */
 function RecRow({ r, onAdd, adding, done }: { r: Recommendation; onAdd: () => void; adding: boolean; done: boolean }) {
   const go = useStore((s) => s.go);
@@ -220,6 +223,26 @@ function RecRow({ r, onAdd, adding, done }: { r: Recommendation; onAdd: () => vo
         : <button className="icon-btn sm rec-add" title={t("订阅")} aria-label={t("订阅")} disabled={adding} onClick={(e) => { e.stopPropagation(); onAdd(); }}>{adding ? <Loader2 size={14} className="spin" /> : <Plus size={16} />}</button>}
     </div>
   );
+}
+
+/** The shows you follow, as a row of artwork to swipe through; a dot marks new episodes. */
+function SubscribedStrip() {
+  const { shows, go } = useStore(useShallow((s) => ({ shows: s.shows, go: s.go })));
+  if (!shows.length) return null;
+  const ordered = [...shows].sort((a, b) => Number(b.unplayed > 0) - Number(a.unplayed > 0));
+  return <section className="sub-strip-wrap">
+    <div className="module-head">
+      <h2 className="module-title">{t("我的订阅")}</h2>
+      <button className="link-btn" onClick={() => useStore.setState({ view: { kind: "library" }, history: [] })}>{t("全部")} <ChevronRight size={13} /></button>
+    </div>
+    <div className="sub-strip">
+      {ordered.slice(0, 20).map((s) => <button key={s.id} className="sub-tile" onClick={() => go({ kind: "show", id: s.id })}
+        aria-label={s.unplayed > 0 ? `${showName(s.title)} · ${t("{n} 集未听", { n: s.unplayed })}` : showName(s.title)}>
+        <span className="sub-cover">{showIcon(s)}{s.unplayed > 0 && <i className="sub-dot" aria-hidden />}</span>
+        <span className="sub-name"><ShowName title={s.title} /></span>
+      </button>)}
+    </div>
+  </section>;
 }
 
 export function LatestView() {
@@ -267,6 +290,7 @@ export function LatestView() {
           document.querySelector<HTMLInputElement>(".top-search input")?.focus();
         }} aria-label={t("搜索节目")}><BrandGlyph name="search" /></button>
       </PageHeading>
+      <SubscribedStrip />
       {featured && <ContinueHero ep={featured} continuing={!!hero} />}
       {upNext.length > 0 && (
         <section>
@@ -274,7 +298,7 @@ export function LatestView() {
             <h2 className="module-title">{t("接下来听")}</h2>
             <button className="link-btn" onClick={() => go({ kind: "recent" })}>{t("全部")} <ChevronRight size={13} /></button>
           </div>
-          <div className="card-grid compact-queue">{queued.map((e) => <EpisodeCard key={e.id} ep={e} wide />)}</div>
+          <div className="ep-feed">{queued.map((e) => <EpisodeRow key={e.id} ep={e} showShow />)}</div>
         </section>
       )}
       <div className="home-grid">
@@ -289,14 +313,14 @@ export function LatestView() {
                 <EpisodeList episodes={eps.slice(0, limit)} showShow />
                 {eps.length > limit && <div className="center"><button className="btn" onClick={() => setLimit(limit + 40)}>{t("加载更多")}</button></div>}
               </>
-            : <div className="card-grid">{latest.slice(0, 9).map((e) => <EpisodeCard key={e.id} ep={e} wide />)}</div>}
+            : <div className="ep-feed">{latest.slice(0, 9).map((e) => <EpisodeRow key={e.id} ep={e} showShow />)}</div>}
         </section>
         <aside className="home-side">
           {recs.length > 0 && (
             <section>
               <div className="module-head">
                 <h2 className="module-title">{t("为你推荐")}</h2>
-                <button className="link-btn" onClick={() => go({ kind: "discover" })}>{t("全部")} <ChevronRight size={13} /></button>
+                <button className="link-btn" onClick={() => useStore.setState({ view: { kind: "discover" }, history: [] })}>{t("全部")} <ChevronRight size={13} /></button>
               </div>
               <div className="rec-list">{recs.map((r) => <RecRow key={r.pick.id} r={r} adding={adding === r.pick.input} done={isSubscribed(r.pick, shows)} onAdd={() => void subscribe(r.pick.input, pickName(r.pick))} />)}</div>
             </section>
@@ -465,6 +489,7 @@ export function ShowView({ id, finder }: { id: string; finder?: ShowFinder }) {
   // "Play all" follows the list as filtered, newest first, skipping finished and unplayable episodes.
   const playable = (shown ?? []).filter((e) => (e.audioUrl || e.videoId) && !(e.duration && e.progress >= e.duration * 0.97));
   if (!show) return <><MobileBack /><div className="page" /></>;
+  const art = showArt(show);
   const refresh = async () => {
     setBusy(true);
     try { await api.refreshShow(id); setEps(await api.listEpisodes(id)); await reloadShows(); } catch (e) { notify(errorText(e)); } finally { setBusy(false); }
@@ -480,8 +505,8 @@ export function ShowView({ id, finder }: { id: string; finder?: ShowFinder }) {
   return (<>
     <MobileBack trailing={<button onClick={() => setMenu(true)} aria-haspopup="dialog" aria-label={t("更多")}><BrandGlyph name="more" /></button>} />
     <div className="page show-page">
-      <div className="show-head">
-        {show.cover ? <img src={show.cover} alt="" /> : <div className="cover-fallback" />}
+      <div className={`show-head ${art.video ? "video-art" : ""}`} style={art.src ? { "--cover": `url("${art.src}")` } as React.CSSProperties : undefined}>
+        {art.src ? <img src={art.src} alt="" onError={ytFallback} /> : <div className="cover-fallback" />}
         <div className="show-info">
           <p className="meta-line">{show.kind === "youtube" ? t("YouTube 频道") : show.kind === "xiaoyuzhou" ? t("小宇宙") : t("播客")}{show.author && show.author !== show.title ? ` · ${show.author}` : ""}</p>
           <h1 className="show-title-h">{names.zh ?? names.orig}</h1>
@@ -652,13 +677,14 @@ export function ChannelView({ input }: { input: string }) {
       if (r.show) { notify(t("已订阅「{name}」", { name: pick ? pickName(pick) : r.show.title })); go({ kind: "show", id: r.show.id }); }
     } catch (e) { notify(errorText(e)); } finally { setBusy(false); }
   };
-  const cover = pick?.cover ?? data?.show.cover;
+  const art = pick?.cover ? { src: pick.cover, video: false } : data ? showArt(data.show) : { src: undefined, video: false };
+  const cover = art.src;
 
   const desc = pick ? t(pick.intro) : (data?.show.description ?? "").replace(/<[^>]+>/g, "").trim().slice(0, 300);
   return (
     <div className="page show-page">
-      <div className="show-head">
-        {cover ? <img src={cover} alt="" /> : <div className="cover-fallback" />}
+      <div className={`show-head ${art.video ? "video-art" : ""}`} style={cover ? { "--cover": `url("${cover}")` } as React.CSSProperties : undefined}>
+        {cover ? <img src={cover} alt="" onError={ytFallback} /> : <div className="cover-fallback" />}
         <div className="show-info">
           <p className="meta-line">{pick?.deep ? t("乔木精读 · 中文标题、精读长文与原文文稿") : pick?.by ?? data?.show.author ?? t("频道")}</p>
           <h1 className="show-title-h">{pick ? pickName(pick) : names.zh ?? names.orig}</h1>
@@ -688,5 +714,6 @@ export function ChannelView({ input }: { input: string }) {
 }
 
 export function showIcon(show: Show) {
-  return show.cover ? <img src={show.cover} alt="" loading="lazy" /> : <div className="cover-fallback">{show.title.slice(0, 1)}</div>;
+  const art = showArt(show);
+  return art.src ? <img src={art.src} alt="" loading="lazy" onError={ytFallback} /> : <div className="cover-fallback">{show.title.slice(0, 1)}</div>;
 }

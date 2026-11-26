@@ -19,8 +19,12 @@ export function SettingGroup({ title, children, footer }: { title?: string; chil
 }
 
 export function SettingSelect<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: readonly (readonly [T, string])[]; onChange: (value: T) => void }) {
-  return <label className="ios-setting-row">
+  // The native picker sits invisibly over the whole row; what shows is the chosen option, set against the right edge
+  // (WebKit centres a <select>'s own text whatever text-align says).
+  const shown = options.find(([id]) => id === value)?.[1] ?? String(value);
+  return <label className="ios-setting-row select-row">
     <span>{label}</span>
+    <span className="select-value">{shown}</span>
     <select value={value} onChange={(event) => {
       const selected = options.find(([id]) => String(id) === event.target.value);
       if (selected) onChange(selected[0]);

@@ -19,6 +19,8 @@ import { startNowPlaying } from "./lib/nowplaying";
 import { loadFavorites } from "./lib/library";
 import { EpisodeView } from "./components/EpisodeView";
 import { StatsView } from "./components/StatsView";
+import { NotesView } from "./components/NotesView";
+import { loadNotes } from "./lib/notes";
 import { VideoDock } from "./components/VideoDock";
 import { AudioEngine, cycleMode, noteListening, stepRate, toggleTheater } from "./components/Players";
 import { actionFor, comboOf, isPlain, useKeysHelp, type ActionId } from "./lib/shortcuts";
@@ -39,6 +41,7 @@ export default function App() {
     const stopNowPlaying = startNowPlaying();
     void startOffline();
     void loadFavorites();
+    void loadNotes();
     // Listening time is flushed when playback stops, not only every 20 s.
     const offPlaying = useStore.subscribe((s, prev) => { if (prev.playing && !s.playing && s.current) noteListening(s.current, false); });
     window.addEventListener("beforeunload", () => { const c = useStore.getState().current; if (c) noteListening(c, false); });
@@ -113,6 +116,7 @@ export default function App() {
         {view.kind === "stats" && <StatsView />}
         {view.kind === "discover" && <DiscoverView />}
         {view.kind === "downloads" && <DownloadsView />}
+        {view.kind === "notes" && <NotesView />}
         {view.kind === "library" && <LibraryView />}
         {view.kind === "show" && <ShowView key={view.id} id={view.id} finder={view.finder} />}
         {view.kind === "channel" && <ChannelView key={view.input} input={view.input} />}

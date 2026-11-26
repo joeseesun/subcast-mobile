@@ -100,7 +100,7 @@ pub async fn download(data: &Path, ep: &Episode, cancel: Arc<AtomicBool>, mut pr
             return Err(error);
         }
         dest
-    } else if let Some(vid) = &ep.video_id {
+    } else if let Some(vid) = ep.video_id.as_ref().filter(|_| !cfg!(feature = "store")) {
         let s = crate::youtube::streams(vid, crate::youtube::StreamUse::Audio).await?;
         let url = s.audio.ok_or_else(|| anyhow!("YouTube 没有给出这个视频的音频地址"))?;
         let dest = d.join(format!("{CACHE_PREFIX}{}.m4a", ep.id));

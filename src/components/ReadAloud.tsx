@@ -4,7 +4,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Modal } from "./Chrome";
 import { useShallow } from "zustand/react/shallow";
-import { ChevronDown, ExternalLink, Square, Volume2 } from "lucide-react";
+import { ExternalLink, Settings2, Square, Volume2 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { speak, stopSpeaking } from "../lib/tts";
 import { VOICES } from "../lib/settings";
@@ -17,11 +17,11 @@ export function ReadAloud({ text, title }: { text: () => string; title?: string 
   const [open, setOpen] = useState(false);
   const read = () => void speak(text(), (m) => { useStore.getState().notify(tr(m)); if (m.includes("Key")) setOpen(true); });
   return (
-    <div className="read-aloud">
+    <div className="read-along">
       {speaking
-        ? <button className="btn sm" onClick={stopSpeaking}><Square size={11} /> {t("停止朗读")}</button>
-        : <button className="btn sm" title={title ?? t("朗读")} onClick={read}><Volume2 size={13} /> {t("朗读")}</button>}
-      <button className="icon-btn sm" aria-label={t("朗读设置")} title={t("朗读设置")} aria-expanded={open} onClick={() => setOpen(!open)}><ChevronDown size={13} /></button>
+        ? <button className="ra-start on" onClick={stopSpeaking}><Square size={13} fill="currentColor" aria-hidden /> {t("停止朗读")}</button>
+        : <button className="ra-start" title={title ?? t("朗读")} onClick={read}><Volume2 size={16} aria-hidden /> {t("朗读")}</button>}
+      <button className="ra-icon" aria-label={t("朗读设置")} onClick={() => setOpen(true)}><Settings2 size={18} /></button>
       {open && createPortal(<Modal title={t("朗读设置")} className="settings-modal" done onClose={() => setOpen(false)}><ReadAloudSettings /></Modal>, document.body)}
     </div>
   );

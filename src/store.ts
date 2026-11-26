@@ -16,6 +16,7 @@ export type View =
   | { kind: "stats" }
   | { kind: "discover" }
   | { kind: "downloads" }
+  | { kind: "notes" }
   | { kind: "library" }
   | { kind: "show"; id: string; finder?: ShowFinder }
   | { kind: "channel"; input: string }
@@ -151,6 +152,12 @@ export const useStore = create<State>((set, get) => ({
       player: s.player?.episodeId === ep.id ? s.player : null,
       playWhenReady: requested ? ep.id : null, loadingSince: requested ? s.loadingSince : null,
     });
+    // Each show keeps the speed last chosen for it.
+    const rate = ep.showId !== "single" ? s.settings.showRates?.[ep.showId] : undefined;
+    if (rate && rate !== s.settings.playbackRate) {
+      void get().saveSettings({ playbackRate: rate });
+      if (requested) get().notify(t("本节目按 {rate}× 播放", { rate }));
+    }
   },
   notify(text, kind) {
     set({ toast: text, toastKind: kind });

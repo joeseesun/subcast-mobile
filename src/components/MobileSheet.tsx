@@ -25,7 +25,7 @@ export async function presentNativeChoices(title: string, rows: Choice[], trigge
   }
 }
 
-export function MobileSheet({ title, doneLabel, onClose, children }: { title: string; doneLabel?: string; onClose: () => void; children: React.ReactNode }) {
+export function MobileSheet({ title, doneLabel, onClose, children, className }: { title: string; doneLabel?: string; onClose: () => void; children: React.ReactNode; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
   const heading = useId();
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -37,7 +37,7 @@ export function MobileSheet({ title, doneLabel, onClose, children }: { title: st
     return () => { dialog.close?.(); trigger?.focus({ preventScroll: true }); };
   }, []);
   return createPortal(
-    <dialog ref={ref} className="mobile-sheet" aria-labelledby={heading} onCancel={(e) => { e.preventDefault(); onClose(); }}
+    <dialog ref={ref} className={`mobile-sheet ${className ?? ""}`} aria-labelledby={heading} onCancel={(e) => { e.preventDefault(); onClose(); }}
       onClick={(e) => { if (e.target === ref.current && e.clientY < ref.current.getBoundingClientRect().top) onClose(); }}>
       <header><h2 id={heading} ref={titleRef} tabIndex={-1}>{title}</h2>{doneLabel
         ? <button className="sheet-done" onClick={onClose}>{doneLabel}</button>

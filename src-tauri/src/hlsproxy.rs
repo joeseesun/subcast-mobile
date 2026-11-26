@@ -38,6 +38,75 @@ pub async fn proxied(url: &str, agent: &str, mp4: bool) -> Result<String> {
     Ok(if mp4 { format!("{root}/p.mp4?u={}", urlencoding::encode(url)) } else { wrap(&root, url) })
 }
 
+/// The loopback address that plays a podcast episode's audio through SubCast (after the desktop app): for hosts the
+/// player can't load itself — a proxy a domestic CDN refuses (tried again without it), a server answering media
+/// requests oddly or labelling audio as octet-stream. Any http(s) host, still only under this run's token.
+pub async fn audio(url: &str) -> Result<String> {
+    let u = Url::parse(url.trim()).map_err(|_| anyhow!("音频地址无效"))?;
+    if !audio_allowed(&u) { return Err(anyhow!("音频地址无效")); }
+    Ok(format!("{}/a?u={}", base().await?, urlencoding::encode(u.as_str())))
+}
+
+fn audio_allowed(u: &Url) -> bool { matches!(u.scheme(), "http" | "https") && u.host_str().is_some_and(|h| !h.is_empty()) }
+
+/// The media type to give the player. Hosts often send audio as octet-stream or text, which AVPlayer and WebKit
+/// refuse; the file extension says what it is.
+fn audio_type(sent: &str, url: &Url) -> String {
+    let sent = sent.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    if sent.starts_with("audio/") || sent.starts_with("video/") { return sent; }
+    match crate::offline::audio_ext(url.as_str()).as_str() {
+        "m4a" | "mp4" | "m4b" => "audio/mp4",
+        "aac" => "audio/aac",
+        "ogg" | "oga" | "opus" => "audio/ogg",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
+        "webm" => "audio/webm",
+        _ => "audio/mpeg",
+    }.to_string()
+}
+
+/// Fetches the audio through the app's network settings and then, if that fails or the host refuses, directly.
+async fn fetch_audio(target: &Url, head: bool, range: Option<&str>) -> Option<reqwest::Response> {
+    let send = |c: reqwest::Client| {
+        let mut req = if head { c.head(target.clone()) } else { c.get(target.clone()) };
+        // Ranges are byte offsets into the file: never let a server compress it.
+        req = req.header("Accept-Encoding", "identity");
+        if let Some(r) = range { req = req.header("Range", r); }
+        req.send()
+    };
+    let usable = |r: &reqwest::Response| r.status().is_success() || r.status().as_u16() == 416;
+    let first = send(net::client()).await.ok();
+    if first.as_ref().is_some_and(usable) { return first; }
+    match send(net::direct()).await {
+        Ok(r) if usable(&r) => Some(r),
+        _ => first,
+    }
+}
+
+async fn serve_audio(sock: &mut TcpStream, target: &Url, head: bool, range: Option<&str>) -> Result<()> {
+    let Some(res) = fetch_audio(target, head, range).await else {
+        sock.write_all(format!("HTTP/1.1 502 Bad Gateway\r\n{CORS}Content-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await?;
+        return Ok(());
+    };
+    let status = res.status();
+    let sent = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("");
+    let kind = if status.is_success() { audio_type(sent, res.url()) } else { sent.to_string() };
+    let mut extra = String::new();
+    let encoded = res.headers().get("content-encoding").is_some_and(|v| v.as_bytes() != b"identity");
+    for h in ["content-length", "content-range", "accept-ranges", "etag", "last-modified"] {
+        if encoded && h == "content-length" { continue; }
+        if let Some(v) = res.headers().get(h).and_then(|v| v.to_str().ok()) { extra.push_str(&format!("{h}: {v}\r\n")); }
+    }
+    if !res.headers().contains_key("accept-ranges") && status.as_u16() == 206 { extra.push_str("accept-ranges: bytes\r\n"); }
+    sock.write_all(format!("HTTP/1.1 {} {}\r\nContent-Type: {kind}\r\n{CORS}{extra}Cache-Control: no-store\r\nConnection: close\r\n\r\n", status.as_u16(), status.canonical_reason().unwrap_or("")).as_bytes()).await?;
+    if head { return Ok(()); }
+    let mut body = res.bytes_stream();
+    while let Some(part) = body.next().await {
+        sock.write_all(&part.map_err(|e| anyhow!(e))?).await?;
+    }
+    Ok(())
+}
+
 fn wrap(base: &str, url: &str) -> String {
     let path = if Url::parse(url).is_ok_and(|url| is_playlist_path(url.path())) { "p.m3u8" } else { "p" };
     format!("{base}/{path}?u={}", urlencoding::encode(url))
@@ -268,6 +337,15 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
         sock.write_all(format!("HTTP/1.1 204 No Content\r\n{CORS}Connection: close\r\n\r\n").as_bytes()).await?;
         return Ok(());
     }
+    if let Some(u) = path.strip_prefix(&format!("/{token}/a?u=")) {
+        let target = urlencoding::decode(u).ok().and_then(|u| Url::parse(&u).ok()).filter(audio_allowed);
+        let Some(target) = target else {
+            sock.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
+            return Ok(());
+        };
+        if !matches!(method, "GET" | "HEAD") { return Ok(()) }
+        return serve_audio(&mut sock, &target, method == "HEAD", range.as_deref()).await;
+    }
     let Some((agent_path, resource)) = path.strip_prefix(&format!("/{token}/")).and_then(|p| p.split_once('/')) else { return Ok(()) };
     let Some((route, raw_url)) = resource.split_once("?u=") else { return Ok(()) };
     if !matches!(route, "p" | "p.m3u8" | "p.mp4") { return Ok(()) }
@@ -339,6 +417,27 @@ async fn serve(mut sock: TcpStream, token: &str, base: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn audio_types_from_the_file_when_the_host_is_vague() {
+        let u = |s: &str| super::Url::parse(s).unwrap();
+        assert_eq!(super::audio_type("application/octet-stream", &u("https://a.b/x/ep.m4a?t=1")), "audio/mp4");
+        assert_eq!(super::audio_type("text/plain; charset=utf-8", &u("https://a.b/ep")), "audio/mpeg");
+        assert_eq!(super::audio_type("audio/x-m4a", &u("https://a.b/ep.mp3")), "audio/x-m4a");
+        assert!(super::audio_allowed(&u("http://open.live.bbc.co.uk/x.mp3")));
+        assert!(!super::audio_allowed(&u("file:///etc/passwd")));
+    }
+
+    #[tokio::test]
+    async fn audio_route_needs_the_token() {
+        let good = super::audio("https://example.com/ep.mp3").await.unwrap();
+        assert!(good.starts_with("http://127.0.0.1:") && good.contains("/a?u=https%3A%2F%2Fexample.com%2Fep.mp3"), "{good}");
+        assert!(super::audio("file:///etc/passwd").await.is_err());
+        let token = good.split('/').nth(3).unwrap();
+        let wrong = good.replacen(token, "00000000000000000000000000000000", 1);
+        let res = reqwest::Client::new().get(&wrong).send().await;
+        assert!(res.map(|r| r.status().as_u16() != 200).unwrap_or(true));
+    }
+
     use super::*;
     #[test]
     fn bounds_open_ended_and_full_file_ranges() {

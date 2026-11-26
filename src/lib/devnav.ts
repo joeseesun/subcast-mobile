@@ -3,10 +3,12 @@
 // {"n":3,"settings":"ai"}, {"n":4,"tab":"chat"}, {"n":5,"play":true}, {"n":6,"click":"css selector"}.
 import { api } from "./api";
 import { useStore } from "../store";
+import { PICKS } from "./picks";
 
 const send = (line: string) => void fetch("/__log", { method: "POST", body: line }).catch(() => {});
 
 export function startDevNav() {
+  Object.assign(window, { __store: useStore, __api: api, __picks: PICKS });
   for (const k of ["log", "warn", "error"] as const) {
     const orig = console[k].bind(console);
     console[k] = (...a: unknown[]) => { orig(...a); send(`[${k}] ${a.map((x) => (x instanceof Error ? x.stack ?? x.message : typeof x === "string" ? x : JSON.stringify(x))).join(" ")}`); };

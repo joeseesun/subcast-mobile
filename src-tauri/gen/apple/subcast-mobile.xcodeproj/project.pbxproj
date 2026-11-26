@@ -18,6 +18,7 @@
 		9FAAFADF6781D1B49B9B02D2 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0D96008EFE460D77512F0C62 /* Security.framework */; };
 		C80897F84D0EE1B75CA3E205 /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0207541FCFBFB1CBEB1DDAAC /* WebKit.framework */; };
 		CE6A7BFA131D624FA8155FEC /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 73F44A3EB14842BDDAE4344F /* MetalKit.framework */; };
+		EDF59691F29D2BCB4CB01CE4 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 77C3D8E445719E2F0BA8CF86 /* PrivacyInfo.xcprivacy */; };
 		EF0CF8198BD7D315E94A1A14 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = D339F05C8AB3BAA0091DCF2A /* main.mm */; };
 /* End PBXBuildFile section */
 
@@ -37,6 +38,7 @@
 		66A978176C8AF40862F2F1AD /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		6F958357D65D2B3F800BE8E7 /* asr.rs */ = {isa = PBXFileReference; path = asr.rs; sourceTree = "<group>"; };
 		73F44A3EB14842BDDAE4344F /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		77C3D8E445719E2F0BA8CF86 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		794DBDB4D89DBF9C3AAC3353 /* model.rs */ = {isa = PBXFileReference; path = model.rs; sourceTree = "<group>"; };
 		7CB6432333CEB77D644DE9FD /* youtube.rs */ = {isa = PBXFileReference; path = youtube.rs; sourceTree = "<group>"; };
 		82D22579DC2CAAFE64820CC6 /* asr_context.rs */ = {isa = PBXFileReference; path = asr_context.rs; sourceTree = "<group>"; };
@@ -55,6 +57,7 @@
 		C88DB029A3597EBC7FD7C4AD /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D339F05C8AB3BAA0091DCF2A /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		D441EEBF0EF03345F4AEB537 /* shared.rs */ = {isa = PBXFileReference; path = shared.rs; sourceTree = "<group>"; };
+		DCA8CE0DB905EC2633B78EBE /* uiserver.rs */ = {isa = PBXFileReference; path = uiserver.rs; sourceTree = "<group>"; };
 		DFDD3871522D9C23A6867114 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		EB121761F104C0BA4417DAE9 /* hlsproxy.rs */ = {isa = PBXFileReference; path = hlsproxy.rs; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -99,6 +102,7 @@
 				D441EEBF0EF03345F4AEB537 /* shared.rs */,
 				C80A9D470FC6FBAF71437D2F /* transcript.rs */,
 				9E1F01E12714EAADE77AC0AF /* translate.rs */,
+				DCA8CE0DB905EC2633B78EBE /* uiserver.rs */,
 				7CB6432333CEB77D644DE9FD /* youtube.rs */,
 			);
 			name = src;
@@ -109,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				C2344A65543866AEF31CF28B /* Info.plist */,
+				77C3D8E445719E2F0BA8CF86 /* PrivacyInfo.xcprivacy */,
 				BC4E4E6132A2229C4162D59E /* subcast-mobile_iOS.entitlements */,
 			);
 			path = "subcast-mobile_iOS";
@@ -184,6 +189,20 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
+		"TEMP_351EA621-C183-4708-BFA2-6A2213A13AA1" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
+		"TEMP_46A27F9B-1DF2-48C3-8C9F-1190840935CC" /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -244,6 +263,7 @@
 			files = (
 				3F51F1F935736CEEAFE95B8C /* Assets.xcassets in Resources */,
 				01CA9D4652B72CF45726E1FA /* LaunchScreen.storyboard in Resources */,
+				EDF59691F29D2BCB4CB01CE4 /* PrivacyInfo.xcprivacy in Resources */,
 				5BCFE6D1F3D23EB5C47FE586 /* assets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

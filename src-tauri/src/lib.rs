@@ -532,6 +532,7 @@ async fn refresh_config(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
 /// The relay routes preserve the issuing client’s headers and choose one distinct media format.
 #[tauri::command]
 async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: String, mode: Option<String>, fresh: Option<bool>) -> Res<VideoStream> {
+    if cfg!(feature = "store") { return Err("这个版本只用 YouTube 官方播放器播放视频".into()); }
     asr::streams::init(&state.data);
     let mode = mode.unwrap_or_else(|| if cfg!(target_os = "ios") { "native-hls".into() } else { "mp4".into() });
     let key = format!("{video_id}|{mode}");
@@ -568,6 +569,10 @@ async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: St
     let url = if use_relay { hlsproxy::proxied(&url, &agent, !is_hls).await.map_err(e)? } else { url };
     Ok(VideoStream { url, kind: if is_hls { "hls" } else { "mp4" } })
 }
+
+/// The loopback address that plays a podcast's audio through SubCast, for a host the player couldn't load.
+#[tauri::command]
+async fn audio_stream(url: String) -> Res<String> { hlsproxy::audio(&url).await.map_err(e) }
 
 /// Nothing to prepare on a phone (no yt-dlp); kept so the page's call is harmless.
 #[tauri::command]
@@ -706,7 +711,7 @@ async fn transcribe(app: AppHandle, state: State<'_, AppState>, episode_id: Stri
         asr_emit(&app, &episode_id, "download", 0.0, None, None);
         let audio = if let Some(saved) = offline::find(&state.data, &episode_id) {
             PathBuf::from(saved.path)
-        } else if let Some(vid) = &ep.video_id {
+        } else if let Some(vid) = ep.video_id.as_ref().filter(|_| !cfg!(feature = "store")) {
             let s = youtube::streams(vid, youtube::StreamUse::Audio).await.map_err(e)?;
             let url = s.audio.ok_or("YouTube 没有给出这个视频的音频地址")?;
             let dest = work.join("audio.m4a");
@@ -1018,7 +1023,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             add_subscription, refresh_show, refresh_all, list_shows, list_episodes, recent_episodes, get_episode, remove_show,
             set_progress, search_podcasts, search_show, load_transcript, fetch_official_transcript, transcribe, cancel_job,
-            get_blob, set_blob, get_settings, set_settings, set_api_key, has_api_key, llm_chat, translate_texts, shared_transcript, shared_exists, shared_guide, share_guide, log_listen, listening_stats, export_opml, share_translation, ui_ready, refresh_config, youtube_stream, prepare_youtube, youtube_tracks, use_youtube_track, qiaomu_detail, preview_show, list_models, tts_speak, cached_show, save_image,
+            get_blob, set_blob, get_settings, set_settings, set_api_key, has_api_key, llm_chat, translate_texts, shared_transcript, shared_exists, shared_guide, share_guide, log_listen, listening_stats, export_opml, share_translation, ui_ready, refresh_config, youtube_stream, audio_stream, prepare_youtube, youtube_tracks, use_youtube_track, qiaomu_detail, preview_show, list_models, tts_speak, cached_show, save_image,
             download_episode, list_downloads, delete_download, clear_downloads, storage_info, clear_temp, full_notes
         ])
         .build(tauri::generate_context!())

@@ -1,3 +1,4 @@
+import { STORE, youtubeOnly } from "../lib/edition";
 import { seekEpisode } from "./Players";
 import { useShallow } from "zustand/react/shallow";
 import { SkeletonLines } from "./Skeleton";
@@ -18,6 +19,7 @@ import { generateTranscript, loadTranscript, llmReady, loadTranslation, needsTra
 import { providerFor, useStore } from "../store";
 import { ASR_SERVICES, CLOUD_ASR_MAIN, type Settings } from "../lib/settings";
 import { lang, t, tk, tr, useLang } from "../lib/i18n";
+import { isNoted, notedKeys, useNotes } from "../lib/notes";
 
 const SOURCE_LABEL: Record<string, string> = { youtube: tk("YouTube 字幕"), "youtube-auto": tk("YouTube 自动字幕"), rss: tk("节目方文字稿"), whisper: tk("本机识别"), cloud: tk("云端识别"), qiaomu: tk("精读站原文 · 时间为估算"), "qiaomu-timed": tk("精读站原文"), podscribe: tk("Podscribe 文字稿") };
 
@@ -47,11 +49,11 @@ function highlight(text: string, query: string) {
   return i < 0 ? text : <>{text.slice(0, i)}<mark>{text.slice(i, i + query.length)}</mark>{text.slice(i + query.length)}</>;
 }
 
-const Row = memo(function Row({ seg, zh, active, mode, pending, onSeek, query, current }: { seg: Segment; zh?: string | null; active: boolean; mode: string; pending: boolean; onSeek: (t: number) => void; query: string; current: boolean }) {
+const Row = memo(function Row({ seg, zh, active, mode, pending, onSeek, query, current, noted }: { seg: Segment; zh?: string | null; active: boolean; mode: string; pending: boolean; onSeek: (t: number) => void; query: string; current: boolean; noted?: boolean }) {
   const showZh = mode !== "original";
   const showOrig = mode !== "translation" || (!zh && !pending);
   return (
-    <div className={`line ${active ? "active" : ""} ${current ? "hit" : ""}`} data-active={active || undefined} data-hit={current || undefined} aria-current={active ? "time" : undefined} role="button" tabIndex={0} onClick={() => onSeek(seg.start)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSeek(seg.start); } }}>
+    <div className={`line ${active ? "active" : ""} ${current ? "hit" : ""} ${noted ? "noted" : ""}`} data-active={active || undefined} data-hit={current || undefined} aria-current={active ? "time" : undefined} role="button" tabIndex={0} onClick={() => onSeek(seg.start)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSeek(seg.start); } }}>
       <span className="line-time">{clock(seg.start)}</span>
       <div className="line-text">
         {showZh && (zh ? <p className="zh">{highlight(zh, query)}</p> : pending ? <span className="skeleton" /> : null)}
@@ -99,6 +101,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const official = useJobs((s) => s.officialChecked[ep.id]);
   const officialError = useJobs((s) => s.officialError[ep.id]);
   const translation = useJobs((s) => s.translations[ep.id]);
+  const notedLines = useNotes(notedKeys(ep.id));
   const { settings, saveSettings, current, openSettings } = useStore(useShallow((s) => ({ settings: s.settings, saveSettings: s.saveSettings, current: s.current, openSettings: s.openSettings })));
   const isCurrent = current?.id === ep.id;
   const list = useRef<HTMLDivElement>(null);
@@ -232,7 +235,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
             if (!searching && ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(event.key)) setFollowing(false);
           }}>
           {rows.map((i, k) => (
-            <Row key={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} mode={mode} pending={pending} onSeek={seek} query={query} current={!!matches && k === hit} />
+            <Row key={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} mode={mode} pending={pending} onSeek={seek} query={query} current={!!matches && k === hit} noted={isNoted(notedLines, segments[i].start)} />
           ))}
           {!matches && total > 0 && (
             <div className={`lines-end ${active === total - 1 ? "reached" : ""}`}>
@@ -414,7 +417,9 @@ function NoTranscript({ ep, official, officialError }: { ep: Episode; official?:
   // key), pressing play on an episode that has no subtitles anywhere (cache, publisher, shared library: all
   // checked by now) starts transcribing by itself. The first time still takes a click (it downloads ~1 GB).
   const playing = useStore((s) => s.playing && s.current?.id === ep.id);
-  const ready = !!model && (cloud ? cloudKey === true || !cloud.needsKey : model.installed);
+  // The store edition never fetches a YouTube video's audio to transcribe it (App Review 5.2.3).
+  const noTranscribe = STORE && youtubeOnly(ep);
+  const ready = !noTranscribe && !!model && (cloud ? cloudKey === true || !cloud.needsKey : model.installed);
   useEffect(() => {
     if (playing && ready && official === "none" && !asr && !autoStarted.has(ep.id)) { autoStarted.add(ep.id); void generateTranscript(ep, model!.id, settings.asrLanguage); }
   }, [playing, ready, official, !!asr, ep.id]);
@@ -438,6 +443,9 @@ function NoTranscript({ ep, official, officialError }: { ep: Episode; official?:
 
   if (official === "searching" || official === undefined) {
     return <div className="transcript"><StatusLine text={t("正在查找字幕…")} spin /><SkeletonLines /></div>;
+  }
+  if (noTranscribe && !asr) {
+    return <GenCard icon={<TrayArt />} title={t("这个视频还没有字幕")} note={t("视频作者没有提供字幕，社区里也还没有人分享。可以先看视频，或在 YouTube 里打开。")} />;
   }
   if (downloading) {
     const pct = downloading.total ? downloading.received / downloading.total : 0;

@@ -47,6 +47,10 @@ base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+[features]
+# The App Store / TestFlight edition: YouTube only through YouTube's own player, never downloaded (App Review 5.2.3).
+store = []
+
 [target.'cfg(target_os = "ios")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
 reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }

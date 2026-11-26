@@ -105,6 +105,8 @@ export const api = {
   qiaomuDetail,
   listModels: (provider: Provider) => invoke<string[]>("list_models", { provider }),
   ttsSpeak: (text: string, voice: string, resource?: string) => invoke<string>("tts_speak", { text, voice, resource }),
+  /** The loopback address that plays podcast audio through the app (proxy, then direct), for a host the player refused. */
+  audioStream: (url: string) => invoke<string>("audio_stream", { url }),
   youtubeStream: (videoId: string, mode: "native-hls" | "proxy-hls" | "relay-hls" | "relay-mp4" | "mp4", fresh = false) => invoke<{ url: string; kind: "hls" | "mp4" }>("youtube_stream", { videoId, mode, fresh }),
   uiReady: () => invoke<{ shell: string; build: number | null }>("ui_ready"),
   shareTranslation: (episodeId: string, engine: string, model: string) => invoke<string>("share_translation", { episodeId, engine, model }),

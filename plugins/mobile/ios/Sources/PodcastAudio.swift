@@ -17,7 +17,7 @@ struct PodcastCommand: Decodable {
 }
 
 /// One subtitle line pair on the episode's timeline (seconds), as the page's overlay would show it.
-struct PodcastCue: Decodable {
+struct PodcastCue: Codable {
   let s: Double
   let e: Double
   let zh: String?
@@ -82,6 +82,11 @@ final class PodcastAudio {
         DispatchQueue.main.async {
           guard let self = self, self.player === p, self.ready else { return }
           let end = self.bufferEnd()
+          // Waiting for AVPlayer's own "won't stall" estimate can take seconds on a progressive file: three
+          // seconds in hand is enough to start; a later stall waits again by itself.
+          if self.wantsPlay, p.timeControlStatus == .waitingToPlayAtSpecifiedRate, end - p.currentTime().seconds >= 3 {
+            p.playImmediately(atRate: self.rate)
+          }
           if abs(self.lastBuffer - end) >= 1 { self.lastBuffer = end; self.publish() }
         }
       }
@@ -172,7 +177,8 @@ final class PodcastAudio {
     if let duration = p.currentItem?.duration.seconds, duration.isFinite, p.currentTime().seconds >= duration - 0.1 {
       p.seek(to: .zero)
     }
-    p.rate = rate
+    if p.currentItem?.isPlaybackLikelyToKeepUp == true || bufferEnd() - p.currentTime().seconds >= 3 { p.playImmediately(atRate: rate) }
+    else { p.rate = rate }
   }
 
   private func bufferEnd() -> Double {

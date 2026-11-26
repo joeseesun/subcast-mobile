@@ -4,6 +4,8 @@ import { BrandGlyph } from "./BrandGlyph";
 import { PageHeading } from "./PageHeading";
 import { useLibrary } from "../lib/library";
 import { useOffline } from "../lib/offline";
+import { useNotes } from "../lib/notes";
+import { Highlighter } from "lucide-react";
 import { useStore, type View } from "../store";
 import { t, tk, useLang } from "../lib/i18n";
 import { LibraryShows } from "./Chrome";
@@ -42,6 +44,7 @@ export function LibraryView() {
   const { set, go, openSettings } = useStore(useShallow((s) => ({ set: s.set, go: s.go, openSettings: s.openSettings })));
   const saved = useLibrary((state) => state.favorites.length);
   const cached = useOffline((state) => Object.keys(state.saved).length);
+  const noted = useNotes((state) => state.notes.length);
   return <div className="page m-library">
     <PageHeading title={t("资料库")}>
       <button className="heading-tool" onClick={() => openSettings()} aria-label={t("设置")}><BrandGlyph name="settings" /></button>
@@ -50,6 +53,7 @@ export function LibraryView() {
       <button onClick={() => go({ kind: "recent", saved: true })}><BrandGlyph name="saved" /><span>{t("收藏")}</span>{saved > 0 && <small>{saved}</small>}</button>
       <button onClick={() => go({ kind: "downloads" })}><BrandGlyph name="cache" /><span>{t("离线音频")}</span>{cached > 0 && <small>{cached}</small>}</button>
       <button onClick={() => go({ kind: "recent" })}><BrandGlyph name="history" /><span>{t("最近播放")}</span></button>
+      <button onClick={() => go({ kind: "notes" })}><Highlighter size={22} strokeWidth={1.7} /><span>{t("划线")}</span>{noted > 0 && <small>{noted}</small>}</button>
       <button onClick={() => go({ kind: "stats" })}><BrandGlyph name="stats" /><span>{t("收听统计")}</span></button>
     </div>
     <div className="module-head">
