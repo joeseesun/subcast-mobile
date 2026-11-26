@@ -5,7 +5,7 @@ import { selectionFeedback } from "../lib/feedback";
 import { ask } from "../lib/confirm";
 import { useShallow } from "zustand/react/shallow";
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { t, tk } from "../lib/i18n";
+import { IS_MAC, t, tk } from "../lib/i18n";
 
 class PanelBoundary extends Component<{ children: ReactNode }, { error: string | null }> {
   state = { error: null as string | null };
@@ -194,7 +194,7 @@ export function EpisodeView({ id }: { id: string }) {
     api.getEpisode(id).then(async (e) => {
       if (!active || !e) return;
       const offline = !!e.videoId && !navigator.onLine && isSaved(e.id);
-      setStartAudio(offline);
+      setStartAudio(offline || (STORE && IS_MAC && !!e.audioUrl));
       setEp(e);
       if (e.deep) setTab((t) => (t === "transcript" ? "deep" : t));
       const s = useStore.getState();
@@ -211,7 +211,13 @@ export function EpisodeView({ id }: { id: string }) {
       if (!active) return;
       const current = useStore.getState().current;
       if (current?.id === e.id && !current.audioUrl && e.audioUrl) {
-        useStore.setState({ current: { ...current, audioUrl: e.audioUrl } });
+        // The store edition switches to the audio that just arrived rather than staying on the video sheet.
+        const toAudio = STORE && IS_MAC && !!current.videoId;
+        const s = useStore.getState();
+        const resume = toAudio && (s.playing || !!s.loadingSince || s.playWhenReady === e.id);
+        useStore.setState(toAudio
+          ? { current: { ...current, audioUrl: e.audioUrl, videoId: undefined }, player: null, playWhenReady: resume ? e.id : s.playWhenReady }
+          : { current: { ...current, audioUrl: e.audioUrl } });
       }
       void loadTranscript(e);
     });

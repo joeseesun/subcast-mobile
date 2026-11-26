@@ -164,6 +164,7 @@ function EpisodeList({ episodes, showShow, grouped = true }: { episodes: Episode
 
 // ---- home ---------------------------------------------------------------------------------------
 
+/** 继续收听: tapping anywhere on the card resumes playing (the page opens with it); 最新单集 just opens it. */
 function ContinueHero({ ep, continuing }: { ep: Episode; continuing: boolean }) {
   const openEpisode = useStore((s) => s.openEpisode);
   const recentTime = useStore((s) => s.current?.id === ep.id ? Math.floor(s.time / 5) * 5 : null);
@@ -175,7 +176,7 @@ function ContinueHero({ ep, continuing }: { ep: Episode; continuing: boolean }) 
   const label = continuing ? t("继续收听") : t("最新单集");
   return <section className="resume-card" aria-label={label} style={{ "--record-art": `url("${grooves}")` } as React.CSSProperties}>
     <div className="resume-kicker"><BrandGlyph name="sound" size={17} />{label}</div>
-    <button className="resume-detail" onClick={() => openEpisode(ep)}>
+    <button className="resume-detail" onClick={() => { openEpisode(ep); if (continuing) playSoon(ep.id); }}>
       <span className="resume-meta">
         {ep.showId !== "single" && <ShowName title={ep.showTitle} />}
         <span className="resume-title">{zh ?? ep.title}</span>
