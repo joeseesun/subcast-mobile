@@ -6,7 +6,7 @@ Builds for review are the store edition (`scripts/testflight.sh`, see `src/lib/e
 ## Test information (per language)
 
 **Privacy Policy URL:** https://github.com/joeseesun/subcast-mobile/blob/main/PRIVACY.md
-**Marketing URL:** https://github.com/joeseesun/subcast-mobile
+**Marketing URL:** https://www.qiaomu.ai
 
 ### Beta App Description — English (en-US)
 
@@ -35,26 +35,28 @@ Please report anything that doesn't play.
 ### Notes for the reviewer (English)
 
 ```
-SubCast is a podcast client. No account or sign-in is needed.
+SubCast is a podcast client with bilingual (Chinese–English) subtitles. No account or sign-in is needed, and nothing has to be set up to review it.
 
-Quick tour without any setup:
-1. Open the "发现" (Discover) tab and tap "词元之外 Next Token". Open any episode.
-2. Tap play. The "字幕" (Subtitles) tab shows subtitles following the audio (this show is in Chinese;
-   English shows get Chinese–English subtitles).
-3. The "导读" (Guide) and "精读" (Article) tabs show a guide and a long-form article for the episode.
+QUICK TOUR (about 2 minutes)
+1. Open the "Discover" (发现) tab and tap "Next Token｜词元之外". Open any episode.
+2. Tap play. The "Subtitles" (字幕) tab shows subtitles following the audio (this show is in Chinese; English shows get Chinese–English subtitles). Tap a line to jump there; tap "Highlight" (划线) to save the current line.
+3. The "Guide" (导读) and "Article" (精读) tabs show a guide and a long-form article for the episode. These articles are written and published by the developer on the developer's own website, qiaomu.ai.
+4. Library (资料库) has favorites, offline audio, highlights and listening stats.
+The interface follows the iPhone language: set the device to English to review it in English.
 
-Content and rights:
-- Podcast audio comes from each show's public RSS feed (the publisher's own enclosure URLs), as in any podcast
-  app. Offline downloads apply to these RSS episodes only.
-- YouTube videos play only in YouTube's official embedded player (IFrame Player API). The app does not download,
-  convert or save YouTube media, and does not extract YouTube streams.
-- Subtitles come from the publisher (podcast transcripts, YouTube captions), from shared subtitles other
-  listeners generated, or from a speech-to-text service the user chooses with their own API key.
+CONTENT AND RIGHTS (Guideline 5.2.3)
+- Podcast audio is streamed from each show's public RSS feed, using the enclosure URLs the publisher provides for download, as in any podcast app. Offline downloads apply only to these RSS episodes.
+- YouTube videos play only in YouTube's official embedded player (IFrame Player API), with YouTube's own controls and branding. The app does not download, convert, record or save YouTube media and does not access YouTube streams directly. There is no YouTube download button.
+- Subtitles come from the publisher (podcast transcripts, YouTube captions), from subtitles other listeners shared, or from a speech-to-text service the user chooses with their own API key.
 
-Optional AI features (transcription, translation, Q&A, read-aloud) need the user's own API key for a provider
-they choose (e.g. DeepSeek, OpenAI, Doubao). Keys are stored in the iOS Keychain and sent only to that provider.
-These features are not required to use the app.
+OPTIONAL AI FEATURES
+Transcription, translation, Q&A and read-aloud are optional and need the user's own API key for a provider they choose (e.g. DeepSeek, OpenAI, Doubao). Keys are stored in the iOS Keychain and sent only to that provider. The app works without them; the tour above needs no key.
 
-Privacy: no ads, no analytics or tracking SDKs, no data sold. Details:
-https://github.com/joeseesun/subcast-mobile/blob/main/PRIVACY.md
+TECHNICAL NOTES
+- Background audio (UIBackgroundModes: audio) is used only to keep podcast playback going with the screen locked, with Now Playing and lock-screen controls.
+- Some podcast hosts still serve audio over plain HTTP, which is why media loads over HTTP are allowed.
+- No ads, no in-app purchases, no analytics or tracking SDKs. The app does not download executable code.
+- The app is open source: https://github.com/joeseesun/subcast-mobile
+- Privacy policy: https://github.com/joeseesun/subcast-mobile/blob/main/PRIVACY.md
+- Developer website: https://www.qiaomu.ai
 ```
