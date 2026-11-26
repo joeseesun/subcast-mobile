@@ -1299,6 +1299,16 @@ const dict: Record<string, string> = {
   "这台设备不支持系统语音": "This device has no system voice",
   "这个朗读引擎在手机上由系统直接播放": "This voice is played by the phone itself",
   "和「AI 模型」里的 {name} 是同一个 Key，填一处两边都能用。朗读时文字会发送到{name}。": "Same key as {name} under AI models: enter it once and both use it. Text is sent to {name} when read aloud.",
+  "一句话总结": "One-line summary",
+  "用一句话（不超过 40 字）说清这期最核心的结论，再用一句话说明为什么值得听。": "In one sentence (under 40 words), give this episode's core conclusion; then one sentence on why it's worth hearing.",
+  "按时间线梳理": "Walk through the timeline",
+  "按节目进行的顺序，把讨论分成 5–8 段，每段写：小标题、两三句要点、起始时间戳。": "In the order of the episode, split the discussion into 5–8 parts; for each give a heading, two or three key points and the start timestamp.",
+  "讲给外行听": "Explain it to a newcomer",
+  "假设我完全不懂这个领域，用通俗的比方讲清这期最重要的 3 个概念或判断，每个附时间戳。": "Assume I know nothing about the field: explain this episode's 3 most important ideas with everyday analogies, each with a timestamp.",
+  "金句摘录": "Best quotes",
+  "摘出 5–8 句最有分量的原话：保留原文，外语附中文翻译，注明是谁说的和时间戳。": "Pick 5–8 of the weightiest lines verbatim; add a Chinese translation for foreign-language ones, and note who said it and when.",
+  "全部 {n} 个": "All {n}",
+  "我的": "Me",
 };
 
 export default dict;

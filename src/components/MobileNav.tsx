@@ -13,7 +13,7 @@ import { LibraryShows } from "./Chrome";
 export const mobileTabs = [
   { id: "latest", label: tk("首页"), glyph: "listen" },
   { id: "discover", label: tk("发现"), glyph: "discover" },
-  { id: "library", label: tk("资料库"), glyph: "library" },
+  { id: "library", label: tk("我的"), glyph: "library" },
 ] as const;
 export type Root = typeof mobileTabs[number]["id"];
 
@@ -46,7 +46,7 @@ export function LibraryView() {
   const cached = useOffline((state) => Object.keys(state.saved).length);
   const noted = useNotes((state) => state.notes.length);
   return <div className="page m-library">
-    <PageHeading title={t("资料库")}>
+    <PageHeading title={t("我的")}>
       <button className="heading-tool" onClick={() => openSettings()} aria-label={t("设置")}><BrandGlyph name="settings" /></button>
     </PageHeading>
     <div className="library-collections">
