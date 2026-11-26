@@ -17,7 +17,7 @@ struct PodcastCommand: Decodable {
 }
 
 /// One subtitle line pair on the episode's timeline (seconds), as the page's overlay would show it.
-struct PodcastCue: Decodable {
+struct PodcastCue: Codable {
   let s: Double
   let e: Double
   let zh: String?

@@ -17,6 +17,7 @@ import { playNext } from "../lib/library";
 import { useNativeVideoLayout } from "../lib/nativeVideoLayout";
 import { useJobs } from "../lib/jobs";
 import { buildCues, type Cue } from "./EpisodeView";
+import { STORE } from "../lib/edition";
 
 const SAVE_EVERY = 10;
 /** Starts an episode as soon as its player exists: right away when it does, or when it appears (a YouTube
@@ -124,11 +125,8 @@ export function AudioEngine() {
 }
 
 type AudioRoute = "system" | "system-relay" | "web" | "web-original" | "web-relay";
-const MEDIA_ERRORS: Record<number, string> = {
-  2: "网络中断，音频没能下载下来",
-  3: "音频文件解码失败",
-  4: "这个音频地址或格式播放不了",
-};
+const mediaError = (code: number) =>
+  code === 2 ? t("网络中断，音频没能下载下来") : code === 3 ? t("音频文件解码失败") : code === 4 ? t("这个音频地址或格式播放不了") : "";
 
 /** Audio never gives up on the first error (after the desktop app): a local copy that won't open falls back to the
  *  original address, the system player gets a second try through SubCast's loopback route (proxy, then direct;
@@ -164,7 +162,7 @@ function EpisodeAudio({ audio }: { audio: Episode }) {
     if (!stalled || !route) return;
     const timer = window.setTimeout(() => {
       const s = useStore.getState();
-      if (s.loadingSince === stalled && s.bufferedUntil === 0) advance(stage, "网络太慢，音频迟迟没有开始");
+      if (s.loadingSince === stalled && s.bufferedUntil === 0) advance(stage, t("网络太慢，音频迟迟没有开始"));
     }, Math.max(0, 20_000 - (Date.now() - stalled)));
     return () => window.clearTimeout(timer);
   }, [stalled, stage]);
@@ -189,7 +187,7 @@ function EpisodeAudio({ audio }: { audio: Episode }) {
   const src = route === "web" ? audioSrc(audio) : route === "web-original" ? audio.audioUrl : relay;
   if (!src) return null;
   return <WebAudio key={route} audio={audio} override={route === "web" ? undefined : src}
-    onFail={(code) => advance(stage, MEDIA_ERRORS[code] ?? "")} />;
+    onFail={(code) => advance(stage, mediaError(code))} />;
 }
 
 /** Every route failed: says why once, and a press on play starts over. */
@@ -199,7 +197,7 @@ function AudioFailed({ ep, asked, reason, onRetry }: { ep: Episode; asked: boole
   useEffect(() => {
     const s = useStore.getState();
     s.set({ playing: false, loadingSince: null, playWhenReady: null });
-    if (asked || s.playing || s.loadingSince || s.playWhenReady === ep.id) s.notify(`${reason ? t(reason) : t("音频加载失败")}${t("，点播放再试一次")}`);
+    if (asked || s.playing || s.loadingSince || s.playWhenReady === ep.id) s.notify(`${reason || t("音频加载失败")}${t("，点播放再试一次")}`);
     const again = () => { useStore.setState({ playWhenReady: ep.id }); waiting(true); retry.current(); };
     const handle: PlayerHandle = {
       episodeId: ep.id, play: again, toggle: again, pause: () => {},
@@ -437,17 +435,24 @@ export const RATES = [0.8, 1, 1.15, 1.25, 1.5, 1.75, 2];
 export function YouTubePlayer({ ep, overlay, onUnplayable, onRecoveryChange }: {
   ep: Episode; overlay?: React.ReactNode; onUnplayable?: () => void; onRecoveryChange?: (showing: boolean) => void;
 }) {
-  const routes = IS_MAC ? ["native-hls", "relay-hls", "relay-mp4", "embed"] as const : ["embed", "proxy-hls", "mp4"] as const;
+  // The store edition plays YouTube only in YouTube's own embedded player.
+  const routes = STORE ? ["embed"] as const : IS_MAC ? ["native-hls", "relay-hls", "relay-mp4", "embed"] as const : ["embed", "proxy-hls", "mp4"] as const;
   const [attempt, setAttempt] = useState(0);
   const [webAttempt, setWebAttempt] = useState(-1);
   const [media, setMedia] = useState<{ url: string; kind: "hls" | "mp4"; attempt: number } | null>(null);
   const [reason, setReason] = useState("");
   const [openingBackup, setOpeningBackup] = useState(false);
   const route = routes[attempt];
-  const nativeBackup = IS_MAC && route === "embed";
+  const nativeBackup = IS_MAC && !STORE && route === "embed";
+  // Store edition: when the inline embed fails, YouTube's player in a native sheet is the backup.
+  const embedBackup = IS_MAC && (nativeBackup || (STORE && !route));
   const showingRecovery = !route || nativeBackup;
   const theater = useStore((s) => s.theater);
   const pending = useStore((s) => s.playWhenReady === ep.id);
+  // Store edition on iPhone: YouTube's own player in a sheet (its https origin is what the embed requires; the page's
+  // localhost origin gets error 153), with the bilingual subtitles drawn inside it.
+  const sheetOnly = STORE && IS_MAC;
+  const cues = useCueTimeline(ep);
   const fail = (message: string) => {
     const s = useStore.getState();
     if (s.current?.id !== ep.id || !s.current.videoId) return;
@@ -458,6 +463,7 @@ export function YouTubePlayer({ ep, overlay, onUnplayable, onRecoveryChange }: {
   useEffect(() => { onRecoveryChange?.(showingRecovery); }, [showingRecovery, onRecoveryChange]);
   useEffect(() => {
     useStore.setState({ bufferedUntil: 0 });
+    if (sheetOnly) { useStore.setState({ playing: false, loadingSince: null, playWhenReady: null }); return; }
     if (showingRecovery) {
       useStore.setState({ playing: false, loadingSince: null, playWhenReady: null });
       return;
@@ -478,6 +484,7 @@ export function YouTubePlayer({ ep, overlay, onUnplayable, onRecoveryChange }: {
         command: {
           action: "present-embed", session: ep.id, youtubeID: ep.videoId, value: useStore.getState().time,
           youtubeLabels: { title: t("视频"), close: t("关闭"), unavailable: t("暂时无法播放视频") },
+          cues: cues ?? [],
         },
       });
       if (useStore.getState().current?.id === ep.id && Number.isFinite(time)) {
@@ -490,18 +497,45 @@ export function YouTubePlayer({ ep, overlay, onUnplayable, onRecoveryChange }: {
       setOpeningBackup(false);
     }
   };
+  // The player controls (and lock screen) start the sheet too.
+  const openRef = useRef(openBackup);
+  openRef.current = openBackup;
+  useEffect(() => {
+    if (!sheetOnly) return;
+    const open = () => void openRef.current();
+    const handle: PlayerHandle = {
+      episodeId: ep.id, play: open, toggle: open, pause: () => {},
+      seek: (time) => { useStore.setState({ time }); open(); },
+      setRate: () => {}, toggleMute: () => false,
+    };
+    useStore.getState().set({ player: handle });
+    return () => { if (useStore.getState().player === handle) useStore.getState().set({ player: null }); };
+  }, [ep.id, sheetOnly]);
   const openVideo = () => {
     const time = Math.floor(useStore.getState().time);
     void openUrl(`https://www.youtube.com/watch?v=${ep.videoId}&t=${time}s`);
   };
+  if (sheetOnly) return (
+    <div className="video">
+      <button className="video-loading" onClick={() => { selectionFeedback(); void openBackup(); }} aria-label={t("播放视频")}>
+        <img src={`https://i.ytimg.com/vi/${ep.videoId}/hqdefault.jpg`} alt="" />
+        <span className="big-play">{openingBackup ? <Loader2 className="spin" /> : <Play fill="currentColor" />}</span>
+      </button>
+      <div className="video-sheet-actions">
+        {onUnplayable && <button className="btn sm" onClick={onUnplayable}>{t("仅音频")}</button>}
+        <button className="btn sm" onClick={openVideo}>{t("在 YouTube 打开")}</button>
+      </div>
+      {overlay}
+    </div>
+  );
   return (
     <div className={`video ${theater ? "theater" : ""}`}>
       {showingRecovery ? <div className="video-error" role="status">
         <p title={reason}>{nativeBackup ? t("换一种方式播放") : t("暂时无法播放视频")}</p><div className="row-actions">
-          {nativeBackup && <button className="btn primary sm" disabled={openingBackup} onClick={() => void openBackup()}><BrandGlyph name="play" size={17} />{t("在应用内观看")}</button>}
+          {embedBackup && <button className="btn primary sm" disabled={openingBackup} onClick={() => void openBackup()}><BrandGlyph name="play" size={17} />{t("在应用内观看")}</button>}
           <button className="btn sm" onClick={() => { playSoon(ep.id); setMedia(null); setWebAttempt(-1); setAttempt(0); }}>{t("重试")}</button>
           {onUnplayable && <button className="btn sm" onClick={onUnplayable}>{t("仅音频")}</button>}
-          {!IS_MAC && !onUnplayable && <button className="btn sm" onClick={openVideo}>{t("在 YouTube 打开")}</button>}
+          {(STORE || !IS_MAC) && !onUnplayable && <button className="btn sm" onClick={openVideo}>{t("在 YouTube 打开")}</button>}
         </div>
       </div> : route === "embed" ? <EmbedVideo ep={ep} onBlocked={fail} onError={fail} /> :
         media?.attempt === attempt ? (

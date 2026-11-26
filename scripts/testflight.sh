@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the iOS app and uploads it to TestFlight.
+# Builds the iOS store edition and uploads it to TestFlight.
 #   scripts/testflight.sh <build-number>
 # Needs ~/.appstoreconnect/subcast.env (ASC_KEY_ID, ASC_ISSUER_ID, ASC_PROFILE_UUID), the key at
 # ~/.appstoreconnect/private_keys/AuthKey_<ASC_KEY_ID>.p8, and an Apple Distribution certificate in the keychain.
@@ -14,7 +14,8 @@ trap 'rm -f "$OPTS"' EXIT
 
 cd "$ROOT"
 node -e "const f='src-tauri/tauri.conf.json',c=require('./'+f);c.bundle.iOS.bundleVersion='$BUILD';require('fs').writeFileSync(f,JSON.stringify(c,null,2)+'\n')"
-npx tauri ios build --archive-only --export-method app-store-connect
+# The store edition: YouTube only through YouTube's own player, never downloaded (see src/lib/edition.ts).
+VITE_STORE=1 npx tauri ios build --archive-only --export-method app-store-connect --features store
 
 cat > "$OPTS" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

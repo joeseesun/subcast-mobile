@@ -84,7 +84,7 @@ class MobilePlugin: Plugin {
       case "present-embed":
         guard let host = self.manager.viewController, host.presentedViewController == nil,
               host.viewIfLoaded?.window != nil, let id = command.youtubeID, let labels = command.youtubeLabels,
-              let player = PodcastYouTubePlayer(videoID: id, time: command.value ?? 0, labels: labels,
+              let player = PodcastYouTubePlayer(videoID: id, time: command.value ?? 0, labels: labels, cues: command.cues ?? [],
                                                 finish: { invoke.resolve($0) }) else {
           invoke.reject("The YouTube player is unavailable")
           return

@@ -1,3 +1,4 @@
+import { STORE } from "../lib/edition";
 import { BrandGlyph } from "./BrandGlyph";
 import { MobileSheet, presentNativeChoices } from "./MobileSheet";
 import { selectionFeedback } from "../lib/feedback";
@@ -285,7 +286,7 @@ function EpisodeActions({ ep, close }: { ep: Episode; close: () => void }) {
     {saved ? <>
       <button onClick={() => { close(); useStore.getState().go({ kind: "downloads" }); }}><BrandGlyph name="cache" />{t("管理离线音频")}<small>{bytes(saved.bytes)}</small></button>
       <button className="destructive" onClick={async () => { close(); if (await ask({ title: t("清理这一集的离线音频？"), ok: t("清理"), danger: true })) void removeDownload(ep.id); }}><Trash2 />{saved.cached ? t("清理缓存") : t("删除下载")}</button>
-    </> : (ep.audioUrl || ep.videoId) && <button onClick={() => { if (progress !== undefined) cancelDownload(ep.id); else void downloadEpisode(ep); close(); }}>
+    </> : (ep.audioUrl || (!STORE && ep.videoId)) && <button onClick={() => { if (progress !== undefined) cancelDownload(ep.id); else void downloadEpisode(ep); close(); }}>
       <BrandGlyph name="cache" />{progress !== undefined ? t("取消缓存") : t("缓存音频")}{typeof progress === "number" && <small>{Math.round(progress * 100)}%</small>}
     </button>}
   </MobileSheet>;

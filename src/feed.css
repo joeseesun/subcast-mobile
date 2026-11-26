@@ -295,3 +295,7 @@
 .stats .stats-head { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
 .stats .stats-head .seg-control { display: grid; grid-template-columns: repeat(4, 1fr); width: 100%; }
 .stats .stats-head .seg-control button { min-width: 0; padding-inline: 4px; }
+
+/* Store edition: YouTube opens in its own player sheet; the inline frame is a poster with quiet secondary actions. */
+.video .video-sheet-actions { position: absolute; right: 10px; bottom: 10px; display: flex; gap: 8px; z-index: 2; }
+.video .video-sheet-actions .btn { background: rgba(0,0,0,.55); color: #fff; border: 0; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }

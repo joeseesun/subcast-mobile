@@ -532,6 +532,7 @@ async fn refresh_config(app: AppHandle, state: State<'_, AppState>) -> Res<()> {
 /// The relay routes preserve the issuing client’s headers and choose one distinct media format.
 #[tauri::command]
 async fn youtube_stream(app: AppHandle, state: State<'_, AppState>, video_id: String, mode: Option<String>, fresh: Option<bool>) -> Res<VideoStream> {
+    if cfg!(feature = "store") { return Err("这个版本只用 YouTube 官方播放器播放视频".into()); }
     asr::streams::init(&state.data);
     let mode = mode.unwrap_or_else(|| if cfg!(target_os = "ios") { "native-hls".into() } else { "mp4".into() });
     let key = format!("{video_id}|{mode}");
@@ -710,7 +711,7 @@ async fn transcribe(app: AppHandle, state: State<'_, AppState>, episode_id: Stri
         asr_emit(&app, &episode_id, "download", 0.0, None, None);
         let audio = if let Some(saved) = offline::find(&state.data, &episode_id) {
             PathBuf::from(saved.path)
-        } else if let Some(vid) = &ep.video_id {
+        } else if let Some(vid) = ep.video_id.as_ref().filter(|_| !cfg!(feature = "store")) {
             let s = youtube::streams(vid, youtube::StreamUse::Audio).await.map_err(e)?;
             let url = s.audio.ok_or("YouTube 没有给出这个视频的音频地址")?;
             let dest = work.join("audio.m4a");

@@ -17,13 +17,15 @@ final class PodcastYouTubePlayer: UIViewController, WKScriptMessageHandler {
   private let identity: String
   private let bridgeNonce = UUID().uuidString
   private var lastTime: Double
+  private let cues: [PodcastCue]
   private var finish: ((Double) -> Void)?
 
-  init?(videoID: String, time: Double, labels: PodcastYouTubeLabels, finish: @escaping (Double) -> Void) {
+  init?(videoID: String, time: Double, labels: PodcastYouTubeLabels, cues: [PodcastCue] = [], finish: @escaping (Double) -> Void) {
     guard let bundle = Bundle.main.bundleIdentifier,
           videoID.range(of: "^[A-Za-z0-9_-]{11}$", options: .regularExpression) != nil else { return nil }
     self.videoID = videoID
     self.labels = labels
+    self.cues = cues
     self.lastTime = time.isFinite && time >= 0 && time < Double(Int32.max) ? time : 0
     self.identity = bundle
     self.finish = finish
@@ -77,12 +79,24 @@ final class PodcastYouTubePlayer: UIViewController, WKScriptMessageHandler {
     NotificationCenter.default.addObserver(self, selector: #selector(backgrounded), name: UIApplication.didEnterBackgroundNotification, object: nil)
     spinner.startAnimating()
     let origin = "https://\(identity)"
+    // The bilingual subtitles ride along: drawn over YouTube's own player, following its clock.
+    let cueJSON = (try? String(data: JSONEncoder().encode(cues), encoding: .utf8)) ?? "[]"
+    let safeCues = cueJSON.replacingOccurrences(of: "</", with: "<\\/")
+      .replacingOccurrences(of: "\u{2028}", with: "\\u2028").replacingOccurrences(of: "\u{2029}", with: "\\u2029")
     browser.loadHTMLString("""
       <!doctype html>
       <meta name="viewport" content="width=device-width,initial-scale=1">
       <meta name="referrer" content="strict-origin-when-cross-origin">
-      <style>html,body,#player,iframe{width:100%;height:100%;margin:0;background:#000}</style>
+      <style>
+        html,body,#player,iframe{width:100%;height:100%;margin:0;background:#000}
+        body{position:relative;-webkit-text-size-adjust:100%}
+        #cap{position:absolute;left:12px;right:12px;bottom:64px;text-align:center;pointer-events:none;font:600 17px/1.35 -apple-system,"PingFang SC",sans-serif;color:#fff;text-shadow:0 1px 3px #000,0 0 8px rgba(0,0,0,.6)}
+        #cap span{display:inline-block;padding:4px 10px;border-radius:8px;background:rgba(0,0,0,.55);margin-top:4px;-webkit-box-decoration-break:clone}
+        #cap .o{font-weight:500;font-size:14px;opacity:.88}
+        #cap:empty{display:none}
+      </style>
       <div id="player"></div>
+      <div id="cap"></div>
       <script>
         function post(data) { window.webkit.messageHandlers.podcastVideo.postMessage({ ...data, nonce: "\(bridgeNonce)" }); }
         let player, ready = false, started = false;
@@ -98,6 +112,31 @@ final class PodcastYouTubePlayer: UIViewController, WKScriptMessageHandler {
           });
         }
         function pausePlayback() { player?.pauseVideo?.(); }
+        const CUES = \(safeCues);
+        const cap = document.getElementById("cap");
+        let shown = -1;
+        function cueAt(t) {
+          let lo = 0, hi = CUES.length - 1, found = -1;
+          while (lo <= hi) { const m = (lo + hi) >> 1; if (CUES[m].s <= t) { found = m; lo = m + 1; } else hi = m - 1; }
+          return found >= 0 && t < CUES[found].e ? found : -1;
+        }
+        function line(text, cls) { const s = document.createElement("span"); if (cls) s.className = cls; s.textContent = text; return s; }
+        setInterval(() => {
+          const time = player?.getCurrentTime?.();
+          if (!Number.isFinite(time)) return;
+          if (CUES.length) {
+            const i = cueAt(time);
+            if (i !== shown) {
+              shown = i;
+              cap.replaceChildren();
+              if (i >= 0) {
+                const c = CUES[i];
+                if (c.zh) { cap.appendChild(line(c.zh)); cap.appendChild(document.createElement("br")); }
+                if (c.o) cap.appendChild(line(c.o, c.zh ? "o" : ""));
+              }
+            }
+          }
+        }, 200);
         setInterval(() => {
           const time = player?.getCurrentTime?.();
           if (started && Number.isFinite(time) && time >= 0) post({kind:"time", time});

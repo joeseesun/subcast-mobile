@@ -1169,6 +1169,17 @@ const dict: Record<string, string> = {
   "双语字幕": "Bilingual subtitles",
   "出了点问题，界面没能显示出来。": "Something went wrong and the screen couldn't be shown.",
   "重新加载": "Reload",
+  "网络中断，音频没能下载下来": "The connection dropped before the audio loaded",
+  "音频文件解码失败": "The audio file couldn't be decoded",
+  "这个音频地址或格式播放不了": "This audio address or format can't be played",
+  "网络太慢，音频迟迟没有开始": "The network is too slow; the audio never started",
+  "音频加载失败": "The audio didn't load",
+  "，点播放再试一次": ". Press play to try again",
+  "这个视频还没有字幕": "This video has no subtitles yet",
+  "视频作者没有提供字幕，社区里也还没有人分享。可以先看视频，或在 YouTube 里打开。": "The creator didn't publish subtitles and nobody has shared any yet. Watch the video, or open it in YouTube.",
+  "音频地址无效": "Invalid audio address",
+  "这个版本只用 YouTube 官方播放器播放视频": "This edition plays videos only in YouTube's own player",
+  "播放视频": "Play video",
 };
 
 export default dict;

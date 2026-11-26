@@ -1,3 +1,4 @@
+import { STORE, youtubeOnly } from "../lib/edition";
 import { seekEpisode } from "./Players";
 import { useShallow } from "zustand/react/shallow";
 import { SkeletonLines } from "./Skeleton";
@@ -416,7 +417,9 @@ function NoTranscript({ ep, official, officialError }: { ep: Episode; official?:
   // key), pressing play on an episode that has no subtitles anywhere (cache, publisher, shared library: all
   // checked by now) starts transcribing by itself. The first time still takes a click (it downloads ~1 GB).
   const playing = useStore((s) => s.playing && s.current?.id === ep.id);
-  const ready = !!model && (cloud ? cloudKey === true || !cloud.needsKey : model.installed);
+  // The store edition never fetches a YouTube video's audio to transcribe it (App Review 5.2.3).
+  const noTranscribe = STORE && youtubeOnly(ep);
+  const ready = !noTranscribe && !!model && (cloud ? cloudKey === true || !cloud.needsKey : model.installed);
   useEffect(() => {
     if (playing && ready && official === "none" && !asr && !autoStarted.has(ep.id)) { autoStarted.add(ep.id); void generateTranscript(ep, model!.id, settings.asrLanguage); }
   }, [playing, ready, official, !!asr, ep.id]);
@@ -440,6 +443,9 @@ function NoTranscript({ ep, official, officialError }: { ep: Episode; official?:
 
   if (official === "searching" || official === undefined) {
     return <div className="transcript"><StatusLine text={t("正在查找字幕…")} spin /><SkeletonLines /></div>;
+  }
+  if (noTranscribe && !asr) {
+    return <GenCard icon={<TrayArt />} title={t("这个视频还没有字幕")} note={t("视频作者没有提供字幕，社区里也还没有人分享。可以先看视频，或在 YouTube 里打开。")} />;
   }
   if (downloading) {
     const pct = downloading.total ? downloading.received / downloading.total : 0;
