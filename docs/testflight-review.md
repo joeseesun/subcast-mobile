@@ -38,11 +38,14 @@ Please report anything that doesn't play.
 SubCast is a podcast client with bilingual (Chinese–English) subtitles. No account or sign-in is needed, and nothing has to be set up to review it.
 
 QUICK TOUR (about 2 minutes)
-1. Open the "Discover" (发现) tab and tap "Next Token｜词元之外". Open any episode.
+1. Open the "Discover" (发现) tab and tap "Next Token｜词元之外". Open any episode. This is the developer's own podcast (see below), so every part of the tour uses content the developer has the rights to.
 2. Tap play. The "Subtitles" (字幕) tab shows subtitles following the audio (this show is in Chinese; English shows get Chinese–English subtitles). Tap a line to jump there; tap "Highlight" (划线) to save the current line.
-3. The "Guide" (导读) and "Article" (精读) tabs show a guide and a long-form article for the episode. These articles are written and published by the developer on the developer's own website, qiaomu.ai.
+3. The "Guide" (导读) and "Article" (精读) tabs show a guide and a long-form article for the episode. These articles are written by the developer and published on the developer's own website, qiaomu.ai.
 4. Library (资料库) has favorites, offline audio, highlights and listening stats.
 The interface follows the iPhone language: set the device to English to review it in English.
+
+ABOUT THE FEATURED SHOW
+Next Token｜词元之外 is a podcast the developer (向阳乔木, Qiao Xiangyang) co-hosts with a friend. Official site: https://nexttoken.tv. It is also listed on the developer's website https://www.qiaomu.ai. The developer on X: https://x.com/vista8
 
 CONTENT AND RIGHTS (Guideline 5.2.3)
 - Podcast audio is streamed from each show's public RSS feed, using the enclosure URLs the publisher provides for download, as in any podcast app. Offline downloads apply only to these RSS episodes.
