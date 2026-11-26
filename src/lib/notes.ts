@@ -1,4 +1,4 @@
-// 笔记: sentences saved while listening (划线), after Snipd's one-tap snips. Each keeps the line as heard (original and
+// 收藏的句子: lines saved while listening (press and hold a subtitle line), after Snipd's one-tap snips. Each keeps the line as heard (original and
 // Chinese), where it is in the episode and which episode, so the notes page can play it again or export it all as
 // Markdown. Stored in the library database (blob "_app"/"notes") like favorites.
 import { create } from "zustand";
@@ -39,33 +39,61 @@ function lineAt(segments: { start: number }[], time: number): number {
 
 const keyOf = (time: number) => Math.round(time * 10);
 
-/** The line playing now in `ep`: its start, text and translation (null text when there are no subtitles yet). */
+/** Line `i` of the episode's transcript: its start, text and translation. */
+function lineInfo(ep: Episode, i: number) {
+  const transcript = useJobs.getState().transcripts[ep.id];
+  const items = useJobs.getState().translations[ep.id]?.items;
+  const seg = i >= 0 ? transcript?.segments[i] : undefined;
+  return seg ? { start: seg.start, orig: seg.text.trim(), zh: items?.[i]?.trim() || undefined } : null;
+}
+
+/** The line playing now in `ep` (null text when there are no subtitles yet). */
 function lineNow(ep: Episode) {
   const { time } = useStore.getState();
   const transcript = useJobs.getState().transcripts[ep.id];
-  const items = useJobs.getState().translations[ep.id]?.items;
   const i = transcript ? lineAt(transcript.segments, time) : -1;
-  const seg = i >= 0 ? transcript!.segments[i] : null;
-  return { start: seg ? seg.start : Math.max(0, time - 5), orig: seg?.text.trim() ?? "", zh: (seg && items?.[i]?.trim()) || undefined };
+  return lineInfo(ep, i) ?? { start: Math.max(0, time - 5), orig: "", zh: undefined };
 }
 
-/** The note on the line playing now, if it has one. */
-export function noteOnLineNow(ep: Episode): Note | undefined {
-  const at = lineNow(ep).start;
-  return useNotes.getState().notes.find((n) => n.episodeId === ep.id && Math.abs(n.time - at) < 1);
-}
+const noteAt = (ep: Episode, start: number) => useNotes.getState().notes.find((n) => n.episodeId === ep.id && Math.abs(n.time - start) < 1);
 
-/** 划线 on the line playing now, or takes it off when it is already there. Returns the note added, or null. */
-export function toggleNoteOnLineNow(ep: Episode): Note | null {
-  const existing = noteOnLineNow(ep);
-  if (existing) { removeNote(existing.id); return null; }
-  const line = lineNow(ep);
+function addNote(ep: Episode, line: { start: number; orig: string; zh?: string }): Note {
   const note: Note = {
     id: `${ep.id}-${keyOf(line.start)}`, episodeId: ep.id, episodeTitle: ep.title, showTitle: ep.showTitle,
     cover: ep.cover, time: line.start, orig: line.orig, zh: line.zh, at: Date.now(),
   };
   save([note, ...useNotes.getState().notes]);
   return note;
+}
+
+/** The note on the line playing now, if it has one. */
+export function noteOnLineNow(ep: Episode): Note | undefined {
+  return noteAt(ep, lineNow(ep).start);
+}
+
+/** Saves the line playing now, or takes it off when it is already there. Returns the note added, or null. */
+export function toggleNoteOnLineNow(ep: Episode): Note | null {
+  const existing = noteOnLineNow(ep);
+  if (existing) { removeNote(existing.id); return null; }
+  return addNote(ep, lineNow(ep));
+}
+
+/** Line `i` of the transcript as text, with its start time, for the line actions. */
+export function lineText(ep: Episode, i: number) { return lineInfo(ep, i); }
+
+/** Whether line `i` is saved. */
+export function lineSaved(ep: Episode, i: number): boolean {
+  const line = lineInfo(ep, i);
+  return !!line && !!noteAt(ep, line.start);
+}
+
+/** Saves line `i`, or takes it off when it is already there. Returns the note added, or null. */
+export function toggleNoteOnLine(ep: Episode, i: number): Note | null {
+  const line = lineInfo(ep, i);
+  if (!line) return null;
+  const existing = noteAt(ep, line.start);
+  if (existing) { removeNote(existing.id); return null; }
+  return addNote(ep, line);
 }
 
 /** Start times (×10, rounded) of the lines with 划线 in an episode, as a stable string for selectors. */

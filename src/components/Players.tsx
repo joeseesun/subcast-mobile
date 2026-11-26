@@ -563,7 +563,11 @@ export function toggleTheater(on?: boolean) {
   const next = on ?? !s.theater;
   if (next && !document.querySelector(".video")) return false;
   s.set({ theater: next });
+  (window as unknown as { SubcastAndroid?: { setFullscreen?: (v: boolean) => void } }).SubcastAndroid?.setFullscreen?.(next);
   void getCurrentWindow().setFullscreen(next).catch(() => {});
+}
+if (typeof window !== "undefined") {
+  (window as unknown as { __subcastTheater?: typeof toggleTheater }).__subcastTheater = toggleTheater;
 }
 
 function EmbedVideo({ ep, onBlocked, onError }: { ep: Episode; onBlocked: (why: string) => void; onError: (m: string) => void }) {
@@ -860,7 +864,7 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
         onEnded={(e) => { shouldPlay.current = false; clearStall(); clearRecovery(); void api.setProgress(ep.id, e.currentTarget.duration); playNext(); }}>
         {cueTrack && <track key={cueTrack} kind="subtitles" srcLang="zh" label={t("双语字幕")} src={cueTrack} default />}
       </video>
-      {IS_MAC && <>
+      {IS_MAC ? <>
         <button className="inline-video-toggle" aria-label={playing ? t("暂停") : t("播放")} onClick={() => {
           const player = useStore.getState().player;
           if (player?.episodeId === ep.id) player.toggle();
@@ -875,7 +879,9 @@ function NativeVideo({ ep, src, kind, onFail }: { ep: Episode; src: string; kind
           }
           toggleTheater(true);
         }}><Maximize2 size={19} /></button>
-      </>}
+      </> : (
+        <button className="inline-fullscreen" aria-label={t("全屏播放")} onClick={() => toggleTheater(true)}><Maximize2 size={19} /></button>
+      )}
     </>
   );
 }

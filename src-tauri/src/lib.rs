@@ -657,15 +657,22 @@ fn clear_temp(state: State<'_, AppState>) -> Res<()> {
 }
 
 /// Someone else's subtitles for this episode from the shared library, saved as this episode's transcript (and
-/// their Chinese as its translation). None when the library hasn't got it.
+/// their Chinese as its translation). None when the library hasn't got it, or when this episode already has a
+/// local transcript and the shared copy brings no Chinese translation.
 async fn take_shared(state: &AppState, ep: &Episode) -> Option<Transcript> {
     let mut hit = shared::lookup(&shared::keys(ep)).await?;
-    let translation = hit.translation.take();
+    let translation = hit.translation.take().filter(|tr| {
+        tr.items.len() == hit.segments.len()
+            && tr.lang.starts_with("zh")
+            && tr.items.iter().any(|x| x.as_deref().is_some_and(|s| !s.is_empty()))
+    });
+    let has_local = db::get_transcript(&state.db.lock().unwrap(), &ep.id).ok().flatten().is_some();
+    if has_local && translation.is_none() { return None; }
     let t = shared::into_transcript(&ep.id, hit);
     db::save_transcript(&state.db.lock().unwrap(), &t).ok()?;
     // The shared Chinese lines become this episode's translation (engine "shared"); the subtitle view only
-    // machine-translates the gaps. Saved after the transcript, which clears an episode's old blobs.
-    if let Some(tr) = translation.filter(|tr| tr.items.len() == t.segments.len() && tr.lang.starts_with("zh")) {
+    // machine-translates the gaps if the listener asks. Saved after the transcript, which clears old blobs.
+    if let Some(tr) = translation {
         let conn = state.db.lock().unwrap();
         let _ = db::set_blob(&conn, &ep.id, "zh", &serde_json::to_string(&tr.items).unwrap_or_default());
         let _ = db::set_blob(&conn, &ep.id, "zh-engine", "shared");
