@@ -7,6 +7,7 @@ import { ChevronLeft } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { api } from "./lib/api";
+import { startAutoSync } from "./lib/sync";
 import { selectionFeedback } from "./lib/feedback";
 import { useReadingSettings } from "./lib/reading";
 import { useRevealOnExpand } from "./lib/reveal";
@@ -53,6 +54,7 @@ export default function App() {
     // Ready only once the library has loaded: a launch stuck on the boot screen is then reloaded by the app
     // (uiserver.rs watch_launch / resumed) instead of counting as rendered.
     void init().then(() => {
+      startAutoSync();
       void firstRunSetup();
       void api.uiReady().then((info) => useStore.setState({ uiBuild: info.build })).catch(() => {});
     });

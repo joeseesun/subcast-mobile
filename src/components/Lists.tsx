@@ -14,6 +14,7 @@ import { api, errorText, type Episode, type Show, type ShowHit } from "../lib/ap
 import { date, duration, monthLabel } from "../lib/format";
 import { PICKS, TOPICS, deepPickFor, isSubscribed, pickName, pickSub, sameFeed, showArt, showName, unboxYoutube, ytFallback, type Pick, type Topic } from "../lib/picks";
 import { isChineseUi, t } from "../lib/i18n";
+import { scheduleAutoSync } from "../lib/sync";
 import { useShowName, useZh } from "../lib/zh";
 import { useStore, type ShowFinder } from "../store";
 import { SkeletonFeed } from "./Skeleton";
@@ -287,7 +288,7 @@ export function LatestView() {
   const recs = useMemo(() => recommend({ shows, recent, favorites: favEps, downloads: dlEps }, 6), [shows, recent, favEps, dlEps]);
   const subscribe = async (input: string, name: string) => {
     setAdding(input);
-    try { const r = await api.addSubscription(input); await reloadShows(); if (r.show) notify(t("已订阅「{name}」", { name })); }
+    try { const r = await api.addSubscription(input); await reloadShows(); if (r.show) { scheduleAutoSync(); notify(t("已订阅「{name}」", { name })); } }
     catch (err) { notify(errorText(err)); } finally { setAdding(null); }
   };
   const settingUp = useStore((s) => s.settingUp);
@@ -530,7 +531,7 @@ export function ShowView({ id, finder }: { id: string; finder?: ShowFinder }) {
   const remove = async () => {
     setMenu(false);
     if (!(await ask({ title: t("取消订阅「{name}」？", { name: show.title }), message: t("已生成的字幕、精读和收听进度会保留。"), ok: t("取消订阅"), danger: true }))) return;
-    await api.removeShow(id); await reloadShows(); go({ kind: "latest" });
+    await api.removeShow(id); await reloadShows(); scheduleAutoSync(); go({ kind: "latest" });
   };
   const descText = showOrig || !descZh ? desc : descZh;
   const activeFilter = filter !== "all" || !!month;
@@ -659,7 +660,7 @@ export function DiscoverView() {
     try {
       const r = await api.addSubscription(input);
       await reloadShows();
-      if (r.show) { notify(t("已订阅「{name}」", { name: title })); go({ kind: "show", id: r.show.id }); }
+      if (r.show) { scheduleAutoSync(); notify(t("已订阅「{name}」", { name: title })); go({ kind: "show", id: r.show.id }); }
     } catch (err) { notify(errorText(err)); } finally { setAdding(null); }
   };
   const subBtn = (input: string, title: string, done: boolean) => done
@@ -708,7 +709,7 @@ export function ChannelView({ input }: { input: string }) {
     try {
       const r = await api.addSubscription(input);
       await reloadShows();
-      if (r.show) { notify(t("已订阅「{name}」", { name: pick ? pickName(pick) : r.show.title })); go({ kind: "show", id: r.show.id }); }
+      if (r.show) { scheduleAutoSync(); notify(t("已订阅「{name}」", { name: pick ? pickName(pick) : r.show.title })); go({ kind: "show", id: r.show.id }); }
     } catch (e) { notify(errorText(e)); } finally { setBusy(false); }
   };
   const art = pick?.cover ? { src: pick.cover, video: false } : data ? showArt(data.show) : { src: undefined, video: false };

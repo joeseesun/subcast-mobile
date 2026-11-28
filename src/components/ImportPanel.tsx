@@ -3,6 +3,7 @@ import { Check, FileUp, Loader2 } from "lucide-react";
 import { api, errorText } from "../lib/api";
 import { useStore } from "../store";
 import { t } from "../lib/i18n";
+import { scheduleAutoSync } from "../lib/sync";
 import { sameFeed } from "../lib/picks";
 
 export interface ImportItem { input: string; title: string; thumb?: string; source: "opml" | "csv" | "newpipe" | "freetube" }
@@ -82,6 +83,7 @@ export function ImportPanel({ onDone }: { onDone?: () => void }) {
       }
     }));
     await useStore.getState().reloadShows();
+    if (done - failed > 0) scheduleAutoSync();
     useStore.getState().notify(failed ? t("已导入 {n} 个，{f} 个没有成功", { n: done - failed, f: failed }) : t("已导入 {n} 个订阅", { n: done }));
     setProgress(null); setItems(null);
     onDone?.();

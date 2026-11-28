@@ -171,6 +171,61 @@ class MobilePlugin: Plugin {
     }
   }
 
+  @objc public func icloudStatus(_ invoke: Invoke) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      invoke.resolve(ICloudSync.shared.status())
+    }
+  }
+
+  @objc public func icloudClearFolder(_ invoke: Invoke) {
+    DispatchQueue.global(qos: .userInitiated).async {
+      invoke.resolve(ICloudSync.shared.clearFolder())
+    }
+  }
+
+  @objc public func icloudPickFolder(_ invoke: Invoke) {
+    DispatchQueue.main.async {
+      guard let host = self.manager.viewController else {
+        invoke.reject("无法打开文件选择器")
+        return
+      }
+      ICloudSync.shared.pickFolder(from: host) { res in
+        switch res {
+        case .some(.success(let status)):
+          invoke.resolve(status)
+        case .some(.failure(let err)):
+          invoke.reject(err.localizedDescription)
+        case .none:
+          invoke.resolve(Optional<ICloudStatusPayload>.none)
+        }
+      }
+    }
+  }
+
+  @objc public func icloudRead(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ICloudRelPathArgs.self)
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        let text = try ICloudSync.shared.readFile(relPath: args.relPath)
+        invoke.resolve(ICloudReadPayload(content: text))
+      } catch {
+        invoke.reject(error.localizedDescription)
+      }
+    }
+  }
+
+  @objc public func icloudWrite(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(ICloudWriteArgs.self)
+    DispatchQueue.global(qos: .userInitiated).async {
+      do {
+        try ICloudSync.shared.writeFile(relPath: args.relPath, content: args.content)
+        invoke.resolve()
+      } catch {
+        invoke.reject(error.localizedDescription)
+      }
+    }
+  }
+
   private func setUpCommands() {
     if commandsReady { return }
     commandsReady = true

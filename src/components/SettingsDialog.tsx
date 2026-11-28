@@ -24,6 +24,7 @@ import { SettingGroup, SettingSelect, SettingsSwitch, SettingText, NO_AUTO, KeyF
 import type { Settings } from "../lib/settings";
 
 import { ReadAloudSettings } from "./ReadAloud";
+import { SyncSettings } from "./SyncSettings";
 
 /** One default model for translation and the guide; Q&A starts with it and can switch in the chat box. */
 function DefaultButton({ id, isDefault }: { id: string; isDefault: boolean }) {
@@ -112,7 +113,7 @@ const SETTING_GROUPS = [
 ] as const;
 const SETTING_PAGES = SETTING_GROUPS.flat();
 type Section = typeof SETTING_PAGES[number]["id"];
-const LEGACY: Record<string, Section> = { overview: "reading", subtitles: "reading", ai: "model", shortcuts: "playback" };
+const LEGACY: Record<string, Section> = { overview: "reading", subtitles: "reading", ai: "model", shortcuts: "playback", sync: "general" };
 function settingPage(id: string | undefined) {
   return id ? SETTING_PAGES.find((row) => row.id === (LEGACY[id] ?? id)) : undefined;
 }
@@ -237,6 +238,7 @@ function GeneralSettings() {
         catch (error) { notify(errorText(error)); }
       }}>{t("导出 OPML")}<Share size={17} aria-hidden /></button>
     </SettingGroup>
+    <SyncSettings />
     <SettingGroup title={t("网络")}>
       <form className="ios-setting-field" onSubmit={(e) => { e.preventDefault(); (document.activeElement as HTMLElement | null)?.blur(); void saveProxy(); }}>
         <label htmlFor="settings-proxy">{t("代理")}</label>
