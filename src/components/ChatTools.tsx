@@ -1,10 +1,12 @@
 import { agentProviderId, useAgents } from "../lib/agents";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { BookOpen, Check, ChevronsUpDown, Clock, GraduationCap, Languages, Lightbulb, ListOrdered, MessageCircleQuestion, MessageSquareText, Pencil, Plus, Quote, Scale, Search, Settings2, Share2, Trash2, TrendingUp, Wrench, Zap } from "lucide-react";
 import { api, type Provider } from "../lib/api";
 import { PROMPT_HINTS, quickPrompts, type QuickPrompt } from "../lib/settings";
 import { providerFor, useStore } from "../store";
+import { selectionFeedback } from "../lib/feedback";
 import { Modal } from "./Chrome";
+import { MobileSheet } from "./MobileSheet";
 import { t } from "../lib/i18n";
 
 const MAX_PROMPTS = 30;
@@ -49,7 +51,7 @@ export function useChatModels(): Group[] | null {
   return groups;
 }
 
-/** The model switcher in the chat box: a searchable list grouped by service. The choice applies from the next question. */
+/** The model switcher in the chat box: opens a mobile bottom sheet grouped by service. */
 export function ModelPicker({ disabled }: { disabled?: boolean }) {
   const groups = useChatModels();
   const settings = useStore((s) => s.settings);
@@ -57,112 +59,82 @@ export function ModelPicker({ disabled }: { disabled?: boolean }) {
   const cur = providerFor(settings, "chat");
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const [active, setActive] = useState(0);
-  const wrap = useRef<HTMLDivElement>(null);
-  const search = useRef<HTMLInputElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const list = useRef<HTMLDivElement>(null);
 
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = (groups ?? []).map((g) => ({ ...g, models: g.models.filter((m) => words.every((w) => `${m} ${g.provider.name} ${t(g.provider.name)}`.toLowerCase().includes(w))) })).filter((g) => g.models.length);
   const flat = shown.flatMap((g) => g.models.map((model) => ({ provider: g.provider, model })));
   const isCur = (o: { provider: Provider; model: string }) => o.provider.id === cur?.id && o.model === cur?.model;
 
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: PointerEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("pointerdown", h);
-    return () => document.removeEventListener("pointerdown", h);
-  }, [open]);
-  useEffect(() => { setActive(q ? 0 : Math.max(0, flat.findIndex(isCur))); }, [q, open]);
-  useEffect(() => { list.current?.querySelector(".mp-row.is-active")?.scrollIntoView({ block: "nearest" }); }, [active, open]);
-
   if (groups && !groups.length) {
     return <button type="button" className="mp-trigger" onClick={() => openSettings("model")} disabled={disabled}><span className="mp-name">{t("连接模型")}</span></button>;
   }
-  const close = () => { setOpen(false); trigger.current?.focus(); };
   const choose = (o: { provider: Provider; model: string }) => {
+    selectionFeedback();
     void saveSettings({ chatProvider: o.provider.id, chatModel: o.model === o.provider.model ? "" : o.model, modelChosen: true });
-    close();
-  };
-  const onKey = (e: React.KeyboardEvent) => {
-    if (e.nativeEvent.isComposing) return;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (flat.length) setActive((i) => (i + (e.key === "ArrowDown" ? 1 : -1) + flat.length) % flat.length);
-    } else if (e.key === "Enter") { e.preventDefault(); if (flat[active]) choose(flat[active]); }
-    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+    setOpen(false);
   };
 
-  let n = -1;
   return (
-    <div className="mp" ref={wrap}>
-      <button ref={trigger} type="button" className="mp-trigger" aria-haspopup="listbox" aria-expanded={open} disabled={disabled || !groups}
+    <div className="mp">
+      <button type="button" className="mp-trigger" aria-haspopup="dialog" aria-expanded={open} disabled={disabled || !groups}
         title={cur ? t("{name} · {model}（切换后从下一个问题开始生效）", { name: t(cur.name), model: cur.model || t("默认模型") }) : ""}
-        onClick={() => { if (open) { setOpen(false); return; } setQ(""); setOpen(true); requestAnimationFrame(() => search.current?.focus()); }}>
+        onClick={() => { setQ(""); setOpen(true); }}>
         <span className="mp-name">{cur ? (cur.model ? shortModel(cur.model) : t(cur.name)) : t("选择模型")}</span>
-        <ChevronsUpDown size={12} />
+        <ChevronsUpDown size={13} />
       </button>
       {open && (
-        <div className="mp-pop" onKeyDown={onKey}>
-          <div className="mp-search">
-            <Search size={14} />
-            <input ref={search} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("搜索模型")} role="combobox" aria-expanded aria-controls="mp-list" aria-autocomplete="list" spellCheck={false} />
-          </div>
-          <div className="mp-list" id="mp-list" role="listbox" ref={list}>
-            {!flat.length && <p className="mp-empty">{t("没有匹配的模型")}</p>}
-            {shown.map((g) => (
-              <div key={g.provider.id} role="group" aria-label={t(g.provider.name)}>
-                <p className="mp-group">{t(g.provider.name)}</p>
-                {g.models.map((m) => {
-                  const i = ++n;
-                  const o = { provider: g.provider, model: m };
-                  return (
-                    <div key={m || "default"} role="option" aria-selected={isCur(o)} title={m} className={`mp-row ${isCur(o) ? "is-current" : ""} ${i === active ? "is-active" : ""}`}
-                      onMouseEnter={() => setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(o)}>
-                      <span className="mp-check">{isCur(o) && <Check size={14} />}</span>
-                      <span className="mp-model">{m ? shortModel(m) : t("默认模型")}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-          <button type="button" className="mp-foot" onClick={() => { setOpen(false); openSettings("model"); }}><Plus size={14} /> {t("添加或管理模型")}</button>
-        </div>
+        <MobileSheet title={t("选择模型")} onClose={() => setOpen(false)} className="model-sheet">
+          {(groups?.reduce((n, g) => n + g.models.length, 0) ?? 0) > 6 && (
+            <div className="mp-sheet-search">
+              <Search size={16} aria-hidden />
+              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("搜索模型")} spellCheck={false} />
+            </div>
+          )}
+          {!flat.length && <p className="sheet-status">{t("没有匹配的模型")}</p>}
+          {shown.map((g) => (
+            <div key={g.provider.id} className="mp-sheet-group">
+              <p className="mp-sheet-group-h">{t(g.provider.name)}</p>
+              {g.models.map((m) => {
+                const o = { provider: g.provider, model: m };
+                const selected = isCur(o);
+                return (
+                  <button key={m || "default"} type="button" className="mp-sheet-row" aria-pressed={selected} onClick={() => choose(o)}>
+                    <span className="clamp1">{m ? shortModel(m) : t("默认模型")}</span>
+                    {selected && <Check className="row-check" size={18} />}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          <button type="button" className="ps-manage" onClick={() => { setOpen(false); openSettings("model"); }}><Plus size={15} /> {t("添加或管理模型")}</button>
+        </MobileSheet>
       )}
     </div>
   );
 }
 
-/** Quick prompts reachable at any point in a conversation, not only when it is empty. */
+/** Quick prompts reachable at any point in a conversation via a mobile bottom sheet. */
 export function PromptMenu({ onPick, onManage, disabled }: { onPick: (body: string) => void; onManage: () => void; disabled?: boolean }) {
   const settings = useStore((s) => s.settings);
   const items = quickPrompts(settings).filter((p) => p.enabled);
   const [open, setOpen] = useState(false);
-  const wrap = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: PointerEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
-    const k = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
-    document.addEventListener("pointerdown", h);
-    window.addEventListener("keydown", k, true);
-    return () => { document.removeEventListener("pointerdown", h); window.removeEventListener("keydown", k, true); };
-  }, [open]);
   return (
-    <div className="mp" ref={wrap}>
-      <button type="button" className="icon-btn sm" title={t("快捷提示词")} aria-haspopup="menu" aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)}><MessageSquareText size={16} /></button>
+    <div className="mp">
+      <button type="button" className="icon-btn sm" title={t("快捷提示词")} aria-label={t("快捷提示词")} aria-haspopup="dialog" aria-expanded={open} disabled={disabled} onClick={() => setOpen(true)}><MessageSquareText size={18} /></button>
       {open && (
-        <div className="mp-pop prompts" role="menu">
-          <div className="mp-list">
-            {!items.length && <p className="mp-empty">{t("还没有快捷提示词")}</p>}
+        <MobileSheet title={t("快捷提问")} onClose={() => setOpen(false)} className="prompt-sheet">
+          <div className="ps-list">
+            {!items.length && <p className="sheet-status">{t("还没有快捷提示词")}</p>}
             {items.map((p) => {
               const Icon = promptIcon(p.id);
-              return <button key={p.id} type="button" role="menuitem" className="pm-row" title={p.body} onClick={() => { setOpen(false); onPick(p.body); }}><Icon size={14} /><span>{p.title}</span></button>;
+              return <button key={p.id} type="button" className="ps-row" onClick={() => { setOpen(false); selectionFeedback(); onPick(p.body); }}>
+                <Icon size={18} className="ps-icon" aria-hidden />
+                <span className="ps-text"><span className="ps-title">{p.title}</span><span className="ps-body">{p.body}</span></span>
+              </button>;
             })}
           </div>
-          <button type="button" className="mp-foot" onClick={() => { setOpen(false); onManage(); }}><Settings2 size={14} /> {t("管理提示词")}</button>
-        </div>
+          <button type="button" className="ps-manage" onClick={() => { setOpen(false); onManage(); }}><Settings2 size={15} /> {t("管理提示词")}</button>
+        </MobileSheet>
       )}
     </div>
   );

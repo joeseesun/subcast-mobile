@@ -85,6 +85,8 @@ class MainActivity : TauriActivity() {
 
   override fun onWebViewCreate(webView: WebView) {
     appWebView = webView
+    webView.setBackgroundColor(Color.TRANSPARENT)
+    webView.overScrollMode = View.OVER_SCROLL_NEVER
     webView.addJavascriptInterface(AndroidBridge(), "SubcastAndroid")
     // Intercept YouTube's built-in fullscreen button (onShowCustomView) and route it to SubCast's landscape theater
     // mode so bilingual subtitles remain rendered on top of the full-screen video.

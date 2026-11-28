@@ -17,6 +17,7 @@ import { playNext } from "../lib/library";
 import { useNativeVideoLayout } from "../lib/nativeVideoLayout";
 import { useJobs } from "../lib/jobs";
 import { buildCues, type Cue } from "./EpisodeView";
+import { chapterAt, type Chapter } from "../lib/chapters";
 import { STORE } from "../lib/edition";
 
 const SAVE_EVERY = 10;
@@ -920,18 +921,38 @@ function PlaybackRate({ rate }: { rate: number }) {
   </>;
 }
 
-export function Controls({ compact = false, leading }: { compact?: boolean; leading?: React.ReactNode }) {
+export function Controls({ compact = false, leading, chapters }: { compact?: boolean; leading?: React.ReactNode; chapters?: Chapter[] }) {
   const current = useStore((s) => s.current);
   const { time, length, bufferedUntil, playing, player, settings, loadingSince } = useStore(useShallow((s) => ({ time: s.time, length: s.length, bufferedUntil: s.bufferedUntil, playing: s.playing, player: s.player, settings: s.settings, loadingSince: s.loadingSince })));
   const [drag, setDrag] = useState<number | null>(null);
+  const dragChapterIdx = useRef<number>(-1);
 
   const shown = drag ?? time;
+  const pct = length ? Math.max(0, Math.min(100, (shown / length) * 100)) : 0;
+  const dragIdx = drag !== null && chapters?.length ? chapterAt(chapters, shown) : -1;
+  const dragChapter = dragIdx >= 0 ? chapters![dragIdx]?.title : null;
+  const ticks = useMemo(() => {
+    if (!chapters?.length || !length || length < 30) return [];
+    return chapters
+      .filter((c) => c.start > 2 && c.start < length - 2)
+      .slice(0, 28)
+      .map((c) => (c.start / length) * 100);
+  }, [chapters, length]);
+  const onScrub = (val: number) => {
+    if (chapters?.length) {
+      const idx = chapterAt(chapters, val);
+      if (dragChapterIdx.current >= 0 && idx !== dragChapterIdx.current) selectionFeedback();
+      dragChapterIdx.current = idx;
+    }
+    setDrag(val);
+  };
   const commitSeek = (input: HTMLInputElement) => {
+    dragChapterIdx.current = -1;
     player?.seek(input.valueAsNumber);
     setDrag(null);
   };
   return (
-    <div className={`controls ${compact ? "compact" : ""}`}>
+    <div className={`controls ${compact ? "compact" : ""} ${drag !== null ? "is-scrubbing" : ""}`}>
       {leading}
       <button className="icon-btn" title={t("后退 {n} 秒（←）", { n: settings.skipBack ?? 15 })} onClick={() => player?.seek(Math.max(0, time - (settings.skipBack ?? 15)))} disabled={!player}><BrandGlyph name="back" interval={settings.skipBack ?? 15} /></button>
       <button className={`play-btn ${loadingSince ? "loading" : ""}`} title={loadingSince ? t("正在加载…") : playing ? t("暂停（空格）") : t("播放（空格）")} aria-label={playing || loadingSince ? t("暂停") : t("播放")} onClick={() => { selectionFeedback(); if (player) player.toggle(); else if (current) togglePendingPlayback(current.id); }} disabled={!player && !current} aria-busy={!!loadingSince}>
@@ -939,20 +960,33 @@ export function Controls({ compact = false, leading }: { compact?: boolean; lead
       </button>
       <button className="icon-btn" title={t("前进 {n} 秒（→）", { n: settings.skipForward ?? 30 })} onClick={() => player?.seek(time + (settings.skipForward ?? 30))} disabled={!player}><BrandGlyph name="next" interval={settings.skipForward ?? 30} /></button>
       <span className="time">{clock(shown)}</span>
-      <input
-        className="seek"
-        type="range"
-        min={0}
-        max={Math.max(length, 1)}
-        step={1}
-        value={Math.min(shown, length || shown)}
-        onChange={(e) => setDrag(Number(e.target.value))}
-        onPointerUp={(e) => commitSeek(e.currentTarget)}
-        onPointerCancel={() => setDrag(null)}
-        onKeyUp={(e) => { if (drag !== null) commitSeek(e.currentTarget); }}
-        style={{ "--buffer": `${length ? Math.min(100, bufferedUntil / length * 100) : 0}%`, "--fill": `${length ? (shown / length) * 100 : 0}%` } as React.CSSProperties}
-        aria-label={t("播放进度")}
-      />
+      <div className="seek-wrap">
+        {drag !== null && (
+          <div className="seek-bubble" style={{ left: `${Math.max(14, Math.min(86, pct))}%` }} aria-hidden>
+            <span className="seek-bubble-time">{clock(shown)}</span>
+            {dragChapter && <span className="seek-bubble-ch clamp1">{dragChapter}</span>}
+          </div>
+        )}
+        {ticks.length > 0 && (
+          <div className="seek-ticks" aria-hidden>
+            {ticks.map((pos, i) => <i key={i} className={pos <= pct ? "passed" : ""} style={{ left: `${pos}%` }} />)}
+          </div>
+        )}
+        <input
+          className={`seek ${drag !== null ? "dragging" : ""}`}
+          type="range"
+          min={0}
+          max={Math.max(length, 1)}
+          step={1}
+          value={Math.min(shown, length || shown)}
+          onChange={(e) => onScrub(Number(e.target.value))}
+          onPointerUp={(e) => commitSeek(e.currentTarget)}
+          onPointerCancel={() => { dragChapterIdx.current = -1; setDrag(null); }}
+          onKeyUp={(e) => { if (drag !== null) commitSeek(e.currentTarget); }}
+          style={{ "--buffer": `${length ? Math.min(100, bufferedUntil / length * 100) : 0}%`, "--fill": `${pct}%` } as React.CSSProperties}
+          aria-label={t("播放进度")}
+        />
+      </div>
       <span className="time">{length ? clock(length) : "--:--"}</span>
       <PlaybackRate rate={settings.playbackRate} />
     </div>

@@ -13,42 +13,29 @@
 }
 .m-app:has(> [data-native-dock="player"])::after { height: calc(var(--safe-bottom) + 142px); }
 
-/* Discover: the subscribe button is always visible on touch (the desktop rule only showed it on hover).
-   Subscribed reads as a quiet state, subscribe as the one filled action. */
-.discover-row .tile-add { opacity: 1; transform: none; box-shadow: none; background: var(--accent-soft); color: var(--accent-text); border-radius: 50%; }
-.discover-row .tile-done { background: transparent; color: var(--muted); }
+/* Discover & Home: subscribe stays visible on touch; Home latest list keeps a quiet glyph. */
 .creator-state { flex: none; padding-inline: 6px; font-size: 13px; font-weight: 600; color: var(--muted); }
-.discover-page .creator-row > .icon-btn { color: var(--muted); }
-
-/* Home: one filled play button per row was noisy; the latest list keeps a quiet glyph, the queue keeps the disc. */
 .home .home-main .card-grid .card-play { background: transparent; color: var(--accent-text); }
 .home .module-head .link-btn { display: inline-flex; align-items: center; gap: 2px; }
 
-/* Library: the four collections become a 2 × 2 set of cards with the count on the trailing edge. */
-.library-collections { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; border: 0; background: none; border-radius: 0; overflow: visible; }
-.library-collections button {
-  min-height: 58px; padding: 0 14px; border: 1px solid var(--line); border-radius: 16px;
-  display: flex; align-items: center; justify-content: flex-start; gap: 10px; font-size: 15px; text-align: start;
-}
+/* Library: 2 × 2 collection cards with count on the trailing edge. */
+.library-collections { grid-template-columns: repeat(2, minmax(0, 1fr)); border: 0; background: none; border-radius: 0; overflow: visible; }
+.library-collections button { display: flex; align-items: center; justify-content: flex-start; text-align: start; }
 .library-collections button > svg:first-child { flex: none; }
 .library-collections button > span { flex: 1; min-width: 0; }
-.library-collections button > small { margin-inline-start: auto; font-size: 13px; color: var(--muted); }
-.m-library .library-group .unplayed { min-width: 22px; padding: 1px 7px; border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 600; text-align: center; }
+.library-collections button > small { margin-inline-start: auto; }
+.m-library .library-group .unplayed { min-width: 22px; padding: 1px 7px; border-radius: 10px; text-align: center; }
 
-/* Episode: the subtitle mode switch is a light text toggle, not a second segmented bar under the tabs. */
-.m-episode .status-line { border-bottom: 0; padding-inline: var(--gutter) 8px; }
+/* Episode: light subtitle mode switch and soft transcript top fade. */
+.m-episode .status-line { border-bottom: 0; }
 .m-episode .status-line .seg-control { background: none; padding: 0; gap: 2px; }
-.m-episode .status-line .seg-control button { height: 36px; min-height: 36px; padding: 0 8px; border-radius: 9px; font-size: 14px; color: var(--muted); box-shadow: none; background: none; }
-.m-episode .status-line .seg-control button.on { color: var(--accent-text); background: var(--accent-soft); font-weight: 650; }
+.m-episode .status-line .seg-control button { color: var(--muted); box-shadow: none; background: none; }
 .m-episode .source-tag { font-size: 13px; color: var(--muted); }
+.m-episode .transcript .lines { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 10px); mask-image: linear-gradient(to bottom, transparent, #000 10px); }
 
-/* The transcript fades in under the toolbar instead of being cut mid-line. */
-.m-episode .transcript .lines { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px); mask-image: linear-gradient(to bottom, transparent, #000 18px); }
-
-/* Transport: speed is a plain label; the skip buttons carry more weight than it. */
-.m-episode .controls .rate-btn { background: transparent; font-size: 15px; font-weight: 650; color: var(--text-2); }
+/* Transport: speed is a plain label; dark-mode slider thumb stays legible. */
+.m-episode .controls .rate-btn { background: transparent; color: var(--text-2); }
 .m-episode .controls .rate-btn.fast { background: transparent; color: var(--accent-text); }
-.m-ep-top .controls > .icon-btn > svg { width: 28px; height: 28px; }
 @media (prefers-color-scheme: dark) {
   .m-ep-top .seek::-webkit-slider-thumb { background: var(--text); }
 }
@@ -57,3 +44,241 @@
 .ios-setting-row .select-hint { flex: none; margin-inline-start: -8px; color: var(--muted); pointer-events: none; }
 .settings-modal .ios-setting-action > svg:last-child { color: var(--muted); }
 .settings-modal #settings-proxy:disabled { opacity: .6; }
+
+/* ---- UI & Interaction Polish Pack ---- */
+
+/* 1. Boot screen: centered mark + editorial wordmark */
+.boot { display: grid; place-content: center; justify-items: center; gap: 12px; height: 100dvh; background: var(--bg); }
+.boot-logo { border-radius: 16px; box-shadow: 0 10px 28px -12px color-mix(in srgb, var(--text) 35%, transparent); }
+.boot-name { font: 650 22px/1.2 var(--display); letter-spacing: .04em; color: var(--text-2); }
+@media (prefers-reduced-motion: no-preference) {
+  .boot-logo { animation: breathe 1.8s ease-in-out infinite; }
+}
+
+/* 2. Mobile Episode skeleton */
+.sk-ep-top { gap: 12px; padding-bottom: 12px; }
+.sk-ep-head { display: flex; align-items: center; gap: 12px; }
+.sk-ep-art { width: 68px; height: 68px; border-radius: 13px; flex: none; }
+.sk-ep-meta { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.sk-ep-controls { height: 52px; border-radius: 14px; width: 100%; }
+.sk-ep-tabs { padding: 4px var(--gutter) 8px; }
+
+/* 3. View stage transitions & left-edge swipe-back pill */
+.m-view-stage { flex: 1; min-height: 0; display: flex; flex-direction: column; width: 100%; }
+@keyframes page-enter {
+  from { opacity: .01; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .m-view-stage { animation: page-enter .2s cubic-bezier(.2, .8, .2, 1) both; }
+}
+.edge-back-pill {
+  position: fixed; left: 0; top: 50%; z-index: 90;
+  width: 40px; height: 40px; border-radius: 50%;
+  display: grid; place-items: center; pointer-events: none;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--text-2);
+  box-shadow: 0 6px 20px -6px rgba(0, 0, 0, .28), 0 0 0 1px var(--line);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.edge-back-pill.armed { background: var(--accent); color: #fff; box-shadow: 0 8px 24px -6px color-mix(in srgb, var(--accent) 55%, transparent); }
+
+/* 4. MobileSheet grabber, drag-to-dismiss, exit animation */
+.sheet-grabber {
+  width: 38px; height: 4px; border-radius: 999px;
+  margin: 8px auto 2px; background: color-mix(in srgb, var(--text) 18%, transparent);
+  flex: none;
+}
+.mobile-sheet.is-dragging { transition: none !important; }
+.mobile-sheet:not(.is-dragging) { transition: transform .22s cubic-bezier(.2, .8, .2, 1); }
+@keyframes sheet-fall {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(48px); opacity: 0; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mobile-sheet.is-closing { animation: sheet-fall .18s ease-in forwards; }
+  .mobile-sheet.is-closing::backdrop { opacity: 0; transition: opacity .18s ease; }
+}
+
+/* 5. Pull-to-refresh indicator */
+.pull-indicator {
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; transition: height .18s ease;
+}
+.pull-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 999px;
+  background: var(--soft); color: var(--text-2);
+  font-size: 12.5px; font-weight: 600;
+}
+.pull-indicator.armed .pull-pill { background: var(--accent-soft); color: var(--accent-text); }
+
+/* 6. Q&A mobile actions & sheets + streaming stop bar */
+.m-episode .msg-actions { opacity: 1 !important; gap: 4px; min-height: 36px; margin-top: 2px; }
+.m-episode .msg-act { min-width: 36px; height: 36px; border-radius: 9px; color: var(--muted); }
+.m-episode .msg-act:active { background: var(--soft); color: var(--text); }
+.m-episode .msg-act.caret { min-width: 28px; padding: 0 4px; }
+.hist-sheet-row { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line); }
+.hist-sheet-open { flex: 1; min-width: 0; min-height: 54px; padding: 8px 6px; border: 0; background: none; color: var(--text); display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; text-align: start; font: inherit; }
+.mp-sheet-search { display: flex; align-items: center; gap: 8px; padding: 0 12px; margin: 4px 0 10px; border-radius: 12px; background: var(--soft); color: var(--muted); }
+.mp-sheet-search input { flex: 1; min-height: 44px; border: 0; background: transparent; padding: 0; color: var(--text); }
+.mp-sheet-search input:focus { outline: none; box-shadow: none; }
+.mp-sheet-group { margin-bottom: 8px; }
+.mp-sheet-group-h { margin: 8px 6px 4px; font-size: 12px; font-weight: 650; color: var(--muted); }
+.mp-sheet-row { width: 100%; min-height: 48px; padding: 0 8px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--text); display: flex; align-items: center; gap: 10px; text-align: start; font: inherit; font-size: 15.5px; }
+.mp-sheet-row[aria-pressed="true"] { color: var(--accent-text); font-weight: 600; }
+.stream-stop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line-strong); }
+.stream-stop-row > span { display: inline-flex; align-items: center; gap: 6px; }
+.is-streaming .markdown > :last-child::after {
+  content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 4px;
+  vertical-align: -2px; border-radius: 2px; background: var(--accent);
+  animation: breathe .9s ease-in-out infinite;
+}
+
+/* 7. Bottom-docked SelectionTools bar (never overlaps native OS callout) */
+.sel-bar.sel-dock {
+  position: fixed !important; left: 12px !important; right: 12px !important; top: auto !important;
+  bottom: calc(var(--safe-bottom) + 14px) !important; transform: none !important;
+  z-index: 70; max-width: 520px; margin-inline: auto;
+  padding: 6px; border-radius: 18px;
+  background: color-mix(in srgb, var(--ink) 94%, transparent);
+  color: var(--on-ink);
+  box-shadow: 0 14px 40px -10px rgba(0, 0, 0, .42);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.sel-bar.sel-dock .sel-actions { display: flex; align-items: center; gap: 2px; }
+.sel-bar.sel-dock .sel-actions button {
+  flex: 1; min-height: 42px; padding: 0 6px; border: 0; border-radius: 12px;
+  background: transparent; color: var(--on-ink);
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  font-size: 13.5px; font-weight: 600; white-space: nowrap;
+}
+.sel-bar.sel-dock .sel-actions button:active { background: color-mix(in srgb, var(--on-ink) 16%, transparent); }
+.sel-bar.sel-dock .sel-actions .sel-close { flex: none; width: 38px; opacity: .75; }
+.sel-bar.sel-dock .sel-tr {
+  padding: 8px 10px; margin-bottom: 4px; border-radius: 12px;
+  background: color-mix(in srgb, var(--on-ink) 11%, transparent);
+  color: var(--on-ink); font-size: 14px; line-height: 1.5; max-height: 28vh; overflow-y: auto;
+}
+
+/* 8. Episode player: collapsed micro-progress, scrubber bubble, tab panes, active line liveliness */
+.m-ep-top.reader-player { position: relative; padding-bottom: 7px; }
+.reader-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--line); overflow: hidden; pointer-events: none; }
+.reader-progress > i { display: block; height: 100%; background: var(--accent); transition: width .25s linear; }
+.m-ep-top .controls > .seek-wrap { grid-area: seek; position: relative; display: flex; align-items: center; width: 100%; }
+.m-ep-top .controls > .seek-wrap ~ .time { grid-area: duration; text-align: end; }
+.m-ep-top .controls > .seek-wrap > .seek {
+  width: 100%; height: 44px; margin: 0;
+  background-size: 100% 4px; background-repeat: no-repeat; background-position: center;
+  background-image: linear-gradient(to right, var(--accent) var(--fill), var(--muted) var(--fill), var(--muted) max(var(--fill), var(--buffer)), var(--soft) max(var(--fill), var(--buffer)));
+  transition: background-size .15s ease;
+}
+.m-ep-top.with-video:not(.reader-player) .controls > .seek-wrap > .seek { height: 34px; }
+.m-ep-top .controls > .seek-wrap > .seek.dragging { background-size: 100% 7px; }
+.m-ep-top .controls > .seek-wrap > .seek.dragging::-webkit-slider-thumb { transform: scale(1.18); }
+.seek-bubble {
+  position: absolute; bottom: calc(100% + 2px); transform: translateX(-50%);
+  max-width: 210px; padding: 5px 10px; border-radius: 10px;
+  background: var(--ink); color: var(--on-ink);
+  box-shadow: 0 8px 20px -6px rgba(0, 0, 0, .32);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  pointer-events: none; z-index: 10;
+}
+.seek-bubble-time { font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.seek-bubble-ch { font-size: 11px; opacity: .82; max-width: 185px; }
+
+.m-ep-tabs .tab-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.m-ep-tabs .tab-pane.off { display: none; }
+
+/* Active transcript line: subtle paper tint (no border/shadow/left stripe) + equalizer + trailing action */
+.m-episode .transcript .line { position: relative; align-items: flex-start; transition: background-color .18s ease; }
+.m-episode .transcript .line.active {
+  background: color-mix(in srgb, var(--accent) 5.5%, transparent);
+  border-radius: 10px;
+}
+.m-episode .transcript .line-time { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.eq-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; margin-top: 1px; }
+.eq-bars i { display: block; width: 2.5px; height: 4px; border-radius: 2px; background: var(--accent); opacity: .75; }
+.eq-bars i:nth-child(2) { height: 8px; }
+.eq-bars i:nth-child(3) { height: 5px; }
+@keyframes eq-dance {
+  0%, 100% { transform: scaleY(.35); }
+  50% { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .eq-bars.on i { height: 11px; transform-origin: bottom; animation: eq-dance .85s ease-in-out infinite; opacity: 1; }
+  .eq-bars.on i:nth-child(2) { animation-delay: .18s; animation-duration: .72s; }
+  .eq-bars.on i:nth-child(3) { animation-delay: .34s; animation-duration: .94s; }
+}
+.line-more-btn {
+  flex: none; width: 32px; height: 32px; margin: -4px -6px 0 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--muted);
+  display: grid; place-items: center;
+}
+.line-more-btn:active { background: var(--soft); color: var(--text); }
+.line-tip-banner {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 8px; padding: 4px 0 9px; border-bottom: 1px solid var(--line);
+  background: transparent; color: var(--muted);
+  font-size: 12px; line-height: 1.45;
+}
+.line-tip-banner > span { flex: 1; }
+.line-tip-close {
+  flex: none; width: 26px; height: 26px; margin-inline-end: -4px; border: 0; border-radius: 50%;
+  background: transparent; color: inherit; display: grid; place-items: center; opacity: .7;
+}
+
+/* 9. Home: quiet RecRow line clamp */
+.home-rec-row .pick-open small { -webkit-line-clamp: 1; }
+
+/* 10. Library: data-rich Stats summary sparkline */
+.stats-summary-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: start; }
+.stats-summary-text small { margin: 0 !important; }
+.stats-spark { flex: none; display: inline-flex; align-items: flex-end; gap: 3px; height: 22px; padding-inline-start: 4px; }
+.stats-spark i { display: block; width: 3px; border-radius: 2px; background: var(--line-strong); opacity: .5; }
+.stats-spark i.on { background: var(--accent); opacity: .88; }
+.stats-summary-arrow { flex: none; color: var(--muted); }
+
+/* 11. StatsView touch-interactive details & share header */
+.stats-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.stats-eq-btn {
+  display: inline; padding: 0; border: 0; background: none; font: inherit; font-weight: 700;
+  color: var(--accent); text-decoration: underline dotted color-mix(in srgb, var(--accent) 55%, transparent);
+  text-underline-offset: 5px; cursor: pointer;
+}
+.stats-chip-detail {
+  display: inline-block; margin: 8px 0 0; padding: 2px 0;
+  background: transparent; color: var(--accent-text);
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.clock-hit { cursor: pointer; }
+.clock-bar.picked { stroke: var(--ink); stroke-width: 8; }
+.topic-tile { border: 0; font: inherit; text-align: start; cursor: pointer; transition: transform .14s ease, box-shadow .14s ease; }
+.topic-tile.picked { box-shadow: inset 0 0 0 1.5px var(--accent); }
+.ears-col { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
+.ears-col.picked .ears-bar { filter: brightness(1.1); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.heatmap button.hm { padding: 0; border: 0; cursor: pointer; }
+.heatmap button.hm.picked { outline: 2px solid var(--ink); outline-offset: 1px; z-index: 1; }
+.heatmap-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; min-height: 24px; }
+.heatmap-foot .heatmap-legend { margin-top: 0; }
+.heatmap-foot .stats-chip-detail { margin: 0; }
+.portrait-head-actions { display: inline-flex; align-items: center; gap: 12px; }
+
+/* 12. Android / Web fallback frosted glass nav & floating capsule mini-player */
+.m-app .m-nav {
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
+  backdrop-filter: saturate(1.8) blur(20px);
+  -webkit-backdrop-filter: saturate(1.8) blur(20px);
+  border-top: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+}
+.m-app .mini {
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: saturate(1.8) blur(18px);
+  -webkit-backdrop-filter: saturate(1.8) blur(18px);
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 18px;
+  box-shadow: 0 12px 32px -12px rgba(24, 14, 8, .28), 0 1px 2px rgba(0, 0, 0, .06);
+}
+@media (prefers-color-scheme: dark) {
+  .m-app .mini { box-shadow: 0 14px 36px -12px rgba(0, 0, 0, .6), inset 0 0 0 1px rgba(255, 240, 224, .06); }
+}

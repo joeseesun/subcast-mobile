@@ -2,10 +2,12 @@ import { ConfirmHost } from "./components/ConfirmHost";
 import { useShallow } from "zustand/react/shallow";
 import { SelectionTools } from "./components/SelectionTools";
 import { useLayout } from "./lib/layout";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronLeft } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { api } from "./lib/api";
+import { selectionFeedback } from "./lib/feedback";
 import { useReadingSettings } from "./lib/reading";
 import { useRevealOnExpand } from "./lib/reveal";
 import { startJobListeners } from "./lib/jobs";
@@ -106,22 +108,69 @@ export default function App() {
   }, []);
 
   useLang(); // re-render the tree when the interface language changes
-  if (!ready) return <div className="boot" role="status" aria-label={t("正在启动")}><img src={logo} width={58} height={58} alt="" /></div>;
+  const historyLen = useStore((s) => s.history.length);
+  const canSwipeBack = historyLen > 0 || !["latest", "discover", "library"].includes(view.kind);
+  const [edgePull, setEdgePull] = useState(0);
+  const swipeRef = useRef<{ x: number; y: number; active: boolean; armed: boolean } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (!canSwipeBack || e.touches.length !== 1) return;
+    if (document.querySelector('[aria-modal="true"], .mobile-sheet[open]')) return;
+    const touch = e.touches[0];
+    if (touch.clientX <= 28) swipeRef.current = { x: touch.clientX, y: touch.clientY, active: false, armed: false };
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    const g = swipeRef.current;
+    if (!g || e.touches.length !== 1) return;
+    const dx = e.touches[0].clientX - g.x;
+    const dy = Math.abs(e.touches[0].clientY - g.y);
+    if (!g.active) {
+      if (dy > 18 && dy > dx) { swipeRef.current = null; return; }
+      if (dx > 14 && dx > dy * 1.3) g.active = true;
+      else return;
+    }
+    const pull = Math.max(0, Math.min(110, dx));
+    if (pull >= 72 && !g.armed) { g.armed = true; selectionFeedback(); }
+    else if (pull < 72 && g.armed) g.armed = false;
+    setEdgePull(pull);
+  };
+  const onTouchEnd = () => {
+    const g = swipeRef.current;
+    swipeRef.current = null;
+    if (g?.active && edgePull >= 72) useStore.getState().back();
+    setEdgePull(0);
+  };
+
+  if (!ready) return (
+    <div className="boot" role="status" aria-label={t("正在启动")}>
+      <img className="boot-logo" src={logo} width={64} height={64} alt="" />
+      <span className="boot-name">{t("声渡")}</span>
+    </div>
+  );
+  const viewKey = view.kind === "episode" ? `ep:${view.id}` : view.kind === "show" ? `show:${view.id}` : view.kind === "channel" ? `ch:${view.input}` : view.kind === "recent" ? `recent:${view.saved ? 1 : 0}` : view.kind;
   return (
-    <div className={`app m-app ${view.kind === "episode" ? "m-full" : ""}`}>
+    <div className={`app m-app ${view.kind === "episode" ? "m-full" : ""}`}
+      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchEnd}>
       <main className="main">
-        {view.kind === "discover" ? <TopBar /> : !["latest", "episode", "library", "show"].includes(view.kind) && <MobileBack />}
-        {view.kind === "latest" && <LatestView />}
-        {view.kind === "recent" && <RecentView savedFirst={view.saved} />}
-        {view.kind === "stats" && <StatsView />}
-        {view.kind === "discover" && <DiscoverView />}
-        {view.kind === "downloads" && <DownloadsView />}
-        {view.kind === "notes" && <NotesView />}
-        {view.kind === "library" && <LibraryView />}
-        {view.kind === "show" && <ShowView key={view.id} id={view.id} finder={view.finder} />}
-        {view.kind === "channel" && <ChannelView key={view.input} input={view.input} />}
-        {view.kind === "episode" && <EpisodeView key={view.id} id={view.id} />}
+        <div key={viewKey} className="m-view-stage">
+          {view.kind === "discover" ? <TopBar /> : !["latest", "episode", "library", "show"].includes(view.kind) && <MobileBack />}
+          {view.kind === "latest" && <LatestView />}
+          {view.kind === "recent" && <RecentView savedFirst={view.saved} />}
+          {view.kind === "stats" && <StatsView />}
+          {view.kind === "discover" && <DiscoverView />}
+          {view.kind === "downloads" && <DownloadsView />}
+          {view.kind === "notes" && <NotesView />}
+          {view.kind === "library" && <LibraryView />}
+          {view.kind === "show" && <ShowView key={view.id} id={view.id} finder={view.finder} />}
+          {view.kind === "channel" && <ChannelView key={view.input} input={view.input} />}
+          {view.kind === "episode" && <EpisodeView key={view.id} id={view.id} />}
+        </div>
       </main>
+      {edgePull > 4 && (
+        <div className={`edge-back-pill ${edgePull >= 72 ? "armed" : ""}`} aria-hidden
+          style={{ transform: `translate3d(${Math.round(edgePull * 0.42) - 42}px, -50%, 0)`, opacity: Math.min(1, edgePull / 56) }}>
+          <ChevronLeft size={20} />
+        </div>
+      )}
       <MobileDock />
       <AudioEngine />
       <VideoDock />

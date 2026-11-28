@@ -278,7 +278,7 @@ function Notes({ ep, text, defaultOpen = false }: { ep: Episode; text: string; d
   );
 }
 /** Save for offline listening; shows progress while saving and the saved state after. */
-function EpisodeActions({ ep, close }: { ep: Episode; close: () => void }) {
+function EpisodeActions({ ep, chapterCount, onChapters, close }: { ep: Episode; chapterCount: number; onChapters: () => void; close: () => void }) {
   const fav = useLibrary((s) => s.favorites.some((f) => f.id === ep.id));
   const saved = useOffline((s) => s.saved[ep.id]);
   const progress = useOffline((s) => s.active[ep.id]);
@@ -289,6 +289,7 @@ function EpisodeActions({ ep, close }: { ep: Episode; close: () => void }) {
       setBookmarkMotion((n) => n + 1);
       selectionFeedback();
     }}><span key={bookmarkMotion} className={bookmarkMotion && fav ? "bookmark-placed" : undefined}><BrandGlyph name="saved" /></span>{fav ? t("取消收藏") : t("收藏这一集")}{fav && <Check className="row-check" />}</button>
+    {chapterCount > 0 && <button onClick={() => { close(); onChapters(); }}><ListOrdered size={20} />{t("章节")}<small>{chapterCount}</small></button>}
     {saved ? <>
       <button onClick={() => { close(); useStore.getState().go({ kind: "downloads" }); }}><BrandGlyph name="cache" />{t("管理离线音频")}<small>{bytes(saved.bytes)}</small></button>
       <button className="destructive" onClick={async () => { close(); if (await ask({ title: t("清理这一集的离线音频？"), ok: t("清理"), danger: true })) void removeDownload(ep.id); }}><Trash2 />{saved.cached ? t("清理缓存") : t("删除下载")}</button>
@@ -301,24 +302,39 @@ function EpisodeActions({ ep, close }: { ep: Episode; close: () => void }) {
 const chapterClock = (s: number) => { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = Math.floor(s % 60); return h ? `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}` : `${m}:${String(x).padStart(2, "0")}`; };
 const chapterTitle = (c: Chapter) => c.title || t("开场");
 
-/** The chapter playing now, as a line that opens the list of chapters. */
-function ChapterChip({ ep, chapters, onOpen }: { ep: Episode; chapters: Chapter[]; onOpen: () => void }) {
-  const index = useStore((s) => chapterAt(chapters, s.current?.id === ep.id ? s.time : ep.progress));
-  return <button className="chapter-chip" aria-haspopup="dialog" onClick={onOpen}>
-    <ListOrdered size={15} aria-hidden />
-    <span className="chapter-count">{t("第 {n}/{total} 章", { n: index + 1, total: chapters.length })}</span>
-    <span className="chapter-name">{chapterTitle(chapters[index])}</span>
-    <ChevronRight size={15} aria-hidden />
-  </button>;
+function ChapterSheet({ ep, chapters, onClose }: { ep: Episode; chapters: Chapter[]; onClose: () => void }) {
+  const { now, totalLen, playing } = useStore(useShallow((s) => ({
+    now: s.current?.id === ep.id ? s.time : ep.progress,
+    totalLen: s.current?.id === ep.id && s.length > 0 ? s.length : ep.duration ?? 0,
+    playing: s.current?.id === ep.id && s.playing,
+  })));
+  const index = chapterAt(chapters, now);
+  return <MobileSheet title={t("章节（{n}）", { n: chapters.length })} onClose={onClose} className="chapter-sheet">
+    {chapters.map((c, i) => {
+      const end = chapters[i + 1]?.start ?? (totalLen > c.start ? totalLen : 0);
+      const spanSecs = end > c.start ? end - c.start : 0;
+      const active = i === index;
+      const pct = active && spanSecs > 0 ? Math.max(0, Math.min(100, ((now - c.start) / spanSecs) * 100)) : 0;
+      return (
+        <button key={c.start} className={`chapter-row ${active ? "is-active" : ""}`} aria-pressed={active} onClick={() => {
+          onClose(); selectionFeedback(); seekEpisode(ep, c.start);
+        }}>
+          <span className="chapter-time">{chapterClock(c.start)}</span>
+          <span className="chapter-row-main">
+            <span className="chapter-row-title">{chapterTitle(c)}</span>
+            {spanSecs >= 30 && <span className="chapter-row-dur">{duration(spanSecs)}</span>}
+          </span>
+          {active && <span className={`eq-bars ${playing ? "on" : ""}`} aria-hidden><i /><i /><i /></span>}
+          {active && pct > 0 && <span className="chapter-row-bar" aria-hidden><i style={{ width: `${pct}%` }} /></span>}
+        </button>
+      );
+    })}
+  </MobileSheet>;
 }
 
-function ChapterSheet({ ep, chapters, onClose }: { ep: Episode; chapters: Chapter[]; onClose: () => void }) {
-  const index = useStore((s) => chapterAt(chapters, s.current?.id === ep.id ? s.time : ep.progress));
-  return <MobileSheet title={t("章节")} onClose={onClose}>
-    {chapters.map((c, i) => <button key={c.start} className="chapter-row" aria-pressed={i === index} onClick={() => {
-      onClose(); selectionFeedback(); seekEpisode(ep, c.start);
-    }}><span className="chapter-time">{chapterClock(c.start)}</span><span className="chapter-row-title">{chapterTitle(c)}</span>{i === index && <Check className="row-check" />}</button>)}
-  </MobileSheet>;
+function ReaderProgress() {
+  const pct = useStore((s) => (s.length > 0 ? Math.max(0, Math.min(100, (s.time / s.length) * 100)) : 0));
+  return <span className="reader-progress" aria-hidden><i style={{ width: `${pct}%` }} /></span>;
 }
 
 function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; setTab: (t: Tab) => void; startAudio: boolean }) {
@@ -418,6 +434,33 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
   const modeButton = both && <button className="media-mode" aria-label={t("切换播放方式")} aria-haspopup="dialog" onClick={(e) => void chooseMedia(e.currentTarget)}>
     {audioMode ? <BrandGlyph name="sound" size={21} /> : <BrandGlyph name="film" size={21} />}<span>{audioMode ? t("音频") : t("视频")}</span><ChevronDown size={12} />
   </button>;
+  // Keep visited tabs mounted so switching between 字幕 / 精读 / 导读 / 问答 never loses scroll position.
+  const [visited, setVisited] = useState<Tab[]>([tab]);
+  useEffect(() => { setVisited([tab]); }, [ep.id]);
+  useEffect(() => { setVisited((v) => (v.includes(tab) ? v : [...v, tab])); }, [tab]);
+  const tabSwipe = useRef<{ x: number; y: number } | null>(null);
+  const onTabTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    if (touch.clientX <= 30) return; // reserve left edge for swipe-back
+    if ((e.target as HTMLElement).closest(".prompt-chips, .reading-segments, input, textarea, [data-no-swipe]")) return;
+    tabSwipe.current = { x: touch.clientX, y: touch.clientY };
+  };
+  const onTabTouchEnd = (e: React.TouchEvent) => {
+    const start = tabSwipe.current;
+    tabSwipe.current = null;
+    if (!start || !e.changedTouches.length) return;
+    const dx = e.changedTouches[0].clientX - start.x;
+    const dy = Math.abs(e.changedTouches[0].clientY - start.y);
+    if (Math.abs(dx) < 64 || Math.abs(dx) < dy * 2.1) return;
+    const i = tabs.findIndex(([k]) => k === tab);
+    const next = dx < 0 ? i + 1 : i - 1;
+    if (next >= 0 && next < tabs.length) {
+      selectionFeedback();
+      setExpanded(false);
+      setTab(tabs[next][0]);
+    }
+  };
   // Press and hold the caption under the player for that line's actions (save, play from, copy, poster, ask).
   const caption = useRef<HTMLDivElement>(null);
   useLongPress(caption, ".asub", (el) => openLineActions(ep, Number(el.dataset.i)));
@@ -429,7 +472,7 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
         <span className="clamp1">{compact && ep.showTitle && ep.showId !== "single" ? showName(ep.showTitle) : ""}</span>
         <button className="m-back" aria-label={t("本集操作")} aria-haspopup="dialog" onClick={() => setSheet("actions")}><BrandGlyph name="more" /></button>
       </header>
-      {sheet === "actions" && <EpisodeActions ep={ep} close={() => setSheet(null)} />}
+      {sheet === "actions" && <EpisodeActions ep={ep} chapterCount={chapters.length} onChapters={() => setSheet("chapters")} close={() => setSheet(null)} />}
       {sheet === "chapters" && <ChapterSheet ep={ep} chapters={chapters} onClose={() => setSheet(null)} />}
       {sheet === "media" && <MobileSheet title={t("播放方式")} onClose={() => setSheet(null)}>
         {mediaOptions.map(({ id, title, glyph, selected }) => <button key={id} aria-pressed={selected} onClick={() => {
@@ -457,14 +500,12 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
         ) : tab !== "transcript" && (
           <div className="audio-sub mobile-caption" ref={caption}><AudioSubtitles ep={ep} /></div>
         )}
-        {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton || undefined} /></div> : (
+        {!ep.audioUrl && !ep.videoId && !saved ? <p className="muted small">{t("这集没有音频地址")}</p> : isCurrent ? <div className="controls-slot"><Controls leading={modeButton || undefined} chapters={chapters} /></div> : (
           <div className="m-start-row">{modeButton}<button className="btn primary m-play" onClick={startPlayback}><BrandGlyph name="play" size={22} /> {t("播放这一集")}</button></div>
         )}
-        {chapters.length > 0 && <div className="m-ep-tools">
-          <ChapterChip ep={ep} chapters={chapters} onOpen={() => setSheet("chapters")} />
-        </div>}
         <LineActions />
         {collapsible && isCurrent && !showingRecovery && <button className="reader-toggle" aria-label={compact ? t("展开播放器") : t("收起播放器")} aria-expanded={!compact} onClick={() => setExpanded(!expanded)}><ChevronDown size={20} className={compact ? "" : "flip"} /></button>}
+        {compact && isCurrent && <ReaderProgress />}
       </section>
       <section className="ep-right m-ep-tabs">
         <div className="reading-segments" role="tablist" style={{ "--count": tabs.length, "--index": Math.max(0, tabs.findIndex(([k]) => k === tab)) } as React.CSSProperties}>
@@ -473,18 +514,32 @@ function EpisodeBody({ ep, tab, setTab, startAudio }: { ep: Episode; tab: Tab; s
             if (tab !== k) { selectionFeedback(); setExpanded(false); setTab(k); }
           }}>{label}</button>)}
         </div>
-        <div className="tab-body" onScrollCapture={onListScroll} onTouchMoveCapture={onListDrag}>
-          <PanelBoundary key={tab}>
-            {tab === "transcript" && <TranscriptPanel ep={ep} />}
-            {tab === "chat" && <ChatPanel ep={ep} input={draft} setInput={setDraft} onSubtitles={() => setTab("transcript")} />}
-            {tab === "summary" && <div className="guide-tab">
-              <SummaryPanel ep={ep} onSubtitles={() => setTab("transcript")} />
-              {notes && <div className="guide-notes"><Notes ep={ep} text={notes} /></div>}
-            </div>}
-            {tab === "deep" && (ep.deep && noDeep !== ep.id
-              ? <DeepRead ep={ep} onMissing={() => setNoDeep(ep.id)}><ArticlePanel ep={ep} onSubtitles={() => setTab("transcript")} /></DeepRead>
-              : <ArticlePanel ep={ep} onSubtitles={() => setTab("transcript")} />)}
-          </PanelBoundary>
+        <div className="tab-body" onScrollCapture={onListScroll} onTouchMoveCapture={onListDrag} onTouchStart={onTabTouchStart} onTouchEnd={onTabTouchEnd}>
+          {visited.includes("transcript") && (
+            <div className={`tab-pane ${tab === "transcript" ? "" : "off"}`} hidden={tab !== "transcript"}>
+              <PanelBoundary><TranscriptPanel ep={ep} /></PanelBoundary>
+            </div>
+          )}
+          {visited.includes("deep") && (
+            <div className={`tab-pane ${tab === "deep" ? "" : "off"}`} hidden={tab !== "deep"}>
+              <PanelBoundary>{ep.deep && noDeep !== ep.id
+                ? <DeepRead ep={ep} onMissing={() => setNoDeep(ep.id)}><ArticlePanel ep={ep} onSubtitles={() => setTab("transcript")} /></DeepRead>
+                : <ArticlePanel ep={ep} onSubtitles={() => setTab("transcript")} />}</PanelBoundary>
+            </div>
+          )}
+          {visited.includes("summary") && (
+            <div className={`tab-pane ${tab === "summary" ? "" : "off"}`} hidden={tab !== "summary"}>
+              <PanelBoundary><div className="guide-tab">
+                <SummaryPanel ep={ep} onSubtitles={() => setTab("transcript")} />
+                {notes && <div className="guide-notes"><Notes ep={ep} text={notes} /></div>}
+              </div></PanelBoundary>
+            </div>
+          )}
+          {visited.includes("chat") && (
+            <div className={`tab-pane ${tab === "chat" ? "" : "off"}`} hidden={tab !== "chat"}>
+              <PanelBoundary><ChatPanel ep={ep} input={draft} setInput={setDraft} onSubtitles={() => setTab("transcript")} /></PanelBoundary>
+            </div>
+          )}
         </div>
       </section>
     </div>

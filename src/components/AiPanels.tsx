@@ -1,14 +1,15 @@
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Plus, ChevronRight, Loader2, PenLine, RefreshCw, Settings2, Sparkles, Square, SquarePen } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronRight, Loader2, PenLine, RefreshCw, Settings2, Sparkles, Square, SquarePen } from "lucide-react";
 import { api, errorText, rawErrorText, type ChatMessage, type Episode } from "../lib/api";
 import { askEpisode, summaryPrompt, transcriptForModel, writeArticle } from "../lib/ai";
 import { t, tk } from "../lib/i18n";
 import { quickPrompts } from "../lib/settings";
-import { ChatPrefsDialog, ModelPicker, PromptMenu, promptIcon, shortModel } from "./ChatTools";
+import { ChatPrefsDialog, ModelPicker, promptIcon, shortModel } from "./ChatTools";
 import { llmReady, useJobs } from "../lib/jobs";
 import { warmAgent } from "../lib/agents";
+import { selectionFeedback } from "../lib/feedback";
 import { providerFor, useStore } from "../store";
 import { Markdown } from "./Markdown";
 import { ReadAloud } from "./ReadAloud";
@@ -83,6 +84,29 @@ const chatAborts = new Map<string, AbortController>();
 const putChat = (id: string, p: Partial<ChatState>) => useChats.setState((s) => ({ [id]: { ...(s[id] ?? { messages: [], streaming: null, loaded: false }), ...p } }));
 const NO_MESSAGES: ChatMessage[] = [];
 
+const THINK_STEPS = [tk("正在通读文字稿…"), tk("正在定位相关原话…"), tk("正在整理回答…")];
+
+function ThinkingState() {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setStep((n) => (n + 1) % THINK_STEPS.length), 2400);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <div className="chat-thinking" role="status">
+      <div className="chat-thinking-head">
+        <span className="chat-thinking-dot" aria-hidden><Sparkles size={13} /></span>
+        <span>{t(THINK_STEPS[step])}</span>
+      </div>
+      <div className="chat-thinking-bars" aria-hidden>
+        <i style={{ width: "86%" }} />
+        <i style={{ width: "68%" }} />
+        <i style={{ width: "48%" }} />
+      </div>
+    </div>
+  );
+}
+
 export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; onSubtitles: () => void; input: string; setInput: (text: string) => void }) {
   const { transcript, provider, context, check } = useReady(ep);
   const connected = useConnected();
@@ -93,7 +117,6 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
   const seek = useSeek(ep);
   const messages = useChats((s) => s[ep.id]?.messages ?? NO_MESSAGES);
   const streaming = useChats((s) => s[ep.id]?.streaming ?? null);
-  const [toolsOpen, setToolsOpen] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [archive, setArchive] = useState<ArchivedChat[]>([]);
@@ -101,11 +124,10 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
   const scroller = useRef<HTMLDivElement>(null);
 
   const box = useRef<HTMLTextAreaElement>(null);
-  // Quick questions, most used first. A tap asks right away (no editing step); all of them are one tap away in a
-  // sheet during a conversation.
+  // Quick questions, most used first. Featured 4 show on empty state; contextual follow-ups appear below the latest answer.
   const [promptSheet, setPromptSheet] = useState(false);
   const prompts = byUse(quickPrompts(settings).filter((p) => p.enabled));
-  const askPrompt = (p: QuickPrompt) => { countUse(p.id); setPromptSheet(false); send(p.body); };
+  const askPrompt = (p: QuickPrompt) => { selectionFeedback(); countUse(p.id); setPromptSheet(false); send(p.body); };
 
   useEffect(() => {
     setArchive([]);
@@ -122,7 +144,7 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
   // Follow new text only while the reader is at the bottom; scrolling up to reread is never interrupted.
   useEffect(() => { const pane = scroller.current; if (pane && atBottom) pane.scrollTop = pane.scrollHeight; }, [messages.length, streaming]);
   const onScroll = () => { const el = scroller.current; if (el) setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 60); };
-  const toBottom = () => { const pane = scroller.current; if (pane) pane.scrollTop = pane.scrollHeight; setAtBottom(true); };
+  const toBottom = () => { const pane = scroller.current; if (pane) pane.scrollTo({ top: pane.scrollHeight, behavior: "smooth" }); setAtBottom(true); };
 
   // Every change is written to the episode's record in the library database right away.
   const save = (next: ChatMessage[]) => { putChat(ep.id, { messages: next, loaded: true }); void api.setBlob(ep.id, "chat", JSON.stringify(next)); };
@@ -143,6 +165,7 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
       // Some agents only stream and return an empty final answer: keep what was shown.
       const content = answer.trim() ? answer : partial;
       save([...history, { role: "assistant", content: content.trim() ? content : t("出错了：{error}", { error: t("模型没有返回内容，请重试或换一个模型") }), model }]);
+      selectionFeedback();
     } catch (e) {
       const note = ctl.signal.aborted ? t("（已停止）") : t("出错了：{error}", { error: errorText(e) });
       save([...history, { role: "assistant", content: partial ? `${partial}\n\n${note}` : note, model }]);
@@ -164,6 +187,7 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
   const edit = (i: number) => { setInput(messages[i].content); save(messages.slice(0, i)); window.setTimeout(() => box.current?.focus(), 0); };
   const newChat = () => {
     if (!messages.length) return;
+    selectionFeedback();
     saveArchive([{ id: `${Date.now()}`, at: Date.now(), messages }, ...archive].slice(0, 30));
     save([]); setInput(""); box.current?.focus();
   };
@@ -176,6 +200,9 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
   };
   const blocked = !transcript || connected === false;
   const empty = !messages.length && streaming == null;
+  const askedBodies = new Set(messages.filter((m) => m.role === "user").map((m) => m.content.trim()));
+  const followUps = prompts.filter((p) => !askedBodies.has(p.body.trim())).slice(0, 3);
+  const activeModelLabel = provider ? `${t(provider.name)} · ${shortModel(provider.model)}` : "";
 
   return (
     <div className="chat">
@@ -183,27 +210,36 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
         {empty && !transcript && <div className="panel-empty"><AskArt /><p className="es-title">{t("先准备本集字幕")}</p><button className="btn primary" onClick={onSubtitles}>{t("查看字幕")}</button></div>}
         {empty && transcript && connected === false && <ConnectCard what={tk("问答")} />}
         {empty && transcript && connected !== false && (
-          <div className="chat-intro">
-            <div className="intro-head">
-              <AskArt className="intro-art" />
-              <div>
-                <p className="lead">{t("问问这期节目")}</p>
-              </div>
+          <div className="chat-intro chat-hero-empty">
+            <div className="chat-hero-head">
+              <span className="chat-hero-mark" aria-hidden><Sparkles size={18} /></span>
+              <h2 className="chat-hero-title">{t("问问这期节目")}</h2>
+              <p className="chat-hero-sub">{t("基于本期完整文字稿 · 点击时间戳直达原话")}</p>
             </div>
             <div className="prompt-grid">
-              {prompts.map((p) => {
+              {prompts.slice(0, 4).map((p) => {
                 const Icon = promptIcon(p.id);
                 return (
                   <button key={p.id} type="button" className="prompt-card" disabled={blocked} onClick={() => askPrompt(p)}>
-                    <Icon size={17} className="pc-icon" aria-hidden />
-                    <span className="pc-title">{p.title}</span>
+                    <span className="pc-badge" aria-hidden><Icon size={16} /></span>
+                    <span className="pc-copy">
+                      <span className="pc-title">{p.title}</span>
+                      <span className="pc-desc">{p.body}</span>
+                    </span>
+                    <ChevronRight size={15} className="pc-arrow" aria-hidden />
                   </button>
                 );
               })}
             </div>
-            <div className="prompt-foot">
-              <span className="spacer" />
-              <button type="button" className="link-btn" onClick={() => setPrefsOpen(true)}><Settings2 size={13} /> {t("自定义提示词和回答偏好")}</button>
+            <div className="chat-hero-foot">
+              {prompts.length > 4 && (
+                <button type="button" className="chat-more-pill" onClick={() => setPromptSheet(true)}>
+                  {t("全部 {n} 个提问灵感", { n: prompts.length })}<ChevronRight size={14} aria-hidden />
+                </button>
+              )}
+              <button type="button" className="chat-pref-btn" onClick={() => setPrefsOpen(true)}>
+                <Settings2 size={14} aria-hidden /><span>{t("偏好")}</span>
+              </button>
             </div>
           </div>
         )}
@@ -214,43 +250,68 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
           </div>
         ) : (
           <div key={i} className={`msg-wrap assistant ${i === messages.length - 1 ? "last" : ""}`}>
+            <div className="ai-turn-head">
+              <span className="ai-turn-badge" aria-hidden><Sparkles size={12} /></span>
+              <span className="ai-turn-model">{m.model || activeModelLabel || "AI"}</span>
+            </div>
             <div className="msg assistant"><Markdown text={m.content} onSeek={seek} /></div>
             {streaming == null && <AnswerActions text={m.content} ep={ep} model={m.model} onRetry={i === messages.length - 1 && !blocked ? retry : undefined} onDelete={() => removePair(i)} />}
+            {streaming == null && i === messages.length - 1 && followUps.length > 0 && (
+              <div className="chat-followups" role="group" aria-label={t("继续追问")}>
+                {followUps.map((p) => {
+                  const Icon = promptIcon(p.id);
+                  return (
+                    <button key={p.id} type="button" className="followup-pill" disabled={blocked} onClick={() => askPrompt(p)}>
+                      <Icon size={13} aria-hidden /><span>{p.title}</span>
+                    </button>
+                  );
+                })}
+                {prompts.length > 3 && (
+                  <button type="button" className="followup-pill more" onClick={() => setPromptSheet(true)}>
+                    <span>{t("更多灵感")}</span><ChevronRight size={13} aria-hidden />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
         {streaming != null && (
-          <div className="msg assistant">
-            {streaming ? <Markdown text={streaming} onSeek={seek} /> : <p className="muted"><Loader2 size={14} className="spin" /> {t("正在阅读文字稿…")}</p>}
+          <div className="msg-wrap assistant last">
+            <div className="ai-turn-head">
+              <span className="ai-turn-badge is-live" aria-hidden><Sparkles size={12} /></span>
+              <span className="ai-turn-model">{activeModelLabel || "AI"}</span>
+            </div>
+            <div className={`msg assistant ${streaming ? "is-streaming" : ""}`}>
+              {streaming ? <Markdown text={streaming} onSeek={seek} /> : <ThinkingState />}
+            </div>
           </div>
         )}
         {setupError && (
           <div className="setup-note"><span>{setupError}</span><button className="btn primary sm" onClick={() => useStore.getState().openSettings("model")}>{t("去设置")}</button></div>
         )}
-
       </div>
       {!atBottom && (messages.length > 0 || streaming != null) && <button type="button" className="to-bottom" title={t("回到底部")} aria-label={t("回到底部")} onClick={toBottom}><ArrowDown size={16} /></button>}
-      {(!blocked || streaming != null) && <form className="composer phone-composer" onSubmit={(e) => { e.preventDefault(); void send(input); }} onClick={(e) => { if (e.target === e.currentTarget) box.current?.focus(); }}>
-        {toolsOpen && <div className="composer-tools">          <ModelPicker disabled={connected === false} />
-          <PromptMenu onPick={(b) => { setToolsOpen(false); send(b); }} onManage={() => setPrefsOpen(true)} disabled={blocked || streaming != null} />
-          <span className="spacer" />
-          <HistoryMenu archive={archive} ep={ep} current={messages} onRestore={restore} onDelete={(id) => saveArchive(archive.filter((x) => x.id !== id))} />
-          {messages.length > 0 && streaming == null && <button type="button" className="btn ghost sm new-chat" title={t("开始新对话，当前对话存进历史")} onClick={newChat}><SquarePen size={14} /> {t("新对话")}</button>}
-        </div>}
-        {messages.length > 0 && streaming == null && !toolsOpen && <div className="prompt-chips" role="group" aria-label={t("快捷提问")}>
-          {prompts.slice(0, 6).map((p) => {
-            const Icon = promptIcon(p.id);
-            return <button key={p.id} type="button" className="prompt-chip" disabled={blocked} onClick={() => askPrompt(p)}><Icon size={13} aria-hidden />{p.title}</button>;
-          })}
-          {prompts.length > 6 && <button type="button" className="prompt-chip more" onClick={() => setPromptSheet(true)}>{t("全部 {n} 个", { n: prompts.length })}<ChevronRight size={13} aria-hidden /></button>}
-        </div>}
-        <div className="composer-entry"><button type="button" className="icon-btn" aria-label={t("更多")} aria-expanded={toolsOpen} onClick={() => setToolsOpen(!toolsOpen)}><Plus size={22} /></button>
-          <textarea ref={box} value={input} rows={1} placeholder={t("问问这期节目")} disabled={blocked} onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) { e.preventDefault(); send(input); } }} />
-          {streaming != null
-            ? <button type="button" className="send" title={t("停止")} onClick={() => chatAborts.get(ep.id)?.abort()}><Square size={13} fill="currentColor" /></button>
-            : <button type="submit" className="send" title={t("发送")} disabled={!input.trim() || blocked}><ArrowUp size={16} /></button>}
+      {(!blocked || streaming != null) && (
+        <div className="chat-dock-wrap">
+          <form className="composer chat-capsule" onSubmit={(e) => { e.preventDefault(); void send(input); }} onClick={(e) => { if (e.target === e.currentTarget) box.current?.focus(); }}>
+            <textarea ref={box} value={input} rows={1} placeholder={messages.length ? t("继续追问这期节目…") : t("向这期节目提问…")} disabled={blocked} onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) { e.preventDefault(); send(input); } }} />
+            <div className="chat-capsule-bar">
+              <div className="chat-capsule-tools">
+                <ModelPicker disabled={connected === false} />
+                <button type="button" className="capsule-icon-btn" aria-label={t("快捷提问")} disabled={blocked || streaming != null} onClick={() => setPromptSheet(true)}><Sparkles size={16} /></button>
+                <HistoryMenu archive={archive} ep={ep} current={messages} onRestore={restore} onDelete={(id) => saveArchive(archive.filter((x) => x.id !== id))} />
+                {messages.length > 0 && streaming == null && (
+                  <button type="button" className="capsule-icon-btn" aria-label={t("新对话")} title={t("开始新对话，当前对话存进历史")} onClick={newChat}><SquarePen size={16} /></button>
+                )}
+              </div>
+              {streaming != null
+                ? <button type="button" className="capsule-send stop" aria-label={t("停止")} onClick={() => chatAborts.get(ep.id)?.abort()}><Square size={12} fill="currentColor" /></button>
+                : <button type="submit" className="capsule-send" aria-label={t("发送")} disabled={!input.trim() || blocked}><ArrowUp size={17} strokeWidth={2.4} /></button>}
+            </div>
+          </form>
         </div>
-      </form>}
+      )}
       {prefsOpen && <ChatPrefsDialog onClose={() => setPrefsOpen(false)} />}
       {promptSheet && <MobileSheet title={t("快捷提问")} onClose={() => setPromptSheet(false)} className="prompt-sheet">
         <div className="ps-list">
@@ -271,6 +332,7 @@ export function ChatPanel({ ep, onSubtitles, input, setInput }: { ep: Episode; o
  *  nor offers to start (and pay for) the same run again. */
 interface GuideJob { summary?: string | null; streaming: string | null; error: string | null; needsSetup: boolean; shared?: boolean; checking?: boolean }
 const useGuides = create<Record<string, GuideJob>>(() => ({}));
+const guideAborts = new Map<string, AbortController>();
 const putGuide = (id: string, p: Partial<GuideJob>) => useGuides.setState((s) => ({ [id]: { ...(s[id] ?? { streaming: null, error: null, needsSetup: false }), ...p } }));
 
 export function SummaryPanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: () => void }) {
@@ -301,19 +363,31 @@ export function SummaryPanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: ()
   const run = async () => {
     if (useGuides.getState()[ep.id]?.streaming != null) return;
     putGuide(ep.id, { error: null, needsSetup: false });
+    const ctl = new AbortController();
     try {
       await check();
+      guideAborts.set(ep.id, ctl);
       putGuide(ep.id, { streaming: "" });
-      const text = await askEpisode({ provider: provider!, title: ep.title, show: ep.showTitle ?? "", transcript: context(), history: [{ role: "user", content: summaryPrompt(transcript?.segments[transcript.segments.length - 1]?.end ?? ep.duration) }], onDelta: (d) => putGuide(ep.id, { streaming: d }) });
+      const text = await askEpisode({ provider: provider!, title: ep.title, show: ep.showTitle ?? "", transcript: context(), history: [{ role: "user", content: summaryPrompt(transcript?.segments[transcript.segments.length - 1]?.end ?? ep.duration) }], onDelta: (d) => putGuide(ep.id, { streaming: d }), signal: ctl.signal });
       // Some agents only stream: keep what arrived if the final answer comes back empty.
       const out = text.trim() ? text : (useGuides.getState()[ep.id]?.streaming ?? "");
       if (!out.trim()) throw new Error(t("模型没有返回内容，请重试或换一个模型"));
       putGuide(ep.id, { summary: out, shared: false });
       await api.setBlob(ep.id, "summary", out);
       void api.shareGuide(ep.id, out, `${provider!.name} · ${provider!.model}`).catch(() => {});
-    } catch (e) { putGuide(ep.id, { error: errorText(e), needsSetup: Boolean((e as { setup?: boolean })?.setup) || /设置|API Key/.test(rawErrorText(e)) }); }
-    finally { putGuide(ep.id, { streaming: null }); }
+    } catch (e) {
+      if (ctl.signal.aborted) {
+        const partial = useGuides.getState()[ep.id]?.streaming?.trim();
+        if (partial) putGuide(ep.id, { summary: `${partial}\n\n${t("（已停止）")}`, shared: false });
+      } else {
+        putGuide(ep.id, { error: errorText(e), needsSetup: Boolean((e as { setup?: boolean })?.setup) || /设置|API Key/.test(rawErrorText(e)) });
+      }
+    } finally {
+      guideAborts.delete(ep.id);
+      putGuide(ep.id, { streaming: null });
+    }
   };
+  const stop = () => guideAborts.get(ep.id)?.abort();
 
   const text = streaming ?? summary;
   if (!text && !checking && !transcript) return <div className="panel-empty"><PageArt /><p className="es-title">{t("先准备本集字幕")}</p><button className="btn primary" onClick={onSubtitles}>{t("查看字幕")}</button></div>;
@@ -323,6 +397,7 @@ export function SummaryPanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: ()
       <div className="panel-empty guide-wait" role="status">
         <PageArt writing />
         <p className="es-title">{t("正在通读整期文字稿")}</p>
+        <button className="btn sm" onClick={stop}><Square size={12} fill="currentColor" /> {t("停止生成")}</button>
         <span className="sr-only">{t("正在生成…")}</span>
       </div>
     );
@@ -341,9 +416,14 @@ export function SummaryPanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: ()
     );
   }
   return (
-    <div className="summary">
+    <div className={`summary ${streaming != null ? "is-streaming" : ""}`}>
       <Markdown text={text} onSeek={seek} />
-      {streaming == null && (
+      {streaming != null ? (
+        <div className="stream-stop-row">
+          <span className="muted small"><Loader2 size={13} className="spin" /> {t("正在生成…")}</span>
+          <button className="btn sm" onClick={stop}><Square size={11} fill="currentColor" /> {t("停止生成")}</button>
+        </div>
+      ) : (
         <div className="summary-foot">
           <span className="muted small">{job?.shared ? t("来自共享导读，没有花你的额度") : `${provider ? t(provider.name) : ""} · ${provider?.model ?? ""}`}</span>
           <ReadAloud text={() => plainText(text)} />
@@ -357,6 +437,7 @@ export function SummaryPanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: ()
 
 /** AI 精读 runs per episode outside the panel, like 导读. */
 const useArticles = create<Record<string, GuideJob>>(() => ({}));
+const articleAborts = new Map<string, AbortController>();
 const putArticle = (id: string, p: Partial<GuideJob>) => useArticles.setState((s) => ({ [id]: { ...(s[id] ?? { streaming: null, error: null, needsSetup: false }), ...p } }));
 
 /** For an episode without a 乔木精读 article: a readable Chinese article written from the full subtitles in the
@@ -376,21 +457,40 @@ export function ArticlePanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: ()
   const run = async () => {
     if (useArticles.getState()[ep.id]?.streaming != null) return;
     putArticle(ep.id, { error: null, needsSetup: false });
+    const ctl = new AbortController();
     try {
       await check();
+      articleAborts.set(ep.id, ctl);
       putArticle(ep.id, { streaming: "" });
-      const text = await writeArticle({ provider: provider!, title: ep.title, show: ep.showTitle ?? "", transcript: context(), onDelta: (d) => putArticle(ep.id, { streaming: d }) });
+      const text = await writeArticle({ provider: provider!, title: ep.title, show: ep.showTitle ?? "", transcript: context(), onDelta: (d) => putArticle(ep.id, { streaming: d }), signal: ctl.signal });
       const out = text.trim() ? text : (useArticles.getState()[ep.id]?.streaming ?? "");
       if (!out.trim()) throw new Error(t("模型没有返回内容，请重试或换一个模型"));
       putArticle(ep.id, { summary: out });
       await api.setBlob(ep.id, "article", out);
-    } catch (e) { putArticle(ep.id, { error: errorText(e), needsSetup: Boolean((e as { setup?: boolean })?.setup) || /设置|API Key/.test(rawErrorText(e)) }); }
-    finally { putArticle(ep.id, { streaming: null }); }
+    } catch (e) {
+      if (ctl.signal.aborted) {
+        const partial = useArticles.getState()[ep.id]?.streaming?.trim();
+        if (partial) putArticle(ep.id, { summary: `${partial}\n\n${t("（已停止）")}` });
+      } else {
+        putArticle(ep.id, { error: errorText(e), needsSetup: Boolean((e as { setup?: boolean })?.setup) || /设置|API Key/.test(rawErrorText(e)) });
+      }
+    } finally {
+      articleAborts.delete(ep.id);
+      putArticle(ep.id, { streaming: null });
+    }
   };
+  const stop = () => articleAborts.get(ep.id)?.abort();
   const text = streaming ?? article;
   if (!text && !transcript) return <div className="panel-empty"><PageArt /><p className="es-title">{t("这一集还没有精读")}</p><p className="muted small">{t("有了字幕，就能用 AI 写一篇精读。")}</p><button className="btn primary" onClick={onSubtitles}>{t("查看字幕")}</button></div>;
   if (!text && connected === false) return <div className="panel-empty"><ConnectCard what={tk("精读")} /></div>;
-  if (!text && streaming != null) return <div className="panel-empty guide-wait" role="status"><PageArt writing /><p className="es-title">{t("正在读完整期，写成一篇文章")}</p><p className="muted small">{t("长节目要一两分钟")}</p></div>;
+  if (!text && streaming != null) return (
+    <div className="panel-empty guide-wait" role="status">
+      <PageArt writing />
+      <p className="es-title">{t("正在读完整期，写成一篇文章")}</p>
+      <p className="muted small">{t("长节目要一两分钟")}</p>
+      <button className="btn sm" onClick={stop}><Square size={12} fill="currentColor" /> {t("停止生成")}</button>
+    </div>
+  );
   if (!text) return (
     <div className="panel-empty article-offer">
       <PageArt />
@@ -404,11 +504,16 @@ export function ArticlePanel({ ep, onSubtitles }: { ep: Episode; onSubtitles: ()
   const [first, ...rest] = text.split("\n");
   const title = /^#\s+/.test(first) ? first.replace(/^#\s+/, "") : null;
   return (
-    <div className="summary ai-article">
+    <div className={`summary ai-article ${streaming != null ? "is-streaming" : ""}`}>
       <div className="article-head"><span className="deep-badge ai"><PenLine size={13} /> {t("AI 精读")}</span><ReadPrefsButton /></div>
       {title && <h1 className="article-title">{title}</h1>}
       <Markdown text={title ? rest.join("\n") : text} onSeek={seek} />
-      {streaming == null && (
+      {streaming != null ? (
+        <div className="stream-stop-row">
+          <span className="muted small"><Loader2 size={13} className="spin" /> {t("正在写作…")}</span>
+          <button className="btn sm" onClick={stop}><Square size={11} fill="currentColor" /> {t("停止生成")}</button>
+        </div>
+      ) : (
         <div className="summary-foot">
           <span className="muted small">{t("按乔木写作风格，由 {model} 根据全文字幕写成", { model: provider?.model ?? "AI" })}</span>
           <ReadAloud text={() => plainText(text)} />

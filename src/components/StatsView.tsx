@@ -1,16 +1,21 @@
 // 收听统计: what the listening says about the listener, from the time actually spent playing (seeks don't count).
 // Everything is computed on this computer from the listens table. The one exception is the optional AI portrait,
 // which sends a short summary (show names, episode titles, hours) to the model the listener picked, and says so.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { Copy, Image as ImageIcon, Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { api, errorText, llmChat, type ListenRow } from "../lib/api";
 import { providerFor, useStore } from "../store";
 import { isChineseUi, t, tk, useLang } from "../lib/i18n";
 import { PICKS, showName } from "../lib/picks";
 import { llmReady } from "../lib/jobs";
+import { selectionFeedback } from "../lib/feedback";
+import { POSTER_FONTS, POSTER_THEMES, drawStatsPoster, type StatsPosterInput } from "../lib/poster";
+import { shareFile } from "../lib/share";
+import { Modal } from "./Chrome";
 import { Markdown } from "./Markdown";
 import { EmptyState, HeadphonesArt } from "./Illustrations";
+import logoUrl from "../assets/logo.png";
 
 const DAY = 86_400_000;
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -60,7 +65,11 @@ export function StatsView() {
   useLang((s) => s.lang);
   const [rows, setRows] = useState<ListenRow[] | null>(null);
   const [range, setRange] = useState<Range>("month");
+  const [showEqBasis, setShowEqBasis] = useState(false);
+  const [portraitText, setPortraitText] = useState<string | null>(null);
+  const [posterOpen, setPosterOpen] = useState(false);
   useEffect(() => { void api.listeningStats(ymd(new Date(Date.now() - 3650 * DAY))).then(setRows).catch(() => setRows([])); }, []);
+  useEffect(() => { setShowEqBasis(false); }, [range]);
 
   const s = useMemo(() => {
     if (!rows) return null;
@@ -173,19 +182,47 @@ export function StatsView() {
   const eq = equivalent(s.total);
   const words = Math.round((s.foreign / 60) * 150);
   const persona = personaOf(s.peak);
+  const peakWindow = `${s.peak}:00–${(s.peak + 3) % 24}:00`;
   const perWeekday = s.weekdayDays ? s.weekday / s.weekdayDays : 0, perWeekend = s.weekendDays ? s.weekend / s.weekendDays : 0;
+  const posterInput: StatsPosterInput = {
+    rangeName,
+    totalText: span(s.total),
+    equivText: eq.text,
+    personaName: t(persona.name),
+    personaLine: t(persona.line),
+    peakWindow,
+    metrics: [
+      { label: t("听过的单集"), value: t("{n} 集", { n: s.heard }) },
+      { label: t("借助字幕"), value: `${Math.round((s.translated / Math.max(1, s.total)) * 100)}%` },
+      { label: t("连续收听"), value: t("{n} 天", { n: s.streak }) },
+      { label: t("外语时间"), value: span(s.foreign) },
+    ],
+    topShows: s.top.slice(0, 4).map((x) => ({
+      title: x.single ? x.title : isChineseUi() ? showName(x.title) : x.title,
+      time: span(x.seconds),
+    })),
+    portrait: portraitText,
+  };
   return (
     <div className="page stats">
       <div className="stats-head">
-        <h1 className="page-title">{t("收听统计")}</h1>
+        <div className="stats-title-row">
+          <h1 className="page-title">{t("收听统计")}</h1>
+          {s.total >= 60 && (
+            <button type="button" className="heading-tool" aria-label={t("生成分享卡片")} onClick={() => { selectionFeedback(); setPosterOpen(true); }}>
+              <ImageIcon size={20} />
+            </button>
+          )}
+        </div>
         <div className="seg-control" role="radiogroup">
-          {RANGES.map(([k, label]) => <button key={k} role="radio" aria-checked={range === k} className={range === k ? "on" : ""} onClick={() => setRange(k)}>{t(label)}</button>)}
+          {RANGES.map(([k, label]) => <button key={k} role="radio" aria-checked={range === k} className={range === k ? "on" : ""} onClick={() => { selectionFeedback(); setRange(k); }}>{t(label)}</button>)}
         </div>
       </div>
 
       {s.total < 60 ? <p className="stats-lede">{t("{range}还没有收听。挑一集，从这里开始。", { range: rangeName })}</p> : (
         <section className="stats-lede-card">
-          <p className="stats-lede">{t("{range}，你听了", { range: rangeName })} <b>{span(s.total)}</b>{t("，相当于")} <b title={eq.basis}>{eq.text}</b>{t("。")}</p>
+          <p className="stats-lede">{t("{range}，你听了", { range: rangeName })} <b>{span(s.total)}</b>{t("，相当于")} <button type="button" className="stats-eq-btn" aria-expanded={showEqBasis} onClick={() => { selectionFeedback(); setShowEqBasis((v) => !v); }}>{eq.text}</button>{t("。")}</p>
+          {showEqBasis && <p className="stats-chip-detail" role="status">{eq.basis}{words >= 1000 ? ` · ${t("按对谈每分钟约 150 个英文单词估算")}` : ""}</p>}
           {words >= 1000 && <p className="stats-lede-sub" title={t("按对谈每分钟约 150 个英文单词估算")}>{t("你的耳朵大约接住了 {n} 个外语单词。", { n: words.toLocaleString() })}</p>}
           <div className="stat-tiles">
             <Tile label={t("听过的单集")} value={t("{n} 集", { n: s.heard })} sub={s.finished ? t("听完 {n} 集", { n: s.finished }) : undefined} />
@@ -245,7 +282,7 @@ export function StatsView() {
             </section>
           </div>
 
-          <Portrait rows={s.inRange} range={range} rangeName={rangeName} />
+          <Portrait rows={s.inRange} range={range} rangeName={rangeName} onText={setPortraitText} onShare={() => { selectionFeedback(); setPosterOpen(true); }} />
         </>
       )}
 
@@ -254,6 +291,7 @@ export function StatsView() {
         <Heatmap byDay={s.byDay} />
       </section>
       <p className="muted small stats-foot">{t("收听记录仅保存在本机。")}</p>
+      {posterOpen && <StatsPosterDialog input={posterInput} onClose={() => setPosterOpen(false)} />}
     </div>
   );
 }
@@ -264,56 +302,88 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
   return <div className="stat-tile"><span className="muted small">{label}</span><b className="num">{value}</b>{sub && <span className="muted small">{sub}</span>}</div>;
 }
 
-/** 24 hours around a dial, midnight at the top; the busiest three hours are drawn in the accent colour. */
+/** 24 hours around a dial, midnight at the top; tap any hour spoke to read its listening time on touchscreens. */
 function Clock({ hours, peak }: { hours: number[]; peak: number }) {
+  const [picked, setPicked] = useState<number | null>(null);
   const max = Math.max(1, ...hours);
   const c = 110, r0 = 46, len = 54;
   const inPeak = (h: number) => (h - peak + 24) % 24 < 3;
   return (
-    <svg className="clock" viewBox="0 0 220 220" role="img" aria-label={t("你的收听生物钟")}>
-      <circle cx={c} cy={c} r={r0 - 6} className="clock-face" />
-      {hours.map((v, h) => {
-        const a = (h / 24) * Math.PI * 2 - Math.PI / 2 + Math.PI / 24;
-        const l = v ? 6 + (len - 6) * Math.sqrt(v / max) : 3;
-        return <line key={h} x1={c + Math.cos(a) * r0} y1={c + Math.sin(a) * r0} x2={c + Math.cos(a) * (r0 + l)} y2={c + Math.sin(a) * (r0 + l)} className={`clock-bar ${v ? "" : "zero"} ${inPeak(h) && v ? "peak" : ""}`}><title>{`${h}:00 · ${v ? span(v) : t("没有收听")}`}</title></line>;
-      })}
-      {[0, 6, 12, 18].map((h) => { const a = (h / 24) * Math.PI * 2 - Math.PI / 2; return <text key={h} x={c + Math.cos(a) * (r0 - 16)} y={c + Math.sin(a) * (r0 - 16) + 4} className="clock-label">{h}</text>; })}
-    </svg>
+    <>
+      <svg className="clock" viewBox="0 0 220 220" role="img" aria-label={t("你的收听生物钟")}>
+        <circle cx={c} cy={c} r={r0 - 6} className="clock-face" />
+        {hours.map((v, h) => {
+          const a = (h / 24) * Math.PI * 2 - Math.PI / 2 + Math.PI / 24;
+          const l = v ? 6 + (len - 6) * Math.sqrt(v / max) : 3;
+          const x1 = c + Math.cos(a) * r0, y1 = c + Math.sin(a) * r0;
+          const x2 = c + Math.cos(a) * (r0 + l), y2 = c + Math.sin(a) * (r0 + l);
+          const hx2 = c + Math.cos(a) * (r0 + len + 6), hy2 = c + Math.sin(a) * (r0 + len + 6);
+          return (
+            <g key={h} className="clock-hit" onClick={() => { selectionFeedback(); setPicked((p) => (p === h ? null : h)); }}>
+              <line x1={x1} y1={y1} x2={hx2} y2={hy2} stroke="transparent" strokeWidth={14} />
+              <line x1={x1} y1={y1} x2={x2} y2={y2} className={`clock-bar ${v ? "" : "zero"} ${inPeak(h) && v ? "peak" : ""} ${picked === h ? "picked" : ""}`}>
+                <title>{`${h}:00 · ${v ? span(v) : t("没有收听")}`}</title>
+              </line>
+            </g>
+          );
+        })}
+        {[0, 6, 12, 18].map((h) => { const a = (h / 24) * Math.PI * 2 - Math.PI / 2; return <text key={h} x={c + Math.cos(a) * (r0 - 16)} y={c + Math.sin(a) * (r0 - 16) + 4} className="clock-label">{h}</text>; })}
+      </svg>
+      {picked !== null && (
+        <p className="stats-chip-detail" role="status">{`${picked}:00–${(picked + 1) % 24}:00 · ${hours[picked] ? span(hours[picked]) : t("没有收听")}`}</p>
+      )}
+    </>
   );
 }
 
 function Topics({ topics }: { topics: Map<string, number> }) {
+  const [picked, setPicked] = useState<string | null>(null);
   const list = [...topics.entries()].sort((a, b) => b[1] - a[1]);
   const total = list.reduce((n, [, v]) => n + v, 0) || 1;
+  const active = list.find(([k]) => k === picked);
   return (
-    <div className="topic-map">
-      {list.map(([k, v], i) => (
-        <div key={k} className={`topic-tile t${Math.min(i, 5)}`} style={{ flexGrow: v }} title={`${t(k)} · ${span(v)}`}>
-          <span className="topic-name">{t(k)}</span><span className="topic-pct num">{Math.round((v / total) * 100)}%</span>
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="topic-map">
+        {list.map(([k, v], i) => (
+          <button type="button" key={k} className={`topic-tile t${Math.min(i, 5)} ${picked === k ? "picked" : ""}`} style={{ flexGrow: v }} title={`${t(k)} · ${span(v)}`}
+            onClick={() => { selectionFeedback(); setPicked((p) => (p === k ? null : k)); }}>
+            <span className="topic-name">{t(k)}</span><span className="topic-pct num">{Math.round((v / total) * 100)}%</span>
+          </button>
+        ))}
+      </div>
+      {active && <p className="stats-chip-detail" role="status">{t(active[0])} · {span(active[1])}（{Math.round((active[1] / total) * 100)}%）</p>}
+    </>
   );
 }
 
 /** Week by week, how much of the foreign-language listening was without Chinese subtitles. */
 function Ears({ weeks }: { weeks: { label: string; total: number; plain: number }[] }) {
+  const [picked, setPicked] = useState<number | null>(null);
   const has = weeks.filter((w) => w.total > 300);
   if (has.length < 2) return <p className="muted small">{t("多听几周，这里会画出你不靠字幕的时间怎么变化。")}</p>;
   const share = (w: { total: number; plain: number }) => (w.total ? w.plain / w.total : 0);
   const first = share(has[0]), last = share(has[has.length - 1]);
+  const active = picked !== null ? weeks[picked] : null;
   return (
     <>
       <div className="ears">
-        {weeks.map((w, i) => <div key={i} className="ears-col" title={`${w.label} · ${w.total ? `${Math.round(share(w) * 100)}%` : t("没有收听")}`}><span className="ears-bar" style={{ height: `${Math.max(w.total ? 4 : 0, share(w) * 100)}%` }} /><span className="ears-x">{i % 3 === 0 ? w.label : ""}</span></div>)}
+        {weeks.map((w, i) => (
+          <button type="button" key={i} className={`ears-col ${picked === i ? "picked" : ""}`}
+            title={`${w.label} · ${w.total ? `${Math.round(share(w) * 100)}%` : t("没有收听")}`}
+            onClick={() => { selectionFeedback(); setPicked((p) => (p === i ? null : i)); }}>
+            <span className="ears-bar" style={{ height: `${Math.max(w.total ? 4 : 0, share(w) * 100)}%` }} />
+            <span className="ears-x">{i % 3 === 0 ? w.label : ""}</span>
+          </button>
+        ))}
       </div>
+      {active && <p className="stats-chip-detail" role="status">{active.label} · {active.total ? `${Math.round(share(active) * 100)}% · ${span(active.total)}` : t("没有收听")}</p>}
       <p className="muted small ears-note">{last > first + 0.05 ? t("不开中文字幕听的比例，从 {a}% 升到了 {b}%。耳朵在悄悄变好。", { a: Math.round(first * 100), b: Math.round(last * 100) }) : t("柱子是每周不开中文字幕听外语节目的比例。字幕是拐杖，也是梯子。")}</p>
     </>
   );
 }
 
 /** Optional: the listener's model reads a short summary and writes a portrait. Cached per range until asked again. */
-function Portrait({ rows, range, rangeName }: { rows: ListenRow[]; range: Range; rangeName: string }) {
+function Portrait({ rows, range, rangeName, onText, onShare }: { rows: ListenRow[]; range: Range; rangeName: string; onText: (v: string | null) => void; onShare: () => void }) {
   const settings = useStore((s) => s.settings);
   const provider = providerFor(settings, "chat");
   const [text, setText] = useState<string | null>(null);
@@ -321,7 +391,10 @@ function Portrait({ rows, range, rangeName }: { rows: ListenRow[]; range: Range;
   const [error, setError] = useState("");
   const [ready, setReady] = useState<boolean | null>(null);
   useEffect(() => { void llmReady("chat").then(setReady); }, [settings]);
-  useEffect(() => { setText(null); setError(""); void api.getBlob("stats", `portrait-${range}`).then((v) => setText(v || null)); }, [range]);
+  useEffect(() => {
+    setText(null); setError(""); onText(null);
+    void api.getBlob("stats", `portrait-${range}`).then((v) => { const val = v || null; setText(val); onText(val); });
+  }, [range]);
   const brief = () => {
     const shows = new Map<string, number>(), titles = new Map<string, number>(), hours = Array(24).fill(0) as number[];
     for (const r of rows) { shows.set(r.showTitle || "单集", (shows.get(r.showTitle || "单集") ?? 0) + r.seconds); // i18n-ignore (sent to the model)
@@ -336,13 +409,19 @@ function Portrait({ rows, range, rangeName }: { rows: ListenRow[]; range: Range;
       const out = await llmChat({ provider, maxTokens: 4000, onDelta: setBusy, messages: [{ role: "user", content: brief() }],
         system: "你是一位细腻又严谨的播客编辑。根据用户的收听数据写一段中文收听画像，只依据给出的数据，不编造未出现的节目或事实。格式：第一行是一个 4–8 字的称号（加粗）；第二行是 3 个兴趣标签，用「·」分隔；然后一段 80–140 字的画像，有文学感但每句都能在数据里找到依据；最后一行以「下一步：」开头，建议一个他可能喜欢的新方向。不要使用标题符号。" }); // i18n-ignore
       if (!out.trim()) throw new Error(t("模型没有返回内容，请重试或换一个模型"));
-      setText(out); await api.setBlob("stats", `portrait-${range}`, out);
+      setText(out); onText(out); await api.setBlob("stats", `portrait-${range}`, out);
     } catch (e) { setError(errorText(e)); } finally { setBusy(null); }
   };
   const shown = busy ?? text;
   return (
     <section className="stats-card portrait">
-      <div className="stats-card-h"><h2><Sparkles size={14} className="accent" /> {t("AI 收听画像")}</h2>{text && busy == null && <button className="link-btn small" onClick={() => void run()}><RefreshCw size={12} /> {t("重新生成")}</button>}</div>
+      <div className="stats-card-h">
+        <h2><Sparkles size={14} className="accent" /> {t("AI 收听画像")}</h2>
+        <span className="portrait-head-actions">
+          {text && busy == null && <button className="link-btn small" onClick={onShare}><ImageIcon size={12} /> {t("生成卡片")}</button>}
+          {text && busy == null && <button className="link-btn small" onClick={() => void run()}><RefreshCw size={12} /> {t("重新生成")}</button>}
+        </span>
+      </div>
       {shown ? <div className="portrait-text"><Markdown text={shown} onSeek={() => {}} /></div>
         : ready === false ? <p className="muted small">{t("在设置里配好模型后，可以让 AI 读一读你的收听，写一段只属于你的画像。")} <button className="link-btn small" onClick={() => useStore.getState().openSettings("model")}>{t("去设置")}</button></p>
         : (
@@ -356,8 +435,10 @@ function Portrait({ rows, range, rangeName }: { rows: ListenRow[]; range: Range;
   );
 }
 
-/** A year of days, columns are weeks (Monday first), darker = longer; like a contributions calendar. */
+/** A year of days, columns are weeks (Monday first), darker = longer; scrolls to the latest week on mobile and supports tap readout. */
 function Heatmap({ byDay }: { byDay: Map<string, number> }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [picked, setPicked] = useState<{ day: string; secs: number } | null>(null);
   const today = new Date();
   const start = new Date(today.getTime() - 364 * DAY);
   start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
@@ -366,18 +447,98 @@ function Heatmap({ byDay }: { byDay: Map<string, number> }) {
     cells.push({ day: ymd(d), secs: byDay.get(ymd(d)) ?? 0, future: d > today });
     if (cells.length > 380) break;
   }
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, []);
   const level = (s: number) => (s <= 0 ? 0 : s < 900 ? 1 : s < 1800 ? 2 : s < 3600 ? 3 : 4);
   const months: { col: number; label: string }[] = [];
   cells.forEach((c, i) => { if (i % 7 === 0) { const d = new Date(`${c.day}T00:00:00`); if (d.getDate() <= 7) months.push({ col: i / 7, label: isChineseUi() ? `${d.getMonth() + 1}月` : d.toLocaleString(undefined, { month: "short" }) }); } }); // i18n-ignore
   return (
-    <div className="heatmap-wrap">
-      <div className="heatmap-months" style={{ gridTemplateColumns: `repeat(${Math.ceil(cells.length / 7)}, 1fr)` }}>
-        {months.map((m) => <span key={m.col} style={{ gridColumn: `${m.col + 1} / span 4` }}>{m.label}</span>)}
+    <>
+      <div className="heatmap-wrap" ref={wrapRef}>
+        <div className="heatmap-months" style={{ gridTemplateColumns: `repeat(${Math.ceil(cells.length / 7)}, 1fr)` }}>
+          {months.map((m) => <span key={m.col} style={{ gridColumn: `${m.col + 1} / span 4` }}>{m.label}</span>)}
+        </div>
+        <div className="heatmap" style={{ gridTemplateColumns: `repeat(${Math.ceil(cells.length / 7)}, 1fr)` }}>
+          {cells.map((c) => (
+            <button type="button" key={c.day} disabled={c.future}
+              className={`hm l${level(c.secs)} ${c.future ? "future" : ""} ${picked?.day === c.day ? "picked" : ""}`}
+              title={c.future ? "" : `${c.day} · ${c.secs ? span(c.secs) : t("没有收听")}`}
+              aria-label={c.future ? undefined : `${c.day} · ${c.secs ? span(c.secs) : t("没有收听")}`}
+              onClick={() => { if (!c.future) { selectionFeedback(); setPicked((p) => (p?.day === c.day ? null : { day: c.day, secs: c.secs })); } }} />
+          ))}
+        </div>
       </div>
-      <div className="heatmap" style={{ gridTemplateColumns: `repeat(${Math.ceil(cells.length / 7)}, 1fr)` }}>
-        {cells.map((c) => <span key={c.day} className={`hm l${level(c.secs)} ${c.future ? "future" : ""}`} title={c.future ? "" : `${c.day} · ${c.secs ? span(c.secs) : t("没有收听")}`} />)}
+      <div className="heatmap-foot">
+        {picked ? <span className="stats-chip-detail" role="status">{dayLabel(picked.day)} · {picked.secs ? span(picked.secs) : t("没有收听")}</span> : <span />}
+        <div className="heatmap-legend muted small">{t("少")}{[0, 1, 2, 3, 4].map((l) => <span key={l} className={`hm l${l}`} />)}{t("多")}</div>
       </div>
-      <div className="heatmap-legend muted small">{t("少")}{[0, 1, 2, 3, 4].map((l) => <span key={l} className={`hm l${l}`} />)}{t("多")}</div>
-    </div>
+    </>
+  );
+}
+
+function StatsPosterDialog({ input, onClose }: { input: StatsPosterInput; onClose: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [themeId, setThemeId] = useState(POSTER_THEMES[0].id);
+  const [fontId, setFontId] = useState(POSTER_FONTS[0].id);
+  const logoRef = useRef<HTMLImageElement | null>(null);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      if (!logoRef.current) {
+        const img = new Image(); img.src = logoUrl;
+        await img.decode().catch(() => {});
+        logoRef.current = img;
+      }
+      const theme = POSTER_THEMES.find((x) => x.id === themeId) ?? POSTER_THEMES[0];
+      const font = POSTER_FONTS.find((x) => x.id === fontId) ?? POSTER_FONTS[0];
+      const canvas = await drawStatsPoster(input, logoRef.current ?? undefined, theme, font);
+      if (live) setUrl(canvas.toDataURL("image/png"));
+    })();
+    return () => { live = false; };
+  }, [themeId, fontId, input]);
+
+  const name = t("SubCast 收听统计");
+  const save = async () => { if (!url) return; try { const p = await api.saveImage(name, url); await shareFile(p, "image/png", name); } catch (e) { useStore.getState().notify(String(e)); } };
+  const copyImg = async () => {
+    if (!url) return;
+    try { const blob = await (await fetch(url)).blob(); await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]); useStore.getState().notify(t("图片已复制")); }
+    catch { useStore.getState().notify(t("复制失败，请用「保存图片」")); }
+  };
+
+  return (
+    <Modal title={t("生成分享卡片")} onClose={onClose} wide>
+      <div className="poster-layout">
+        <div className="poster-pv">
+          {url ? <img src={url} alt={name} /> : <div className="poster-wait"><Loader2 className="spin" size={18} /> {t("正在生成海报…")}</div>}
+        </div>
+        <div className="poster-side">
+          <p className="poster-label">{t("主题")}</p>
+          <div className="poster-themes">
+            {POSTER_THEMES.slice(0, 4).map((th) => (
+              <button key={th.id} type="button" className={`poster-theme ${themeId === th.id ? "on" : ""}`} aria-pressed={themeId === th.id} onClick={() => setThemeId(th.id)}>
+                <span className="swatch" style={{ background: th.bg2 ? `linear-gradient(160deg, ${th.bg}, ${th.bg2})` : th.bg }}><i style={{ background: th.accent }} /><b style={{ color: th.ink }}>文</b></span>
+                <span>{t(th.name)}</span>
+              </button>
+            ))}
+          </div>
+          <p className="poster-label">{t("字体")}</p>
+          <div className="poster-fonts">
+            {POSTER_FONTS.map((f) => (
+              <button key={f.id} type="button" className={`poster-font ${fontId === f.id ? "on" : ""}`} aria-pressed={fontId === f.id} onClick={() => setFontId(f.id)}>
+                <span className="pf-name">{t(f.name)}</span>
+                {f.css && <span className="pf-note">{t("开源")}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="modal-foot">
+        <span className="spacer" />
+        <button className="btn" onClick={copyImg} disabled={!url}><Copy size={14} /> {t("复制图片")}</button>
+        <button className="btn primary" onClick={save} disabled={!url}>{t("保存图片")}</button>
+      </div>
+    </Modal>
   );
 }

@@ -4,20 +4,19 @@
 import qrcode from "qrcode-generator";
 import { t, tk } from "./i18n";
 
-const SYS_SERIF = '"Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", serif';
+const SYS_SERIF = '"Noto Serif SC", "Source Han Serif SC", ui-serif, Georgia, serif';
 const LATIN = 'Georgia, "Times New Roman", serif';
-const SANS = '-apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
+const SANS = '"Noto Sans SC", -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif';
 const NO_START = /^[，。、：；！？）」』》”’,.;:!?)\]…—]/;
 export const CJK = /[一-鿿]/;
 
 export interface PosterFont { id: string; name: string; family: string; css?: string; weight: number; sans?: boolean }
-/** Open-source Chinese fonts (the same set as elon.qiaomu.ai), loaded from public CDNs only when picked. */
+/** Open-source Chinese fonts: Noto Serif SC & Noto Sans SC first, with LXGW WenKai & KingHwa OldSong as editorial options. */
 export const POSTER_FONTS: PosterFont[] = [
-  { id: "sys", name: tk("系统宋体"), family: SYS_SERIF, weight: 500 },
-  { id: "serif", name: tk("思源宋体"), family: '"Noto Serif SC"', css: "https://fonts.googleapis.cn/css2?family=Noto+Serif+SC:wght@500;700&display=swap", weight: 500 },
-  { id: "kai", name: tk("霞鹜文楷"), family: '"LXGW WenKai Screen"', css: "https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/lxgwwenkaiscreen.css", weight: 400 },
+  { id: "serif", name: tk("思源宋体"), family: '"Noto Serif SC"', css: "https://fonts.googleapis.cn/css2?family=Noto+Serif+SC:wght@500;600;700&display=swap", weight: 600 },
+  { id: "sans", name: tk("思源黑体"), family: '"Noto Sans SC"', css: "https://fonts.googleapis.cn/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap", weight: 500, sans: true },
+  { id: "kai", name: tk("霞鹜文楷"), family: '"LXGW WenKai"', css: "https://fontsapi.zeoseven.com/292/main/result.css", weight: 400 },
   { id: "song", name: tk("京华老宋体"), family: '"KingHwa_OldSong"', css: "https://cdn.jsdelivr.net/npm/@chinese-fonts/jhlst@3.0.0/dist/%E4%BA%AC%E8%8F%AF%E8%80%81%E5%AE%8B%E4%BD%93v2_002/result.css", weight: 400 },
-  { id: "sans", name: tk("思源黑体"), family: '"Noto Sans SC"', css: "https://fonts.googleapis.cn/css2?family=Noto+Sans+SC:wght@500;700&display=swap", weight: 500, sans: true },
 ];
 
 export type PosterLayout = "classic" | "magazine" | "cinema" | "frame" | "timecode";
@@ -205,5 +204,150 @@ export async function drawPoster(o: PosterInput, logo?: HTMLImageElement, theme:
       for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (qr.isDark(r, k)) g.fillRect(qx + q + k * cell, qy + q + r * cell, Math.ceil(cell), Math.ceil(cell));
     } catch { /* URL only */ }
   }
+  return c;
+}
+
+export interface StatsPosterInput {
+  rangeName: string;
+  totalText: string;
+  equivText: string;
+  personaName: string;
+  personaLine: string;
+  peakWindow: string;
+  metrics: { label: string; value: string }[];
+  topShows: { title: string; time: string }[];
+  portrait?: string | null;
+}
+
+/** Shareable 4:5 editorial listening summary poster using the same open-source font pipeline. */
+export async function drawStatsPoster(
+  input: StatsPosterInput,
+  logo?: HTMLImageElement,
+  theme: PosterTheme = POSTER_THEMES[0],
+  font: PosterFont = POSTER_FONTS[0],
+): Promise<HTMLCanvasElement> {
+  const W = 1080, P = 88, CW = W - P * 2;
+  const c = document.createElement("canvas");
+  const g = c.getContext("2d")!;
+  const F = `${font.family}, ${font.sans ? SANS : SYS_SERIF}`;
+
+  const portraitClean = (input.portrait ?? "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/^#+\s*/gm, "")
+    .trim();
+  const sampleText = [
+    input.rangeName, input.totalText, input.equivText, input.personaName,
+    input.personaLine, input.peakWindow, portraitClean,
+    ...input.metrics.flatMap((m) => [m.label, m.value]),
+    ...input.topShows.flatMap((s) => [s.title, s.time]),
+  ].join("");
+  await loadPosterFont(font, sampleText);
+
+  g.font = `600 44px ${F}`;
+  const headline = `${input.rangeName}，${t("你听了")} ${input.totalText}`;
+  const headLines = wrap(g, headline, CW, 3);
+  g.font = `400 30px ${F}`;
+  const subLines = wrap(g, `${t("相当于")}${input.equivText} · ${input.personaName}（${input.peakWindow}）`, CW, 2);
+  g.font = `400 29px ${F}`;
+  const portraitLines = portraitClean ? wrap(g, portraitClean.replace(/\n+/g, " "), CW - 56, 7) : [];
+
+  const showsH = input.topShows.length ? 54 + input.topShows.length * 64 + 24 : 0;
+  const portraitH = portraitLines.length ? 84 + portraitLines.length * 46 + 40 : 0;
+  const contentH = 190 + headLines.length * 64 + 16 + subLines.length * 44 + 44 + 168 + 38 + showsH + portraitH + 170;
+  const H = Math.max(1350, contentH);
+  c.width = W; c.height = H;
+
+  if (theme.bg2) {
+    const gr = g.createLinearGradient(0, 0, W * 0.4, H);
+    gr.addColorStop(0, theme.bg); gr.addColorStop(1, theme.bg2);
+    g.fillStyle = gr;
+  } else g.fillStyle = theme.bg;
+  g.fillRect(0, 0, W, H);
+  g.textBaseline = "alphabetic";
+
+  // Header
+  if (logo) g.drawImage(logo, P, 76, 44, 44);
+  g.fillStyle = theme.ink; g.font = `700 28px ${SANS}`;
+  g.fillText("SubCast", P + (logo ? 58 : 0), 108);
+  const tag = t("收听统计");
+  g.fillStyle = theme.accent; g.font = `600 24px ${SANS}`;
+  g.fillText(tag, W - P - g.measureText(tag).width, 108);
+  g.fillStyle = theme.rule; g.fillRect(P, 146, CW, 2);
+
+  // Headline
+  let y = 224;
+  g.fillStyle = theme.ink; g.font = `600 46px ${F}`;
+  for (const ln of headLines) { g.fillText(ln, P, y); y += 64; }
+  y += 6;
+  g.fillStyle = theme.soft; g.font = `400 30px ${F}`;
+  for (const ln of subLines) { g.fillText(ln, P, y); y += 44; }
+
+  // 4-metric grid
+  y += 28;
+  const cols = Math.min(4, input.metrics.length || 1);
+  const gap = 18;
+  const cardW = (CW - gap * (cols - 1)) / cols;
+  const cardH = 148;
+  input.metrics.slice(0, 4).forEach((m, i) => {
+    const x = P + i * (cardW + gap);
+    g.fillStyle = theme.id === "night" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.035)";
+    g.beginPath();
+    if (g.roundRect) g.roundRect(x, y, cardW, cardH, 20); else g.rect(x, y, cardW, cardH);
+    g.fill();
+    g.fillStyle = theme.muted; g.font = `500 22px ${SANS}`;
+    g.fillText(m.label, x + 22, y + 48);
+    g.fillStyle = theme.accent; g.font = `700 34px ${SANS}`;
+    g.fillText(m.value, x + 22, y + 108);
+  });
+  y += cardH + 46;
+
+  // Top shows
+  if (input.topShows.length) {
+    g.fillStyle = theme.muted; g.font = `600 23px ${SANS}`;
+    g.fillText(t("你把时间给了谁"), P, y);
+    y += 38;
+    const fit = (text: string, max: number) => { let s = text; while (g.measureText(s).width > max && s.length > 2) s = s.slice(0, -2) + "…"; return s; };
+    input.topShows.slice(0, 4).forEach((s, i) => {
+      const rowY = y + i * 64;
+      g.fillStyle = theme.accent; g.font = `700 26px ${SANS}`;
+      g.fillText(`${i + 1}`, P, rowY + 34);
+      g.fillStyle = theme.ink; g.font = `600 28px ${F}`;
+      g.fillText(fit(s.title, CW - 230), P + 42, rowY + 34);
+      g.fillStyle = theme.soft; g.font = `500 24px ${SANS}`;
+      const tw = g.measureText(s.time).width;
+      g.fillText(s.time, W - P - tw, rowY + 34);
+      if (i < Math.min(4, input.topShows.length) - 1) {
+        g.fillStyle = theme.rule; g.fillRect(P + 42, rowY + 54, CW - 42, 1);
+      }
+    });
+    y += Math.min(4, input.topShows.length) * 64 + 34;
+  }
+
+  // Portrait or Persona quote card
+  if (portraitLines.length) {
+    const boxH = 74 + portraitLines.length * 46 + 22;
+    g.fillStyle = theme.id === "night" ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.035)";
+    g.beginPath();
+    if (g.roundRect) g.roundRect(P, y, CW, boxH, 24); else g.rect(P, y, CW, boxH);
+    g.fill();
+    g.fillStyle = theme.accent; g.font = `600 22px ${SANS}`;
+    g.fillText(`✦ ${t("AI 收听画像")}`, P + 28, y + 44);
+    g.fillStyle = theme.ink; g.font = `400 29px ${F}`;
+    let py = y + 92;
+    for (const ln of portraitLines) { g.fillText(ln, P + 28, py); py += 46; }
+  } else {
+    g.fillStyle = theme.soft; g.font = `500 30px ${F}`;
+    const pl = wrap(g, `“${input.personaLine}”`, CW, 2);
+    for (const ln of pl) { g.fillText(ln, P, y + 20); y += 46; }
+  }
+
+  // Footer
+  const fy = H - P - 30;
+  g.fillStyle = theme.rule; g.fillRect(P, fy - 48, CW, 2);
+  g.fillStyle = theme.ink; g.font = `700 30px ${SANS}`;
+  g.fillText("SubCast · " + t("声渡"), P, fy + 4);
+  const sub = t("海外好播客 · 中文字幕 · 精读与 AI 问答");
+  g.fillStyle = theme.muted; g.font = `400 22px ${SANS}`;
+  g.fillText(sub, W - P - g.measureText(sub).width, fy + 4);
   return c;
 }

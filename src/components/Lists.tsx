@@ -1,6 +1,7 @@
 import { MobileBack } from "./MobileBack";
 import { MobileSheet, presentNativeChoices } from "./MobileSheet";
 import { selectionFeedback } from "../lib/feedback";
+import { usePullRefresh } from "../lib/usePullRefresh";
 import { playSoon, seekEpisode } from "./Players";
 import { ask } from "../lib/confirm";
 import { create } from "zustand";
@@ -10,7 +11,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, BookOpen, Check, ChevronDown, ChevronRight, Loader2, Play, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { bytes, clearDownloads, useOffline } from "../lib/offline";
 import { api, errorText, type Episode, type Show, type ShowHit } from "../lib/api";
-import { date, duration, monthLabel, notesText } from "../lib/format";
+import { date, duration, monthLabel } from "../lib/format";
 import { PICKS, TOPICS, deepPickFor, isSubscribed, pickName, pickSub, sameFeed, showArt, showName, unboxYoutube, ytFallback, type Pick, type Topic } from "../lib/picks";
 import { isChineseUi, t } from "../lib/i18n";
 import { useShowName, useZh } from "../lib/zh";
@@ -45,12 +46,6 @@ function Marked({ text, query }: { text: string; query: string }) {
 function openAt(ep: Episode, time: number) {
   useStore.getState().openEpisode(ep);
   seekEpisode(ep, Math.max(0, time - 1));
-}
-
-/** The first line or two of the show notes, as plain text. */
-function blurb(notes?: string) {
-  if (!notes) return "";
-  return notesText(notes.slice(0, 1600)).replace(/\s+/g, " ").trim().slice(0, 160);
 }
 
 /** A round play button whose ring fills as the episode is heard; it pauses the episode that is playing. */
@@ -90,7 +85,6 @@ function EpisodeRow({ ep, showShow, hit, query }: { ep: Episode; showShow: boole
   const loading = useOffline((s) => s.active[ep.id]);
   const shared = useSharedHits((s) => !!s.ids[ep.id]);
   const translated = !!zh && zh !== ep.title;
-  const about = useMemo(() => (translated ? "" : blurb(ep.notes)), [translated, ep.notes]);
   const left = pct > 0 && pct < 97 ? Math.max(1, Math.round(((ep.duration ?? 0) - ep.progress) / 60)) : 0;
   return (
     <div className={`feed-row ${isCurrent ? "playing" : ""} ${pct >= 97 ? "played" : ""}`} role="button" tabIndex={0} onClick={open} onKeyDown={(e) => e.key === "Enter" && open()}>
@@ -104,8 +98,7 @@ function EpisodeRow({ ep, showShow, hit, query }: { ep: Episode; showShow: boole
       <div className="feed-body">
         {showShow && ep.showId !== "single" && ep.showTitle && <p className="feed-show"><ShowName title={ep.showTitle} /></p>}
         <p className="feed-title">{query ? <Marked text={zh ?? ep.title} query={query} /> : zh ?? ep.title}</p>
-        {translated && <p className="feed-desc one">{query ? <Marked text={ep.title} query={query} /> : ep.title}</p>}
-        {about && !hit && <p className="feed-desc">{about}</p>}
+        {translated && !hit && <p className="feed-desc one">{query ? <Marked text={ep.title} query={query} /> : ep.title}</p>}
         {hit && hit.field !== "title" && (
           <p className="ep-hit">
             <span className="ep-hit-where">{hit.field === "transcript" ? <><Play size={10} /> {t("字幕")} {clockShort(hit.time ?? 0)}</> : t("简介")}</span>
@@ -164,6 +157,19 @@ function EpisodeList({ episodes, showShow, grouped = true }: { episodes: Episode
 
 // ---- home ---------------------------------------------------------------------------------------
 
+function PullIndicator({ pull, armed, refreshing }: { pull: number; armed: boolean; refreshing: boolean }) {
+  if (!refreshing && pull <= 6) return null;
+  const height = refreshing ? 42 : Math.min(54, Math.round(pull * 0.72));
+  return (
+    <div className={`pull-indicator ${refreshing ? "busy" : ""} ${armed ? "armed" : ""}`} style={{ height }} role="status" aria-live="polite">
+      <span className="pull-pill">
+        {refreshing ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} style={{ transform: `rotate(${Math.min(180, pull * 2.8)}deg)` }} />}
+        <span>{refreshing ? t("正在更新…") : armed ? t("松手刷新") : t("下拉刷新")}</span>
+      </span>
+    </div>
+  );
+}
+
 /** 继续收听: tapping anywhere on the card resumes playing (the page opens with it); 最新单集 just opens it. */
 function ContinueHero({ ep, continuing }: { ep: Episode; continuing: boolean }) {
   const openEpisode = useStore((s) => s.openEpisode);
@@ -174,7 +180,7 @@ function ContinueHero({ ep, continuing }: { ep: Episode; continuing: boolean }) 
   const left = continuing && ep.duration ? Math.max(1, Math.ceil((ep.duration - time) / 60)) : null;
   const action = continuing ? t("继续播放") : t("播放这一集");
   const label = continuing ? t("继续收听") : t("最新单集");
-  return <section className="resume-card" aria-label={label} style={{ "--record-art": `url("${grooves}")` } as React.CSSProperties}>
+  return <section className="resume-card" aria-label={label} style={{ "--record-art": `url("${grooves}")`, ...(ep.cover ? { "--cover": `url("${ep.cover}")` } : {}) } as React.CSSProperties}>
     <div className="resume-kicker"><BrandGlyph name="sound" size={17} />{label}</div>
     <button className="resume-detail" onClick={() => { openEpisode(ep); if (continuing) playSoon(ep.id); }}>
       <span className="resume-meta">
@@ -210,18 +216,20 @@ function checkShared(eps: Episode[]) {
   }).catch(() => {});
 }
 
-/** One recommended show in the side column. */
+/** One recommended show on Home: matches Discover's touch-friendly row design. */
 function RecRow({ r, onAdd, adding, done }: { r: Recommendation; onAdd: () => void; adding: boolean; done: boolean }) {
   const go = useStore((s) => s.go);
   return (
-    <div className="rec-row" role="button" tabIndex={0} onClick={() => go({ kind: "channel", input: r.pick.input })} onKeyDown={(e) => e.key === "Enter" && go({ kind: "channel", input: r.pick.input })}>
-      <img src={r.pick.cover} alt="" loading="lazy" />
-      <div className="rec-text">
-        <p className="rec-name clamp1">{pickName(r.pick)}</p>
-        <p className="muted small clamp1">{r.because ? t("因为你在听「{name}」", { name: showName(r.because) }) : t(r.pick.intro)}</p>
-      </div>
-      {done ? <span className="tile-done"><Check size={14} /></span>
-        : <button className="icon-btn sm rec-add" title={t("订阅")} aria-label={t("订阅")} disabled={adding} onClick={(e) => { e.stopPropagation(); onAdd(); }}>{adding ? <Loader2 size={14} className="spin" /> : <Plus size={16} />}</button>}
+    <div className="discover-row home-rec-row">
+      <button className="pick-open" onClick={() => go({ kind: "channel", input: r.pick.input })}>
+        <img src={r.pick.cover} alt="" loading="lazy" />
+        <span>
+          <strong>{pickName(r.pick)}</strong>
+          <small>{r.because ? t("因为你在听「{name}」", { name: showName(r.because) }) : t(r.pick.intro)}</small>
+        </span>
+      </button>
+      {done ? <span className="tile-done" aria-label={t("已订阅")}><Check size={18} /></span>
+        : <button className="tile-add" title={t("订阅")} aria-label={t("订阅")} disabled={adding} onClick={(e) => { e.stopPropagation(); selectionFeedback(); onAdd(); }}>{adding ? <Loader2 size={16} className="spin" /> : <Plus size={18} />}</button>}
     </div>
   );
 }
@@ -283,8 +291,19 @@ export function LatestView() {
     catch (err) { notify(errorText(err)); } finally { setAdding(null); }
   };
   const settingUp = useStore((s) => s.settingUp);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const pullRefresh = usePullRefresh(pageRef, async () => {
+    try {
+      const r = await api.refreshAll();
+      await reloadShows();
+      const [nextEps, nextRecent] = await Promise.all([api.listEpisodes(undefined, 200), api.recentEpisodes()]);
+      setEps(nextEps); setRecent(nextRecent);
+      notify(r.newEpisodes > 0 ? t("订阅有 {n} 期新节目", { n: r.newEpisodes }) : t("已是最新"));
+    } catch (e) { notify(errorText(e)); }
+  });
   return (
-    <div className="page home">
+    <div className="page home" ref={pageRef} {...pullRefresh.handlers}>
+      <PullIndicator pull={pullRefresh.pull} armed={pullRefresh.armed} refreshing={pullRefresh.refreshing} />
       <PageHeading wordmark>
         <button className="heading-tool" onClick={() => {
           flushSync(() => useStore.setState({ view: { kind: "discover" }, history: [] }));
@@ -494,10 +513,20 @@ export function ShowView({ id, finder }: { id: string; finder?: ShowFinder }) {
   const playable = (shown ?? []).filter((e) => (e.audioUrl || e.videoId) && !(e.duration && e.progress >= e.duration * 0.97));
   if (!show) return <><MobileBack /><div className="page" /></>;
   const art = showArt(show);
+  const pageRef = useRef<HTMLDivElement>(null);
   const refresh = async () => {
     setBusy(true);
-    try { await api.refreshShow(id); setEps(await api.listEpisodes(id)); await reloadShows(); } catch (e) { notify(errorText(e)); } finally { setBusy(false); }
+    try {
+      const before = eps?.length ?? 0;
+      await api.refreshShow(id);
+      const next = await api.listEpisodes(id);
+      setEps(next);
+      await reloadShows();
+      const added = Math.max(0, next.length - before);
+      notify(added > 0 ? t("更新了 {n} 期新单集", { n: added }) : t("已是最新"));
+    } catch (e) { notify(errorText(e)); } finally { setBusy(false); }
   };
+  const pullRefresh = usePullRefresh(pageRef, refresh);
   const remove = async () => {
     setMenu(false);
     if (!(await ask({ title: t("取消订阅「{name}」？", { name: show.title }), message: t("已生成的字幕、精读和收听进度会保留。"), ok: t("取消订阅"), danger: true }))) return;
@@ -508,7 +537,8 @@ export function ShowView({ id, finder }: { id: string; finder?: ShowFinder }) {
   const companion = show.kind !== "qiaomu" ? deepPickFor(show.title) : null;
   return (<>
     <MobileBack trailing={<button onClick={() => setMenu(true)} aria-haspopup="dialog" aria-label={t("更多")}><BrandGlyph name="more" /></button>} />
-    <div className="page show-page">
+    <div className="page show-page" ref={pageRef} {...pullRefresh.handlers}>
+      <PullIndicator pull={pullRefresh.pull} armed={pullRefresh.armed} refreshing={pullRefresh.refreshing || busy} />
       <div className={`show-head ${art.video ? "video-art" : ""}`} style={art.src ? { "--cover": `url("${art.src}")` } as React.CSSProperties : undefined}>
         {art.src ? <img src={art.src} alt="" onError={ytFallback} /> : <div className="cover-fallback" />}
         <div className="show-info">

@@ -22,10 +22,18 @@ export function useReadingSettings() {
     root.setProperty("--sub-font", f ? `${f.family}, var(--font, system-ui)` : "inherit");
     document.documentElement.dataset.subLook = s.subtitleLook ?? "outline";
     document.documentElement.dataset.nextLine = s.audioNextLine ? "on" : "off";
-    // 精读 articles (乔木精读 and AI 精读).
-    const rf = POSTER_FONTS.find((x) => x.id === s.readFont);
+    // 精读 articles (乔木精读 and AI 精读). Legacy "sys" maps to Noto Serif SC.
+    const rfId = s.readFont === "sys" ? "serif" : s.readFont;
+    const rf = POSTER_FONTS.find((x) => x.id === rfId);
     if (rf?.css) void loadCss(rf.css).catch(() => {});
     root.setProperty("--read-font", rf ? `${rf.family}, var(--font, system-ui)` : "var(--font, system-ui)");
+    // Preload real multi-weight Noto Serif SC + Noto Sans SC when online (falls back cleanly to system fonts offline).
+    if (navigator.onLine) {
+      for (const id of ["serif", "sans"] as const) {
+        const font = POSTER_FONTS.find((x) => x.id === id);
+        if (font?.css) void loadCss(font.css).catch(() => {});
+      }
+    }
     root.setProperty("--read-size", `${s.readSize ?? READ_SIZE.base}px`);
     root.setProperty("--read-leading", String(READ_LEADING[s.readLeading ?? "normal"]));
     document.documentElement.dataset.readPaper = s.readPaper ?? "plain";
