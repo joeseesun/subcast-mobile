@@ -15,6 +15,7 @@ mod ota;
 mod qiaomu;
 mod shared;
 mod speech;
+mod sync;
 mod transcript;
 mod translate;
 #[cfg(not(debug_assertions))]
@@ -32,9 +33,9 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 pub struct AppState {
-    db: Mutex<Connection>,
-    data: PathBuf,
-    jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    pub(crate) db: Mutex<Connection>,
+    pub(crate) data: PathBuf,
+    pub(crate) jobs: Mutex<HashMap<String, Arc<AtomicBool>>>,
 }
 
 impl AppState {
@@ -55,7 +56,7 @@ fn e<E: std::fmt::Display>(err: E) -> String { err.to_string() }
 #[serde(rename_all = "camelCase")]
 struct Added { show: Option<Show>, episode: Option<Episode> }
 
-fn store(state: &AppState, show: &Show, eps: &[Episode]) -> Res<()> {
+pub(crate) fn store(state: &AppState, show: &Show, eps: &[Episode]) -> Res<()> {
     let mut conn = state.db.lock().unwrap();
     db::upsert_show(&conn, show).map_err(e)?;
     db::upsert_episodes(&mut conn, eps).map_err(e)?;
@@ -100,10 +101,10 @@ async fn single_youtube(state: &AppState, video_id: &str) -> Res<Episode> {
     Ok(db::get_episode(&conn, &ep.id).map_err(e)?.unwrap_or(ep))
 }
 
-enum Fetched { Show(Show, Vec<Episode>), Single(Episode) }
+pub(crate) enum Fetched { Show(Show, Vec<Episode>), Single(Episode) }
 
 /// Reads whatever the user pasted (or a curated channel) without subscribing.
-async fn fetch_input(state: &AppState, input: &str) -> Res<Fetched> {
+pub(crate) async fn fetch_input(state: &AppState, input: &str) -> Res<Fetched> {
     let normalized = if input.trim().starts_with("http") { input.trim().to_string() } else { format!("https://{}", input.trim()) };
     if let Some(id) = qiaomu::rss_source_id(&normalized) {
         let (show, eps) = fetch_any(state, &qiaomu::rss_feed_url(&id), "qiaomu").await.map_err(e)?;
@@ -915,7 +916,7 @@ async fn share_guide(state: State<'_, AppState>, episode_id: String, text: Strin
     shared::upload_guide(&keys, &ep.title, ep.show_title.as_deref().unwrap_or(""), &model, &text, install).await.map_err(e)
 }
 
-fn install_id(conn: &Connection) -> String {
+pub(crate) fn install_id(conn: &Connection) -> String {
     if let Ok(Some(id)) = db::get_setting(conn, "install") { return id; }
     let id = uuid::Uuid::new_v4().to_string();
     let _ = db::set_setting(conn, "install", &id);
@@ -989,6 +990,36 @@ fn export_opml(state: State<'_, AppState>) -> Res<String> {
     Ok(import::opml(&list))
 }
 
+#[tauri::command]
+async fn sync_status(app: AppHandle, state: State<'_, AppState>) -> Res<sync::SyncStatus> {
+    sync::sync_status(Some(&app), &state).await.map_err(e)
+}
+
+#[tauri::command]
+async fn sync_icloud_pick_folder(app: AppHandle, state: State<'_, AppState>) -> Res<Option<sync::SyncStatus>> {
+    let picked = tauri_plugin_mobile::icloud_pick_folder(&app).await?;
+    if picked.is_none() {
+        return Ok(None);
+    }
+    sync::sync_status(Some(&app), &state).await.map(Some).map_err(e)
+}
+
+#[tauri::command]
+async fn sync_icloud_clear_folder(app: AppHandle, state: State<'_, AppState>) -> Res<sync::SyncStatus> {
+    let _ = tauri_plugin_mobile::icloud_clear_folder(&app).await?;
+    sync::sync_status(Some(&app), &state).await.map_err(e)
+}
+
+#[tauri::command]
+async fn sync_webdav_test(url: String, path: String, username: String, password: Option<String>) -> Res<String> {
+    sync::test_webdav(&url, &path, &username, password.as_deref()).await.map_err(e)
+}
+
+#[tauri::command]
+async fn sync_run(app: AppHandle, state: State<'_, AppState>, target: Option<String>) -> Res<sync::SyncReport> {
+    sync::sync_run(Some(&app), &state, target.as_deref()).await.map_err(e)
+}
+
 /// Machine translation (Google, free) with a persistent cache; used for titles, show notes, and subtitles
 /// when no model of the user's own is set up.
 #[tauri::command]
@@ -1054,7 +1085,8 @@ pub fn run() {
             add_subscription, refresh_show, refresh_all, list_shows, mark_show_seen, list_episodes, recent_episodes, get_episode, remove_show,
             set_progress, search_podcasts, search_show, load_transcript, fetch_official_transcript, transcribe, cancel_job,
             get_blob, set_blob, get_settings, set_settings, set_api_key, has_api_key, llm_chat, translate_texts, shared_transcript, shared_exists, shared_guide, share_guide, log_listen, listening_stats, export_opml, share_translation, ui_ready, refresh_config, youtube_stream, audio_stream, prepare_youtube, youtube_tracks, use_youtube_track, qiaomu_detail, preview_show, list_models, tts_speak, tts_synthesize, clear_tts_cache, cached_show, save_image,
-            download_episode, list_downloads, delete_download, clear_downloads, storage_info, clear_temp, full_notes
+            download_episode, list_downloads, delete_download, clear_downloads, storage_info, clear_temp, full_notes,
+            sync_status, sync_icloud_pick_folder, sync_icloud_clear_folder, sync_webdav_test, sync_run
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -7,6 +7,10 @@ import { tr } from "./i18n";
 export interface ListenRow { day: string; hour: number; episodeId: string; showId: string; seconds: number; translated: boolean; showTitle: string; kind: string; cover: string; episodeTitle: string; video: boolean; duration: number; progress: number; published: number }
 
 export interface ShowHit { episode: Episode; field: "title" | "notes" | "transcript"; snippet: string; time?: number | null }
+export interface ICloudStatus { available: boolean; configured: boolean; mode: string; path: string; hasFile: boolean; note?: string | null }
+export interface BackendSyncSummary { backend: string; syncedAt: number; addedShows: number; removedShows: number; updatedEpisodes: number; updatedContent: number; uploaded: boolean; error?: string | null }
+export interface SyncStatus { icloud: ICloudStatus; lastIcloud?: BackendSyncSummary | null; lastWebdav?: BackendSyncSummary | null }
+export interface SyncReport { results: BackendSyncSummary[]; showsChanged: boolean; settingsChanged: boolean; blobsChanged: boolean }
 
 export interface Show {
   id: string;
@@ -40,6 +44,11 @@ export interface Episode {
   showTitle?: string;
   /** Has a 乔木精读 article. */
   deep?: boolean;
+}
+
+let blobMutatedHook: ((episodeId: string, kind: string) => void) | null = null;
+export function setBlobMutatedHook(fn: (episodeId: string, kind: string) => void) {
+  blobMutatedHook = fn;
 }
 
 export interface Segment { start: number; end: number; text: string }
@@ -94,7 +103,10 @@ export const api = {
   sharedGuide: (episodeId: string) => invoke<string | null>("shared_guide", { episodeId }),
   shareGuide: (episodeId: string, text: string, model: string) => invoke<string>("share_guide", { episodeId, text, model }),
   getBlob: (episodeId: string, kind: string) => invoke<string | null>("get_blob", { episodeId, kind }),
-  setBlob: (episodeId: string, kind: string, data: string) => invoke<void>("set_blob", { episodeId, kind, data }),
+  setBlob: async (episodeId: string, kind: string, data: string) => {
+    await invoke<void>("set_blob", { episodeId, kind, data });
+    blobMutatedHook?.(episodeId, kind);
+  },
   getSettings: () => invoke<unknown>("get_settings"),
   setSettings: (settings: unknown) => invoke<void>("set_settings", { settings }),
   setApiKey: (provider: string, key: string) => invoke<void>("set_api_key", { provider, key }),
@@ -128,6 +140,11 @@ export const api = {
   storageInfo: () => invoke<{ downloads: number; models: number; library: number; temp: number }>("storage_info"),
   clearTemp: () => invoke<void>("clear_temp"),
   fullNotes: (episodeId: string) => invoke<string | null>("full_notes", { episodeId }),
+  syncStatus: () => invoke<SyncStatus>("sync_status"),
+  syncIcloudPickFolder: () => invoke<SyncStatus | null>("sync_icloud_pick_folder"),
+  syncIcloudClearFolder: () => invoke<SyncStatus>("sync_icloud_clear_folder"),
+  syncWebdavTest: (url: string, path: string, username: string, password?: string) => invoke<string>("sync_webdav_test", { url, path, username, password }),
+  syncRun: (target?: "icloud" | "webdav") => invoke<SyncReport>("sync_run", { target }),
 };
 
 let llmCounter = 0;

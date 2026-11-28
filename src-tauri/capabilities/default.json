@@ -67,7 +67,12 @@
     "allow-clear-downloads",
     "allow-storage-info",
     "allow-clear-temp",
-    "allow-full-notes"
+    "allow-full-notes",
+    "allow-sync-status",
+    "allow-sync-icloud-pick-folder",
+    "allow-sync-icloud-clear-folder",
+    "allow-sync-webdav-test",
+    "allow-sync-run"
   ],
   "remote": {
     "urls": [

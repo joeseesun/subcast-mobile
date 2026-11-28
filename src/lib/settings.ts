@@ -1,6 +1,18 @@
 import { api, type CloudAsr, type Provider } from "./api";
 import { t, tk, type LangSetting } from "./i18n";
 
+export interface SyncSettings {
+  icloudEnabled: boolean;
+  icloudDir: string;
+  webdavEnabled: boolean;
+  webdavUrl: string;
+  webdavPath: string;
+  webdavUsername: string;
+  autoSync: boolean;
+  syncProgress: boolean;
+  syncContent: boolean;
+}
+
 export interface Settings {
   providers: Record<string, Provider>;
   chatProvider: string;
@@ -71,6 +83,10 @@ export interface Settings {
   homeBannerHidden: boolean;
   /** Upload transcripts we make to the shared library (anonymous; reading shared ones is always on). */
   shareTranscripts: boolean;
+  /** User-defined custom display names per show id (synced with Desktop). */
+  showAliases?: Record<string, string>;
+  /** Cross-device sync via iCloud Drive and/or WebDAV. */
+  sync: SyncSettings;
 }
 
 export interface QuickPrompt { id: string; title: string; body: string; enabled: boolean }
@@ -172,6 +188,18 @@ export const VOICES: [string, string][] = [
   ["en_female_dacey_uranus_bigtts", "Dacey"],
 ];
 
+export const DEFAULT_SYNC: SyncSettings = {
+  icloudEnabled: false,
+  icloudDir: "",
+  webdavEnabled: false,
+  webdavUrl: "",
+  webdavPath: "/SubCast",
+  webdavUsername: "",
+  autoSync: true,
+  syncProgress: true,
+  syncContent: true,
+};
+
 export const DEFAULTS: Settings = {
   providers: Object.fromEntries(PRESETS.map((p) => [p.id, p])),
   chatProvider: "deepseek",
@@ -202,6 +230,7 @@ export const DEFAULTS: Settings = {
   autoUpdate: true,
   homeBannerHidden: false,
   shareTranscripts: true,
+  sync: { ...DEFAULT_SYNC },
 };
 
 export async function loadSettings(): Promise<Settings> {
@@ -212,7 +241,8 @@ export async function loadSettings(): Promise<Settings> {
   for (const p of PRESETS) providers[p.id] = { ...p, ...(raw.providers?.[p.id] ?? {}), keyUrl: p.keyUrl, models: p.models, needsKey: p.needsKey, name: p.name, group: p.group };
   const cloudAsr: Record<string, CloudAsr> = {};
   for (const a of ASR_SERVICES) cloudAsr[a.id] = { ...a, ...(raw.cloudAsr?.[a.id] ?? {}), name: a.name, note: a.note, models: a.models, keyUrl: a.keyUrl, needsKey: a.needsKey, protocol: a.protocol };
-  return migrate({ ...DEFAULTS, ...raw, providers, cloudAsr });
+  const sync: SyncSettings = { ...DEFAULT_SYNC, ...(raw.sync ?? {}) };
+  return migrate({ ...DEFAULTS, ...raw, providers, cloudAsr, sync });
 }
 
 /** 0.2.6 removed several switches; carry what each one meant into what remains. Idempotent. */

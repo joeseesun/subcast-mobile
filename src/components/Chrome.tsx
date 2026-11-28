@@ -6,6 +6,7 @@ import { ImportPanel } from "./ImportPanel";
 import { useStore } from "../store";
 import { PICKS, deepPickFor, isSubscribed, pickName, showName } from "../lib/picks";
 import { isChineseUi, t, tr, useLang } from "../lib/i18n";
+import { scheduleAutoSync } from "../lib/sync";
 import { useShowName } from "../lib/zh";
 import { useJobs } from "../lib/jobs";
 import { BiTitle, ZhText } from "./Bi";
@@ -74,7 +75,7 @@ export function TopBar() {
     try {
       const r = await api.addSubscription(input);
       setQ(""); setOpen(false); setResults(null);
-      if (r.show) { await reloadShows(); notify(t("已订阅「{name}」", { name: r.show.title })); go({ kind: "show", id: r.show.id }); }
+      if (r.show) { await reloadShows(); scheduleAutoSync(); notify(t("已订阅「{name}」", { name: r.show.title })); go({ kind: "show", id: r.show.id }); }
       else if (r.episode) openEpisode(r.episode);
     } catch (e) { notify(errorText(e)); } finally { setAdding(null); }
   };
@@ -188,7 +189,7 @@ export function AddDialog() {
     try {
       const r = await api.addSubscription(value);
       close();
-      if (r.show) { await reloadShows(); notify(t("已订阅「{name}」", { name: r.show.title })); go({ kind: "show", id: r.show.id }); }
+      if (r.show) { await reloadShows(); scheduleAutoSync(); notify(t("已订阅「{name}」", { name: r.show.title })); go({ kind: "show", id: r.show.id }); }
       else if (r.episode) openEpisode(r.episode);
     } catch (err) { setError(errorText(err)); } finally { setBusy(false); setAdding(null); }
   };

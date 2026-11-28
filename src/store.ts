@@ -65,7 +65,7 @@ interface State {
   toast: string | null;
   toastKind?: "cache";
   settingsOpen: boolean;
-  settingsSection?: "model" | "asr" | "reading" | "tts" | "shortcuts" | "general" | "storage" | "about";
+  settingsSection?: "model" | "asr" | "reading" | "tts" | "shortcuts" | "general" | "storage" | "about" | "sync";
   addOpen: boolean;
   init(): Promise<void>;
   go(view: View): void;
@@ -76,7 +76,7 @@ interface State {
   /** Loads an episode into the player without navigating. */
   load(ep: Episode): void;
   notify(text: string, kind?: "cache"): void;
-  openSettings(section?: "model" | "asr" | "tts" | "general" | "storage" | "about"): void;
+  openSettings(section?: "model" | "asr" | "tts" | "general" | "storage" | "about" | "sync"): void;
   /** Checks every subscription for new episodes; tells the user when there are some. */
   checkUpdates(): Promise<void>;
   lastChecked: number;
@@ -112,7 +112,9 @@ export const useStore = create<State>((set, get) => ({
     void get().checkUpdates();
     // Periodically, and when the window comes back after a while (the app may sit in the background for hours).
     window.setInterval(() => void get().checkUpdates(), CHECK_EVERY);
-    window.addEventListener("focus", () => { if (Date.now() - get().lastChecked > 10 * 60_000) void get().checkUpdates(); });
+    window.addEventListener("focus", () => {
+      if (Date.now() - get().lastChecked > 10 * 60_000) void get().checkUpdates();
+    });
   },
   lastChecked: 0,
   async checkUpdates() {

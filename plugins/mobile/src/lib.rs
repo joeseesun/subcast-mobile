@@ -103,6 +103,89 @@ async fn insets<R: Runtime>(app: tauri::AppHandle<R>) -> Result<Value, String> {
     { let _ = app; Ok(Value::Null) }
 }
 
+pub async fn icloud_status<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Value, String> {
+    #[cfg(target_os = "ios")]
+    {
+        let Some(handle) = app.state::<Mobile<R>>().0.clone() else {
+            return Ok(serde_json::json!({ "available": false, "configured": false, "mode": "unsupported", "path": "", "hasFile": false }));
+        };
+        handle.run_mobile_plugin_async("icloudStatus", Value::Null).await.map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = app;
+        Ok(serde_json::json!({ "available": false, "configured": false, "mode": "unsupported", "path": "", "hasFile": false }))
+    }
+}
+
+pub async fn icloud_pick_folder<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Option<Value>, String> {
+    #[cfg(target_os = "ios")]
+    {
+        let Some(handle) = app.state::<Mobile<R>>().0.clone() else {
+            return Err("当前设备不支持 iCloud 云盘".into());
+        };
+        handle.run_mobile_plugin_async("icloudPickFolder", Value::Null).await.map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = app;
+        Err("当前设备不支持 iCloud 云盘".into())
+    }
+}
+
+pub async fn icloud_clear_folder<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<Value, String> {
+    #[cfg(target_os = "ios")]
+    {
+        let Some(handle) = app.state::<Mobile<R>>().0.clone() else {
+            return Err("当前设备不支持 iCloud 云盘".into());
+        };
+        handle.run_mobile_plugin_async("icloudClearFolder", Value::Null).await.map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = app;
+        Err("当前设备不支持 iCloud 云盘".into())
+    }
+}
+
+pub async fn icloud_read<R: Runtime>(app: &tauri::AppHandle<R>, rel_path: &str) -> Result<Option<String>, String> {
+    #[cfg(target_os = "ios")]
+    {
+        let Some(handle) = app.state::<Mobile<R>>().0.clone() else {
+            return Err("当前设备不支持 iCloud 云盘".into());
+        };
+        let v: Value = handle
+            .run_mobile_plugin_async("icloudRead", serde_json::json!({ "relPath": rel_path }))
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(v["content"].as_str().map(str::to_string))
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (app, rel_path);
+        Err("当前设备不支持 iCloud 云盘".into())
+    }
+}
+
+pub async fn icloud_write<R: Runtime>(app: &tauri::AppHandle<R>, rel_path: &str, content: &str) -> Result<(), String> {
+    #[cfg(target_os = "ios")]
+    {
+        let Some(handle) = app.state::<Mobile<R>>().0.clone() else {
+            return Err("当前设备不支持 iCloud 云盘".into());
+        };
+        handle
+            .run_mobile_plugin_async::<Value>("icloudWrite", serde_json::json!({ "relPath": rel_path, "content": content }))
+            .await
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (app, rel_path, content);
+        Err("当前设备不支持 iCloud 云盘".into())
+    }
+}
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("mobile")
         .invoke_handler(tauri::generate_handler![share, now_playing, clear_now_playing, insets, selection_feedback, podcast_audio, update_glass_dock, present_settings_index])
