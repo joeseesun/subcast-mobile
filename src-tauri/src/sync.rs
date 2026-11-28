@@ -714,11 +714,12 @@ async fn webdav_put_atomic(file_url: &str, tmp_url: &str, user: &str, pass: &str
         .basic_auth(user, Some(pass))
         .send()
         .await;
-    let code = put_direct?.status().as_u16();
+    let status = put_direct?.status();
+    let code = status.as_u16();
     if code == 401 || code == 403 {
         return Err(auth_err());
     }
-    if !put_direct.status().is_success() {
+    if !status.is_success() {
         return Err(anyhow!("上传 WebDAV 同步文件失败（HTTP {code}）"));
     }
     Ok(())
