@@ -1,6 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+    <!-- Base dark theme matching warm dark editorial background. -->
     <style name="Theme.subcast_mobile" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <item name="android:windowBackground">@color/subcast_paper_dark</item>
     </style>
 </resources>

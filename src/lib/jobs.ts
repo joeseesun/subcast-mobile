@@ -34,8 +34,8 @@ export function startJobListeners() {
   });
 }
 
-/** Cached transcript, else the publisher's subtitles, else the shared library: all before an episode is called
- *  "no subtitles", so nobody downloads a model for an episode someone already transcribed. */
+/** Cached transcript, else the shared library (which may already carry someone else's Chinese translation),
+ *  else the publisher's official subtitles: so bilingual shared transcripts load immediately without re-translating. */
 export async function loadTranscript(ep: Episode) {
   const s = useJobs.getState();
   if (s.transcripts[ep.id] || s.officialChecked[ep.id] === "searching") return;
@@ -46,10 +46,16 @@ export async function loadTranscript(ep: Episode) {
   if (cached && (!stale || (await api.getBlob(ep.id, "track-picked")))) { patch("transcripts", ep.id, cached); patch("officialChecked", ep.id, "found"); return; }
   const fromShared = async () => {
     const sh = await api.sharedTranscript(ep.id).catch(() => null);
-    if (sh) { patch("transcripts", ep.id, sh); patch("officialChecked", ep.id, "found"); return true; }
+    if (sh) {
+      sharedTranslationChecked.add(ep.id);
+      patch("transcripts", ep.id, sh);
+      patch("officialChecked", ep.id, "found");
+      return true;
+    }
     return false;
   };
-  if (!ep.videoId && !ep.transcriptUrl && ep.transcriptType !== "qiaomu") { if (!(await fromShared())) patch("officialChecked", ep.id, "none"); return; }
+  if (await fromShared()) return;
+  if (!ep.videoId && !ep.transcriptUrl && ep.transcriptType !== "qiaomu") { patch("officialChecked", ep.id, "none"); return; }
   try {
     const t = await api.fetchOfficialTranscript(ep.id);
     if (t) {
@@ -57,10 +63,9 @@ export async function loadTranscript(ep: Episode) {
       // Still not Chinese (a Chinese title over an English video): settled, don't check again on every open.
       if (stale && !t.language.toLowerCase().startsWith("zh")) void api.setBlob(ep.id, "track-picked", "auto");
     } else if (cached) { patch("transcripts", ep.id, cached); patch("officialChecked", ep.id, "found"); }
-    else if (!(await fromShared())) patch("officialChecked", ep.id, "none");
+    else patch("officialChecked", ep.id, "none");
   } catch (e) {
     if (cached) { patch("transcripts", ep.id, cached); patch("officialChecked", ep.id, "found"); return; }
-    if (await fromShared()) return;
     patch("officialError", ep.id, rawErrorText(e));
     patch("officialChecked", ep.id, "error");
   }
@@ -83,9 +88,10 @@ export async function generateTranscript(ep: Episode, model: string, language: s
 
 const controllers = new Map<string, AbortController>();
 const saveTimers = new Map<string, number>();
+const sharedTranslationChecked = new Set<string>();
 
-export async function loadTranslation(id: string, total: number) {
-  if (useJobs.getState().translations[id]) return;
+export async function loadTranslation(id: string, total: number, force = false) {
+  if (!force && useJobs.getState().translations[id]) return;
   const raw = await api.getBlob(id, "zh");
   let items: (string | null)[] = [];
   try { items = raw ? JSON.parse(raw) : []; } catch { items = []; }
@@ -254,15 +260,20 @@ export async function translateEpisode(ep: Episode, t: Transcript, force?: Trans
   }
 }
 
-/** Starts translating a foreign-language episode as soon as its transcript is there, whichever tab is open:
- *  the subtitles on the video need the Chinese lines too. */
+/** Loads cached or shared Chinese translations for a foreign-language episode without auto-starting machine
+ *  translation: if no shared translation exists, the listener clicks "翻译双语" to start translating on demand. */
 export function autoTranslate(ep: Episode) {
   const t = useJobs.getState().transcripts[ep.id];
-  if (!t || useStore.getState().settings.subtitleMode === "original" || !needsTranslation(t)) return;
-  void loadTranslation(ep.id, t.segments.length).then(() => {
+  if (!t || !needsTranslation(t)) return;
+  void loadTranslation(ep.id, t.segments.length).then(async () => {
     const job = useJobs.getState().translations[ep.id];
-    if (!job || job.running || job.error || job.items.every((x) => x != null)) return;
-    void translateEpisode(ep, t).catch((e) => patch("translations", ep.id, { ...useJobs.getState().translations[ep.id], running: false, error: rawErrorText(e) }));
+    if (!job || job.running || job.items.every((x) => x != null)) return;
+    if (job.engine === "shared" || job.engine === "youtube" || sharedTranslationChecked.has(ep.id)) return;
+    sharedTranslationChecked.add(ep.id);
+    const sh = await api.sharedTranscript(ep.id).catch(() => null);
+    if (!sh) return;
+    patch("transcripts", ep.id, sh);
+    await loadTranslation(ep.id, sh.segments.length, true);
   });
 }
 
@@ -271,7 +282,7 @@ export async function switchYoutubeTrack(ep: Episode, language: string, auto: bo
   stopTranslation(ep.id);
   const t = await api.useYoutubeTrack(ep.id, language, auto);
   useJobs.setState((s) => { const translations = { ...s.translations }; delete translations[ep.id]; return { translations, transcripts: { ...s.transcripts, [ep.id]: t } }; });
-  autoTranslate(ep);
+  await loadTranslation(ep.id, t.segments.length, true);
 }
 
 export function stopTranslation(id: string) {

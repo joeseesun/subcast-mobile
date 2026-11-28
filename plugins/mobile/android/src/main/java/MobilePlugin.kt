@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.view.HapticFeedbackConstants
 import android.webkit.WebView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -42,8 +43,10 @@ class NowPlayingArgs {
 @TauriPlugin
 class MobilePlugin(private val activity: Activity) : Plugin(activity) {
     private var askedNotifications = false
+    private var pluginWebView: WebView? = null
 
     override fun load(webView: WebView) {
+        pluginWebView = webView
         // Media buttons in the notification / on a headset come back to the page as the `remote` event.
         PlaybackService.onRemote = { action, position ->
             val data = JSObject()
@@ -93,6 +96,13 @@ class MobilePlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun clearNowPlaying(invoke: Invoke) {
         PlaybackService.stop(activity)
+        invoke.resolve()
+    }
+
+    @Command
+    fun selectionFeedback(invoke: Invoke) {
+        val target = pluginWebView ?: activity.window?.decorView
+        target?.post { target.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK) }
         invoke.resolve()
     }
 

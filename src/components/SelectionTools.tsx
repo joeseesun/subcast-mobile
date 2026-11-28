@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Copy, MessageCircle, Image as ImageIcon, Languages, Loader2 } from "lucide-react";
+import { Copy, MessageCircle, Image as ImageIcon, Languages, Loader2, X } from "lucide-react";
 import { shareFile } from "../lib/share";
 import { api, type Episode } from "../lib/api";
 import { CJK, POSTER_FONTS, POSTER_THEMES, drawPoster, loadPosterFont, type PosterInput } from "../lib/poster";
@@ -67,14 +67,15 @@ export function SelectionTools() {
   return (
     <>
       {sel && (
-        <div className={`sel-bar ${sel.below ? "below" : ""}`} style={{ left: sel.x, top: sel.y }} role="toolbar" aria-label={t("选中文字操作")} onMouseDown={(e) => e.preventDefault()}>
+        <div className="sel-bar sel-dock" role="toolbar" aria-label={t("选中文字操作")} onMouseDown={(e) => e.preventDefault()}>
+          {tr && <div className="sel-tr">{tr === "…" ? <Loader2 size={14} className="spin" /> : tr}</div>}
           <div className="sel-actions">
-            <button onClick={() => { const text = sel.text; setSel(null); window.getSelection()?.removeAllRanges(); window.dispatchEvent(new CustomEvent("subcast-ask-selection", { detail: text })); }}><MessageCircle size={16} />{t("提问")}</button>
-            <button onClick={copy}><Copy size={13} /> {t("复制")}</button>
-            <button onClick={translate}><Languages size={13} /> {t("翻译")}</button>
-            <button onClick={() => { setPoster({ text: sel.text, ts: sel.ts }); setSel(null); }}><ImageIcon size={13} /> {t("生成海报")}</button>
+            <button onClick={() => { const text = sel.text; setSel(null); window.getSelection()?.removeAllRanges(); window.dispatchEvent(new CustomEvent("subcast-ask-selection", { detail: text })); }}><MessageCircle size={16} /><span>{t("提问")}</span></button>
+            <button onClick={copy}><Copy size={15} /><span>{t("复制")}</span></button>
+            <button onClick={translate}><Languages size={15} /><span>{t("翻译")}</span></button>
+            <button onClick={() => { setPoster({ text: sel.text, ts: sel.ts }); setSel(null); window.getSelection()?.removeAllRanges(); }}><ImageIcon size={15} /><span>{t("生成海报")}</span></button>
+            <button className="sel-close" aria-label={t("关闭")} onClick={() => { setSel(null); window.getSelection()?.removeAllRanges(); }}><X size={15} /></button>
           </div>
-          {tr && <div className="sel-tr">{tr === "…" ? <Loader2 size={13} className="spin" /> : tr}</div>}
         </div>
       )}
       {poster && <PosterDialog text={poster.text} ts={poster.ts} lineZh={poster.zh} lineOrig={poster.orig} getEpisode={poster.episodeId ? () => api.getEpisode(poster.episodeId!).then((e) => e ?? null) : episode} onClose={() => setPoster(null)} />}
@@ -92,7 +93,10 @@ function PosterDialog({ text, ts, lineZh, lineOrig, getEpisode, onClose }: { tex
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState<PosterInput | null>(null);
   const [themeId, setThemeId] = useState(() => readPref().theme ?? POSTER_THEMES[0].id);
-  const [fontId, setFontId] = useState(() => readPref().font ?? POSTER_FONTS[0].id);
+  const [fontId, setFontId] = useState(() => {
+    const saved = readPref().font;
+    return saved && POSTER_FONTS.some((f) => f.id === saved) ? saved : POSTER_FONTS[0].id;
+  });
   const [fontBusy, setFontBusy] = useState(false);
   // With a translation there are two languages: print both, only the Chinese, or only the original.
   const [lang, setLang] = useState<PosterLang>(() => readPref().lang ?? "both");

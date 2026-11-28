@@ -63,9 +63,9 @@ async fn podcast_audio<R: Runtime>(app: tauri::AppHandle<R>, command: Value) -> 
 
 #[tauri::command]
 async fn selection_feedback<R: Runtime>(app: tauri::AppHandle<R>) -> Result<(), String> {
-    #[cfg(target_os = "ios")]
+    #[cfg(any(target_os = "ios", target_os = "android"))]
     { run(&app, "selectionFeedback", Value::Null) }
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     { let _ = app; Ok(()) }
 }
 

@@ -5,11 +5,14 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -20,11 +23,13 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import java.net.URL
+import java.util.Locale
 import kotlin.concurrent.thread
 
 /**
- * Keeps SubCast alive while it plays (Android stops background apps otherwise) and shows the media
- * notification. The audio itself plays in the web view; this only mirrors its state and forwards buttons.
+ * Keeps SubCast alive while it plays (Android stops background apps otherwise), pauses on headphone disconnect,
+ * and shows the media notification. The audio itself plays in Chromium WebView, whose own AudioFocusDelegate
+ * manages Android audio focus — this service must NOT request AudioFocus or it would steal focus from WebView.
  */
 class PlaybackService : Service() {
     data class Info(val title: String, val artist: String?, val artwork: String?, val duration: Double, val position: Double, val rate: Double, val playing: Boolean)
@@ -55,7 +60,16 @@ class PlaybackService : Service() {
     }
 
     private lateinit var session: MediaSessionCompat
+    private var noisyRegistered = false
     private var wake: PowerManager.WakeLock? = null
+
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                onRemote?.invoke("interruption", null)
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -63,7 +77,8 @@ class PlaybackService : Service() {
         super.onCreate()
         running = true
         if (Build.VERSION.SDK_INT >= 26) {
-            val ch = NotificationChannel(CHANNEL, "Playback", NotificationManager.IMPORTANCE_LOW)
+            val zh = Locale.getDefault().language == "zh"
+            val ch = NotificationChannel(CHANNEL, if (zh) "播客播放" else "Playback", NotificationManager.IMPORTANCE_LOW)
             ch.setShowBadge(false)
             (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(ch)
         }
@@ -90,6 +105,16 @@ class PlaybackService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun setNoisyListening(listen: Boolean) {
+        if (listen && !noisyRegistered) {
+            registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+            noisyRegistered = true
+        } else if (!listen && noisyRegistered) {
+            try { unregisterReceiver(noisyReceiver) } catch (_: Exception) {}
+            noisyRegistered = false
+        }
+    }
+
     private fun button(icon: Int, title: String, action: String): NotificationCompat.Action {
         val pi = PendingIntent.getService(this, action.hashCode(), Intent(this, PlaybackService::class.java).putExtra(ACTION, action), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         return NotificationCompat.Action(icon, title, pi)
@@ -114,8 +139,9 @@ class PlaybackService : Service() {
         val open = packageManager.getLaunchIntentForPackage(packageName)?.let {
             PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
+        val zh = Locale.getDefault().language == "zh"
         val n: Notification = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_stat_subcast)
             .setContentTitle(i.title)
             .setContentText(i.artist ?: "")
             .setLargeIcon(bitmap)
@@ -123,15 +149,18 @@ class PlaybackService : Service() {
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(i.playing)
-            .addAction(button(android.R.drawable.ic_media_rew, "-15s", "back"))
-            .addAction(if (i.playing) button(android.R.drawable.ic_media_pause, "Pause", "pause") else button(android.R.drawable.ic_media_play, "Play", "play"))
-            .addAction(button(android.R.drawable.ic_media_ff, "+30s", "forward"))
+            .addAction(button(android.R.drawable.ic_media_rew, if (zh) "后退 15 秒" else "-15s", "back"))
+            .addAction(if (i.playing) button(android.R.drawable.ic_media_pause, if (zh) "暂停" else "Pause", "pause") else button(android.R.drawable.ic_media_play, if (zh) "播放" else "Play", "play"))
+            .addAction(button(android.R.drawable.ic_media_ff, if (zh) "前进 30 秒" else "+30s", "forward"))
             .setStyle(MediaStyle().setMediaSession(session.sessionToken).setShowActionsInCompactView(0, 1, 2))
             .build()
         val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0
         ServiceCompat.startForeground(this, ID, n, type)
-        if (i.playing) { if (wake?.isHeld == false) wake?.acquire(6 * 60 * 60 * 1000L) }
-        else {
+        if (i.playing) {
+            setNoisyListening(true)
+            if (wake?.isHeld == false) wake?.acquire(6 * 60 * 60 * 1000L)
+        } else {
+            setNoisyListening(false)
             if (wake?.isHeld == true) wake?.release()
             // Paused: the notification stays (to resume) but can be swiped away.
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_DETACH)
@@ -151,6 +180,7 @@ class PlaybackService : Service() {
 
     override fun onDestroy() {
         running = false
+        setNoisyListening(false)
         if (wake?.isHeld == true) wake?.release()
         session.isActive = false
         session.release()

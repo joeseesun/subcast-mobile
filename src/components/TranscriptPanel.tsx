@@ -51,16 +51,28 @@ function highlight(text: string, query: string) {
   return i < 0 ? text : <>{text.slice(0, i)}<mark>{text.slice(i, i + query.length)}</mark>{text.slice(i + query.length)}</>;
 }
 
-const Row = memo(function Row({ index, seg, zh, active, mode, pending, onSeek, query, current, noted }: { index: number; seg: Segment; zh?: string | null; active: boolean; mode: string; pending: boolean; onSeek: (t: number) => void; query: string; current: boolean; noted?: boolean }) {
+const Row = memo(function Row({ index, seg, zh, active, playing, mode, pending, onSeek, onMore, query, current, noted }: {
+  index: number; seg: Segment; zh?: string | null; active: boolean; playing: boolean; mode: string; pending: boolean;
+  onSeek: (t: number) => void; onMore: (i: number) => void; query: string; current: boolean; noted?: boolean;
+}) {
   const showZh = mode !== "original";
   const showOrig = mode !== "translation" || (!zh && !pending);
   return (
     <div className={`line ${active ? "active" : ""} ${current ? "hit" : ""} ${noted ? "noted" : ""}`} data-i={index} data-active={active || undefined} data-hit={current || undefined} aria-current={active ? "time" : undefined} role="button" tabIndex={0} onClick={() => onSeek(seg.start)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSeek(seg.start); } }}>
-      <span className="line-time">{clock(seg.start)}</span>
+      <span className="line-time">
+        {clock(seg.start)}
+        {active && <span className={`eq-bars ${playing ? "on" : ""}`} aria-hidden><i /><i /><i /></span>}
+      </span>
       <div className="line-text">
         {showZh && (zh ? <p className="zh">{highlight(zh, query)}</p> : pending ? <span className="skeleton" /> : null)}
         {showOrig && <p className="orig">{highlight(seg.text, query)}</p>}
       </div>
+      {active && (
+        <button type="button" className="line-more-btn" aria-label={t("更多")} aria-haspopup="dialog"
+          onClick={(e) => { e.stopPropagation(); onMore(index); }}>
+          <BrandGlyph name="more" size={18} />
+        </button>
+      )}
     </div>
   );
 });
@@ -118,8 +130,20 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const [hit, setHit] = useState(0);
   const [startError, setStartError] = useState<string | null>(null);
   const [canUpgrade, setCanUpgrade] = useState(false);
+  const [showLineTip, setShowLineTip] = useState(() => {
+    try { return localStorage.getItem("subcast-line-tip") !== "1"; } catch { return false; }
+  });
+  const dismissTip = () => {
+    setShowLineTip(false);
+    try { localStorage.setItem("subcast-line-tip", "1"); } catch { /* ignore */ }
+  };
   const segments = transcript?.segments ?? [];
   const active = useStore((s) => isCurrent && transcript ? activeIndex(transcript.segments, s.time) : -1);
+  const isPlaying = useStore((s) => isCurrent && s.playing);
+  const onMore = useCallback((idx: number) => {
+    dismissTip();
+    openLineActions(ep, idx);
+  }, [ep]);
   const seek = useCallback((time: number) => {
     if (!searching) setFollowing(true);
     seekEpisode(ep, time);
@@ -189,7 +213,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   const providerName = providerFor(settings, "translate")?.name;
   const engineName = translation?.engine === "shared" ? t("共享译文") : translation?.engine === "youtube" ? t("节目方中文字幕") : translation?.engine === "google" ? t("谷歌翻译") : t("{name}翻译", { name: providerName ? t(providerName) : t("模型") });
   const error = startError ?? translation?.error;
-  const pending = wantsZh && (running || (!error && done < total));
+  const pending = wantsZh && running;
   const start = (force?: "llm" | "google") => { setStartError(null); translateEpisode(ep, transcript, force).catch((e) => setStartError(rawErrorText(e))); };
 
   const modeControl = wantsZh && (
@@ -213,7 +237,7 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
   else if (running) status = <StatusLine left={modeControl} text={t("{engine} · 正在翻译 {done}/{total}", { engine: engineName, done, total })} spin progress={done / total} action={<button className="btn ghost sm" onClick={() => stopTranslation(ep.id)}>{t("停止")}</button>} right={searchBtn} />;
   else if (error && /设置|API Key|模型/.test(error)) status = <StatusLine left={modeControl} text={tr(error)} action={<button className="btn primary sm" onClick={() => openSettings("model")}>{t("去设置")}</button>} right={searchBtn} />;
   else if (done < total && (error || translation?.failed)) status = <StatusLine left={modeControl} text={`${t("已翻译 {done}/{total}", { done, total })}${error ? ` · ${tr(error).slice(0, 40)}` : ""}`} action={<button className="btn primary sm" onClick={() => start()}>{t("重试")}</button>} right={searchBtn} />;
-  else if (done < total) status = <StatusLine left={modeControl} text={done ? t("已翻译 {done}/{total}", { done, total }) : source} action={<button className="btn primary sm" onClick={() => start()}>{done ? t("继续翻译") : t("翻译成中文")}</button>} right={searchBtn} />;
+  else if (done < total) status = <StatusLine left={modeControl} text={done ? t("已翻译 {done}/{total}", { done, total }) : ""} title={source} action={<button className="btn primary sm" onClick={() => start()}>{done ? t("继续翻译") : t("翻译双语")}</button>} right={searchBtn} />;
   else status = <StatusLine left={modeControl} text="" title={`${source} · ${engineName}`} action={translation?.engine === "google" && canUpgrade ? <button className="btn ghost sm" onClick={() => start("llm")}>{t("用模型重译")}</button> : undefined} right={searchBtn} />;
 
   const rows = matches ?? segments.map((_, i) => i);
@@ -238,8 +262,14 @@ export function TranscriptPanel({ ep }: { ep: Episode }) {
           onKeyDown={(event) => {
             if (!searching && ["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End"].includes(event.key)) setFollowing(false);
           }}>
+          {showLineTip && !searching && segments.length > 0 && (
+            <div className="line-tip-banner" role="note">
+              <span>{t("长按任意一句字幕，可收藏、做海报或向 AI 提问")}</span>
+              <button type="button" className="line-tip-close" aria-label={t("关闭")} onClick={dismissTip}><X size={14} /></button>
+            </div>
+          )}
           {rows.map((i, k) => (
-            <Row key={i} index={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} mode={mode} pending={pending} onSeek={seek} query={query} current={!!matches && k === hit} noted={isNoted(notedLines, segments[i].start)} />
+            <Row key={i} index={i} seg={segments[i]} zh={translation?.items[i]} active={i === active} playing={i === active && isPlaying} mode={mode} pending={pending} onSeek={seek} onMore={onMore} query={query} current={!!matches && k === hit} noted={isNoted(notedLines, segments[i].start)} />
           ))}
           {!matches && total > 0 && (
             <div className={`lines-end ${active === total - 1 ? "reached" : ""}`}>

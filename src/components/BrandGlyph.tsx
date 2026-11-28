@@ -4,7 +4,7 @@ import libraryMark from "../../src-tauri/gen/apple/Assets.xcassets/BrandNavLibra
 
 const navigationMarks = { listen: homeMark, discover: discoverMark, library: libraryMark };
 
-type Glyph = "listen" | "discover" | "library" | "search" | "saved" | "cache" | "history" | "stats" | "settings" | "play" | "pause" | "back" | "next" | "more" | "plus" | "filter" | "film" | "sound";
+type Glyph = "listen" | "discover" | "library" | "search" | "saved" | "cache" | "history" | "stats" | "settings" | "play" | "pause" | "back" | "next" | "more" | "plus" | "filter" | "film" | "sound" | "quote";
 
 export function BrandGlyph({ name, size = 24, interval }: { name: Glyph; size?: number; interval?: number }) {
   if (name === "listen" || name === "discover" || name === "library") {
@@ -63,6 +63,9 @@ export function BrandGlyph({ name, size = 24, interval }: { name: Glyph; size?: 
       break;
     case "sound":
       drawing = <path d="M4 10v4m4-7v10m4-13v16m4-13v10m4-7v4"/>;
+      break;
+    case "quote":
+      drawing = <path d="M5 10.5c0-2.6 1.8-4.5 4.4-5m-4.4 5h4.2a1.3 1.3 0 0 1 1.3 1.3v3.9a1.3 1.3 0 0 1-1.3 1.3H6.3A1.3 1.3 0 0 1 5 15.7v-5.2Zm9.5 0c0-2.6 1.8-4.5 4.4-5m-4.4 5h4.2a1.3 1.3 0 0 1 1.3 1.3v3.9a1.3 1.3 0 0 1-1.3 1.3h-2.9a1.3 1.3 0 0 1-1.3-1.3v-5.2Z"/>;
       break;
   }
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">{drawing}</svg>;

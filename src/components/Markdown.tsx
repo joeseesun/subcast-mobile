@@ -14,7 +14,7 @@ function inline(text: string, onSeek: (t: number) => void, key: string): ReactNo
     if (stamp) {
       const seconds = parseClock(stamp[1]);
       return seconds == null ? part : (
-        <button key={k} className="stamp" onClick={() => onSeek(seconds)} title={t("跳到这里播放")}>{stamp[1]}</button>
+        <button key={k} className="stamp" onClick={() => onSeek(seconds)} title={t("跳到这里播放")}><span className="stamp-play" aria-hidden>▶</span>{stamp[1]}</button>
       );
     }
     return <Fragment key={k}>{part}</Fragment>;

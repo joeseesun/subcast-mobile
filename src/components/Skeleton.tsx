@@ -56,20 +56,27 @@ export function SkeletonArticle() {
 
 export function SkeletonEpisode() {
   return (
-    <div className="episode" aria-busy="true" aria-label={t("正在打开")}>
-      <div className="ep-body sk-wrap">
-        <div className="ep-leftcol">
-          <div className="topbar" />
-          <section className="ep-left">
-            <div className="sk sk-line xs" style={{ width: 140 }} />
-            <div className="sk sk-line xl" style={{ width: "72%" }} />
-            <div className="sk sk-line sm" style={{ width: "48%" }} />
-            <div className="sk sk-video" />
-            <div className="sk" style={{ height: 64, borderRadius: 14 }} />
-          </section>
+    <div className="episode m-episode sk-wrap" aria-busy="true" aria-label={t("正在打开")}>
+      <header className="m-episode-nav" aria-hidden>
+        <span className="sk" style={{ width: 28, height: 28, borderRadius: 14, marginLeft: 8 }} />
+        <span />
+        <span className="sk" style={{ width: 28, height: 28, borderRadius: 14, justifySelf: "end", marginRight: 8 }} />
+      </header>
+      <section className="m-ep-top sk-ep-top">
+        <div className="sk-ep-head">
+          <div className="sk sk-ep-art" />
+          <div className="sk-ep-meta">
+            <div className="sk sk-line lg" style={{ width: "86%" }} />
+            <div className="sk sk-line" style={{ width: "62%" }} />
+            <div className="sk sk-line xs" style={{ width: "44%" }} />
+          </div>
         </div>
-        <section className="ep-right"><div className="tabs" /><SkeletonLines /></section>
+        <div className="sk sk-ep-controls" />
+      </section>
+      <div className="sk-ep-tabs">
+        <div className="sk" style={{ height: 42, borderRadius: 12, width: "100%" }} />
       </div>
+      <div className="tab-body"><SkeletonLines rows={7} /></div>
     </div>
   );
 }

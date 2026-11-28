@@ -258,7 +258,7 @@ button { touch-action: manipulation; }
 .home .card-strip { scroll-snap-type: x proximity; }
 .home .card-strip .ep-card { scroll-snap-align: start; }
 .home .card-strip .card-play { opacity: 1; width: 44px; height: 44px; transform: none; }
-.mobile-sheet { position: fixed; inset: auto 0 0; width: 100%; max-width: 520px; max-height: min(78dvh, 640px); padding: 0 16px calc(12px + env(safe-area-inset-bottom)); margin: 0 auto; border: 0; border-radius: 24px 24px 0 0; background: var(--panel); color: var(--text); box-shadow: 0 -8px 40px #0002; overflow: auto; overscroll-behavior: contain; }
+.mobile-sheet { position: fixed; inset: auto 0 0; width: 100%; max-width: 520px; max-height: min(78dvh, 640px); padding: 0 16px calc(12px + var(--safe-bottom)); margin: 0 auto; border: 0; border-radius: 24px 24px 0 0; background: var(--panel); color: var(--text); box-shadow: 0 -8px 40px #0002; overflow: auto; overscroll-behavior: contain; }
 .mobile-sheet::backdrop { background: #10111666; }
 .mobile-sheet > header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0 4px; position: sticky; top: 0; background: var(--panel); z-index: 1; }
 .mobile-sheet h2 { font-size: 19px; letter-spacing: -.02em; }
@@ -308,7 +308,7 @@ button { touch-action: manipulation; }
 .m-ep-top.reader-player .controls > :not(.play-btn) { display: none; }
 .m-ep-top.reader-player .controls > .play-btn { width: 44px; height: 44px; }
 .reader-toggle { grid-area: 1 / 3; display: grid; place-items: center; min-width: 44px; min-height: 44px; background: transparent; color: var(--accent-text); border: 0; align-self: center; }
-.phone-composer { flex: none; padding: 4px 8px calc(4px + env(safe-area-inset-bottom)); margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
+.phone-composer { flex: none; padding: 4px 8px calc(4px + var(--safe-bottom)); margin: 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; }
 .composer-entry, .composer-tools { display: flex; align-items: center; gap: 6px; }
 .composer-tools { flex-wrap: wrap; padding: 4px 0; }
 .composer-entry textarea { flex: 1; min-width: 0; min-height: 44px; max-height: 90px; padding: 11px; border-radius: 18px; background: var(--soft); }
@@ -466,3 +466,101 @@ button { touch-action: manipulation; }
 .system-video-frame .inline-video-toggle > span { color: #fff9ee; }
 .video-dock.floating:has(.system-video-frame) { visibility: hidden; pointer-events: none; }
 .video:has(.system-video-frame) > .subtitle-overlay { z-index: 2; pointer-events: none; }
+
+/* ---- Mobile visual polish (video episode, compact thumbnail, transcript toolbar, theater fullscreen) ---- */
+/* Compact video thumbnail (e.g. while reading 精读) and floating PiP must not render oversized subtitles inside the tiny frame. */
+.video-dock[data-compact] { overflow: hidden; border-radius: 7px; }
+.video-dock[data-compact] .subtitle-overlay,
+.video-dock.floating .subtitle-overlay { display: none !important; }
+
+/* Video episode header: keep the title & controls crisp so transcript lines appear above the fold. */
+.m-ep-top.with-video:not(.reader-player) { gap: 4px; padding-bottom: 4px; }
+.m-ep-top.with-video:not(.reader-player) .ep-title h1 {
+  font-size: clamp(17px, 4.6vw, 20px);
+  line-height: 1.32;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.m-ep-top.with-video:not(.reader-player) .ep-title .orig-line {
+  font-size: 12.5px;
+  margin-top: 2px;
+}
+.m-ep-top.with-video:not(.reader-player) .ep-title .ep-byline { margin-top: 3px; }
+.m-ep-top.with-video:not(.reader-player) .controls > .seek { height: 34px; }
+.m-ep-top.with-video:not(.reader-player) .controls > .play-btn { width: 46px; height: 46px; }
+
+/* Transcript status bar: keep mode switcher, status and action buttons on one clean row without wrapping into 3 rows. */
+.m-episode .status-line {
+  flex-wrap: nowrap;
+  gap: 6px;
+  padding: 4px var(--gutter);
+  min-height: 40px;
+}
+.m-episode .status-line .seg-control { flex: none; }
+.m-episode .status-line .seg-control button { min-height: 30px; padding: 0 9px; font-size: 13px; }
+.m-episode .status-line .status-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.m-episode .status-line > .spacer { display: none; }
+.m-episode .status-line button.btn.sm { min-height: 32px; height: 32px; padding: 0 10px; font-size: 12.5px; flex: none; }
+.m-episode .status-line .icon-btn { min-width: 36px; min-height: 36px; width: 36px; height: 36px; flex: none; }
+
+/* Portrait inline video subtitles: keep readable and avoid covering YouTube's bottom scrub bar. */
+.video:not(.theater) > .subtitle-overlay { bottom: 6px; left: 4%; right: 4%; pointer-events: none; }
+.video:not(.theater) > .subtitle-overlay .sub-box { padding: 3px 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.56); }
+.video:not(.theater) > .subtitle-overlay .sub-zh { font-size: 13.5px; line-height: 1.3; }
+.video:not(.theater) > .subtitle-overlay .sub-orig { font-size: 11.5px; line-height: 1.28; }
+
+/* Landscape theater full screen on Android: fill the entire viewport with a clear exit button and legible bilingual captions. */
+.video-dock.theater-host {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  background: #000;
+  z-index: 500;
+}
+.video.theater {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  background: #000;
+}
+.video.theater .video-host,
+.video.theater .video-native {
+  width: 100% !important;
+  height: 100% !important;
+  inset: 0 !important;
+  transform: none !important;
+}
+.video.theater .theater-exit {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top, 14px));
+  right: max(16px, env(safe-area-inset-right, 16px));
+  z-index: 20;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.58);
+  color: #fff;
+  backdrop-filter: blur(8px);
+}
+.video.theater .subtitle-overlay {
+  bottom: max(18px, 5vh) !important;
+  left: 6% !important;
+  right: 6% !important;
+  pointer-events: none;
+}
+.video.theater .subtitle-overlay .sub-box {
+  padding: 5px 14px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.55);
+}

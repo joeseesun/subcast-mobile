@@ -105,6 +105,12 @@ export function removeNote(id: string) {
   save(useNotes.getState().notes.filter((n) => n.id !== id));
 }
 
+export function restoreNote(note: Note) {
+  const list = useNotes.getState().notes;
+  if (list.some((n) => n.id === note.id)) return;
+  save([note, ...list].sort((a, b) => b.at - a.at));
+}
+
 /** All notes as Markdown, grouped by episode, newest episode first. */
 export function notesMarkdown(notes: Note[]): string {
   const groups = new Map<string, Note[]>();
